@@ -39,6 +39,47 @@ quality flags, projection/geolocation variables, time encoding
 Do not assume variable semantics from names alone; check attributes and product
 documentation or existing project mappings.
 
+## Product-Level Deep Inspection
+
+For an unfamiliar or scientifically important satellite product, do not stop at
+loading named arrays. Perform a product-structure audit before using the data:
+
+- enumerate groups, datasets/variables, dimensions, dtypes, chunking, compression,
+  attributes, global metadata, and coordinate/projection metadata
+- record `_FillValue`, `missing_value`, `valid_min`, `valid_max`, `valid_range`,
+  `scale_factor`, `add_offset`, `units`, `long_name`, `standard_name`, and
+  product-specific code-table attributes
+- inspect raw values before automatic mask/scale and after physical conversion
+- preserve the raw variable, decoded variable, valid mask, and quality mask when
+  the product semantics are not fully settled
+- compare actual dtype/value ranges against product documentation and record any
+  mismatch
+- sample representative pixels/scan lines and report min/max/unique counts for
+  categorical variables
+
+For bit fields or packed quality variables, decode explicitly:
+
+```text
+raw_dtype, raw_unique_values, fill_codes, bit_numbering_convention,
+field_name, start_bit, bit_count, decoded_value_counts, meaning_source
+```
+
+Do not convert bit fields or enum quality flags into a continuous quality weight
+unless a product-specific, documented mapping justifies it. If the mapping is
+uncertain, label the result as a diagnostic interpretation rather than a
+production semantic variable.
+
+When product-specific code already exists in the project, reuse it before
+inventing a generic reader. For Geo Ring Cloud, check for existing FY4B/GEO
+logic such as:
+
+```text
+D:\AAAresearch_paper\third_report\code\FY4B
+D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage1_common.py
+D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\04b_fy4b_dqf_bit_decode_diagnostics.py
+D:\AAAresearch_paper\third_report\code\geo_data_audit
+```
+
 ## Time Handling
 
 - Normalize internal timestamps to UTC.
@@ -94,12 +135,13 @@ Do not collapse unknown/ambiguous conditions into valid clear/cloudy categories.
 Use stable cache directories and avoid recomputing expensive intermediates when
 the input file hash, parameters, and code version match.
 
-For Geo Ring Cloud stage outputs, use canonical stage IDs:
+For Geo Ring Cloud stage outputs, first resolve the correct canonical stage ID
+from the project registry. Then use that stage ID as the prefix:
 
 ```text
-stage_09d_<purpose>_manifest.json
-stage_09d_<purpose>_matches.csv
-stage_09d_<purpose>_qc_report.md
+<canonical_stage_id>_<purpose>_manifest.json
+<canonical_stage_id>_<purpose>_matches.csv
+<canonical_stage_id>_<purpose>_qc_report.md
 ```
 
 For large rasters, arrays, PNGs, HDF5, or NetCDF outputs, index directory-level

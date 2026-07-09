@@ -81,13 +81,14 @@ robust summaries or non-parametric alternatives and state the limitation.
 
 ## Output Convention
 
-For a stage-owned Geo Ring Cloud analysis, follow the canonical stage prefix:
+For a stage-owned Geo Ring Cloud analysis, first resolve the correct canonical
+stage ID from the project registry. Then use that stage ID as the prefix:
 
 ```text
-stage_09d_<purpose>_cleaned.csv
-stage_09d_<purpose>_summary.csv
-stage_09d_<purpose>_report.md
-stage_09d_<purpose>_manifest.json
+<canonical_stage_id>_<purpose>_cleaned.csv
+<canonical_stage_id>_<purpose>_summary.csv
+<canonical_stage_id>_<purpose>_report.md
+<canonical_stage_id>_<purpose>_manifest.json
 ```
 
 For general analysis, use a descriptive project/component prefix.
