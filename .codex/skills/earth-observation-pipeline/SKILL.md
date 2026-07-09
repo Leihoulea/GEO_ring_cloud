@@ -163,10 +163,18 @@ inspection, not final publication figures.
 
 Quicklook requirements:
 
-- create quicklooks for multiple relevant variables, not only the first 2D array
-- include primary science fields, cloud variables, coordinates/angles when
-  present, masks, DQF/QA raw codes, decoded bit fields, and suspicious variables
-  found during inspection
+- generate quicklooks for representative times, not for every file by default
+- default to at most 10 quicklook PNGs per inspection task unless the user
+  explicitly asks for more
+- choose representative times deliberately, such as first/middle/last, day/night
+  contrast, high-missing fraction, unusual quality-flag distribution, or a file
+  with a divergent structure signature
+- cover multiple relevant variable classes within the 10-image budget: primary
+  science fields, cloud variables, coordinates/angles when present, masks,
+  DQF/QA raw codes, decoded bit fields, and suspicious variables found during
+  inspection
+- do not use the first 2D array alone unless it is clearly the only meaningful
+  variable to visualize
 - plot physical fields with fill and category/sentinel codes masked out
 - when category/sentinel codes are scientifically important, create separate
   categorical quicklooks for those masks
@@ -178,8 +186,8 @@ Quicklook requirements:
   known, and a note when semantics are uncertain
 - downsample large arrays for plotting without changing CSV statistics
 - write a quicklook index with `plot_path`, `source_variable`, `source_file`,
-  `reader`, `scaling`, `colormap`, `units`, `valid_mask_rule`, and
-  `meaning_note`
+  `representative_reason`, `selected_for_plot`, `not_plotted_reason`, `reader`,
+  `scaling`, `colormap`, `units`, `valid_mask_rule`, and `meaning_note`
 
 Use Satpy when it is the best available way to obtain calibrated or geolocated
 display data for that product, but do not use Satpy as a substitute for raw
