@@ -1,77 +1,109 @@
 ---
 name: earth-observation-pipeline
-description: Use for Earth observation data pipelines involving CERES, DSCOVR, EPIC, GEO satellites, HDF5/NetCDF/GRIB, geolocation, projection, time-space matching, quality flags, cache directories, and reproducible remote-sensing outputs.
+description: Use when inspecting unfamiliar or newly acquired Earth observation products such as CERES, DSCOVR, EPIC, GEO satellite files, HDF5, NetCDF, GRIB, or tabular metadata. Guides Codex to inventory internal structure, variables, attributes, units, coordinates, time fields, quality flags, bit fields, masks, and raw value distributions before writing analysis code.
 metadata:
-  short-description: Earth observation data ingestion, projection, matching, and QC workflow
+  short-description: New Earth observation product structure and variable inspection
 ---
 
-# Earth Observation Pipeline
+# Earth Observation Product Inspection
 
-Use this skill for satellite and Earth observation workflows, including CERES,
-DSCOVR/EPIC, GEO imagers, HDF5, NetCDF, GRIB, projection, spatiotemporal
-matching, and quality control.
+Use this skill when a task involves reading or understanding a new satellite or
+Earth observation data product. The goal is not to build the full downstream
+science pipeline first; the goal is to inspect the product deeply enough that
+later processing does not rest on guessed variable semantics.
 
 ## Core Principles
 
 - Keep raw files immutable.
-- Separate raw data, intermediate cache, derived products, reports, and manifests.
+- Inspect before interpreting. Do not assume semantics from file names or common
+  variable names alone.
+- Prefer product-structure evidence over generic assumptions.
 - Preserve sensor/platform/product/version/time metadata.
-- Treat geolocation, projection, time basis, viewing geometry, and quality flags
-  as essential scientific data.
-- Avoid silent resampling or unit conversion.
+- Treat geolocation, projection, time basis, masks, quality flags, packed bits,
+  units, fill values, and scale/offset as essential data.
+- Reuse existing project readers or audits when available, but verify that their
+  assumptions still match the new product.
 
-## Data Reading
+## Reader Choice
 
 Prefer structured readers:
 
 - NetCDF/CF: `xarray`, `netCDF4`
 - HDF5: `h5py`, product-specific readers, `xarray` where supported
 - GRIB: `cfgrib` when available
-- Tabular metadata: `pandas`
+- tabular metadata: `pandas`
+- XML/manifest/package metadata: structured XML/ZIP readers where applicable
 
-When opening a product, inspect and record:
+If multiple readers are possible, compare their reported dimensions, variables,
+attributes, mask/scale behavior, and decoded values before choosing one.
 
-```text
-dimensions, coordinates, variables, units, fill values, scale/offset,
-quality flags, projection/geolocation variables, time encoding
-```
+## Required Inspection
 
-Do not assume variable semantics from names alone; check attributes and product
-documentation or existing project mappings.
+For each representative file, enumerate and record:
 
-## Product-Level Deep Inspection
+- file path, size, modified time, product/platform hints, and parsed acquisition
+  time when available
+- groups, subgroups, datasets/variables, dimensions, coordinates, shape, dtype,
+  chunking, compression, and storage layout
+- global and variable attributes
+- `_FillValue`, `missing_value`, `valid_min`, `valid_max`, `valid_range`,
+  `scale_factor`, `add_offset`, `units`, `long_name`, `standard_name`,
+  `coordinates`, `grid_mapping`, and product-specific code-table attributes
+- raw values before automatic mask/scale and values after physical conversion
+- sample statistics: valid count, missing/fill count, min, max, mean where
+  meaningful, unique counts for categorical variables, and representative
+  sample values
 
-For an unfamiliar or scientifically important satellite product, do not stop at
-loading named arrays. Perform a product-structure audit before using the data:
-
-- enumerate groups, datasets/variables, dimensions, dtypes, chunking, compression,
-  attributes, global metadata, and coordinate/projection metadata
-- record `_FillValue`, `missing_value`, `valid_min`, `valid_max`, `valid_range`,
-  `scale_factor`, `add_offset`, `units`, `long_name`, `standard_name`, and
-  product-specific code-table attributes
-- inspect raw values before automatic mask/scale and after physical conversion
-- preserve the raw variable, decoded variable, valid mask, and quality mask when
-  the product semantics are not fully settled
-- compare actual dtype/value ranges against product documentation and record any
-  mismatch
-- sample representative pixels/scan lines and report min/max/unique counts for
-  categorical variables
-
-For bit fields or packed quality variables, decode explicitly:
+Variable discovery must be inclusive. Search for variables including but not limited to:
 
 ```text
-raw_dtype, raw_unique_values, fill_codes, bit_numbering_convention,
-field_name, start_bit, bit_count, decoded_value_counts, meaning_source
+latitude, longitude, x/y coordinates, scan angle, projection, grid mapping,
+time, start/end/nominal/scan time, solar/view/sensor angles, azimuth,
+cloud mask, cloud phase, cloud type, cloud top height/temperature/pressure,
+radiance, reflectance, brightness temperature, calibration, quality flag,
+DQF/QA, confidence, algorithm status, processing flag, valid mask,
+land/water/snow/ice/day/night/terminator masks, fill/missing/off-disk masks
 ```
+
+Also search attribute text for non-standard naming. A variable with an unusual
+name may still be a coordinate, quality flag, angle, mask, or science variable
+if its attributes, dtype, dimensions, or value distribution indicate that role.
+
+## Bit Fields and Enums
+
+For bit fields, packed quality variables, enums, and categorical masks, decode
+explicitly before scientific use:
+
+```text
+raw_variable, raw_dtype, raw_unique_values, fill_codes,
+bit_numbering_convention, field_name, start_bit, bit_count,
+decoded_value_counts, enum_or_bit_meanings, meaning_source
+```
+
+If the official code table is unavailable or ambiguous, report the decoded
+fields as diagnostic evidence, not as final production semantics.
 
 Do not convert bit fields or enum quality flags into a continuous quality weight
-unless a product-specific, documented mapping justifies it. If the mapping is
-uncertain, label the result as a diagnostic interpretation rather than a
-production semantic variable.
+unless a product-specific, documented mapping justifies it.
 
-When product-specific code already exists in the project, reuse it before
-inventing a generic reader. For Geo Ring Cloud, check for existing FY4B/GEO
-logic such as:
+## Coordinate, Projection, and Time Audit
+
+Before downstream use, establish and report:
+
+```text
+coordinate source, coordinate units, longitude convention,
+pixel center/edge convention if known, projection/grid mapping,
+swath vs grid geometry, valid geolocation mask,
+time units/calendar/timezone, nominal vs observation vs scan time
+```
+
+Downstream geometric or temporal analysis belongs in a later task. First
+preserve the inspection outputs so later methods have a documented basis.
+
+## Existing Project Code
+
+When working in Geo Ring Cloud, check existing readers and audits before writing
+a new generic reader:
 
 ```text
 D:\AAAresearch_paper\third_report\code\FY4B
@@ -80,79 +112,43 @@ D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\04b_fy4b_dqf_bit_de
 D:\AAAresearch_paper\third_report\code\geo_data_audit
 ```
 
-## Time Handling
+Use them as references for patterns such as HDF5 traversal, NetCDF variable
+inspection, mask/scale handling, DQF/bit decoding, valid-mask construction, and
+metadata reporting. Do not assume they are complete for a new product; verify
+against the current file structure.
 
-- Normalize internal timestamps to UTC.
-- Preserve original product time fields.
-- Record time tolerance for matching.
-- Distinguish observation time, file nominal time, scan time, and processing time.
-
-## Geolocation and Projection
-
-Before reprojection or matching, establish:
-
-```text
-source CRS or swath geometry
-target grid
-pixel center vs edge convention
-longitude convention (-180..180 or 0..360)
-valid latitude/longitude mask
-viewing/solar geometry fields
-```
-
-Use proven libraries (`pyproj`, `rasterio`, `xarray`, `scipy`, product readers)
-instead of hand-rolled projection math unless the project already has a verified
-implementation.
-
-## Matching Workflow
-
-For CERES/DSCOVR/EPIC/GEO matching:
-
-1. Select candidate files by time window.
-2. Validate product version and required variables.
-3. Apply quality masks before scientific comparison unless deliberately auditing
-   raw semantics.
-4. Reproject or collocate with explicit method and tolerance.
-5. Record match counts, rejected counts, and reasons.
-6. Save a manifest with inputs, parameters, outputs, and warnings.
-
-## Quality Control
-
-Always report:
-
-- missing variables
-- invalid geolocation
-- fill values
-- quality-flag exclusions
-- time mismatch
-- projection or interpolation failures
-- sensor-specific semantic ambiguity
-
-Do not collapse unknown/ambiguous conditions into valid clear/cloudy categories.
-
-## Cache and Output Discipline
-
-Use stable cache directories and avoid recomputing expensive intermediates when
-the input file hash, parameters, and code version match.
+## Output Convention
 
 For Geo Ring Cloud stage outputs, first resolve the correct canonical stage ID
 from the project registry. Then use that stage ID as the prefix:
 
 ```text
-<canonical_stage_id>_<purpose>_manifest.json
-<canonical_stage_id>_<purpose>_matches.csv
-<canonical_stage_id>_<purpose>_qc_report.md
+<canonical_stage_id>_<product>_structure_inventory.csv
+<canonical_stage_id>_<product>_variable_inventory.csv
+<canonical_stage_id>_<product>_quality_flag_decode.csv
+<canonical_stage_id>_<product>_sample_stats.csv
+<canonical_stage_id>_<product>_inspection_report.md
+<canonical_stage_id>_<product>_inspection_manifest.json
 ```
 
-For large rasters, arrays, PNGs, HDF5, or NetCDF outputs, index directory-level
-summaries rather than committing them to Git.
+For general work, use a descriptive project/product prefix.
+
+The manifest should include:
+
+```text
+input_files, reader_versions, inspection_script, output_files,
+sample_strategy, variables_inspected, warnings, unresolved_semantics
+```
+
+Large rasters, arrays, images, HDF5, NetCDF, and other heavy outputs should not
+be committed to Git. Index them by directory-level summaries or manifests.
 
 ## Verification
 
 Before finishing:
 
-- confirm input/output paths exist
-- check shape, coordinate bounds, and valid-pixel counts
-- inspect a small sample numerically
-- save key tables/reports
+- confirm inspection outputs exist
+- confirm every representative input file was opened or explain why not
+- report unreadable files, missing expected metadata, and uncertain semantics
+- verify that raw and decoded statistics are internally consistent
 - run project governance checks if working in a governed project repository
