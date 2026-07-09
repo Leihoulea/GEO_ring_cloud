@@ -1,6 +1,6 @@
 ---
 name: earth-observation-pipeline
-description: Use when inspecting unfamiliar or newly acquired Earth observation products such as CERES, DSCOVR, EPIC, GEO satellite files, HDF5, NetCDF, GRIB, or tabular metadata. Guides Codex to inventory internal structure, variables, attributes, units, coordinates, time fields, quality flags, bit fields, masks, and raw value distributions before writing analysis code.
+description: Use when inspecting unfamiliar or newly acquired Earth observation products such as CERES, DSCOVR, EPIC, GEO satellite files, HDF5, NetCDF, GRIB, or tabular metadata. Guides Codex to inventory internal structure, variables, attributes, units, coordinates, time fields, quality flags, bit fields, masks, quicklooks, and raw value distributions before writing analysis code.
 metadata:
   short-description: New Earth observation product structure and variable inspection
 ---
@@ -8,9 +8,9 @@ metadata:
 # Earth Observation Product Inspection
 
 Use this skill when a task involves reading or understanding a new satellite or
-Earth observation data product. The goal is not to build the full downstream
-science pipeline first; the goal is to inspect the product deeply enough that
-later processing does not rest on guessed variable semantics.
+Earth observation data product. The immediate goal is not downstream matching,
+fusion, or science analysis. The goal is to inspect the product deeply enough
+that later processing does not rest on guessed variable semantics.
 
 ## Core Principles
 
@@ -20,24 +20,23 @@ later processing does not rest on guessed variable semantics.
 - Prefer product-structure evidence over generic assumptions.
 - Preserve sensor/platform/product/version/time metadata.
 - Treat geolocation, projection, time basis, masks, quality flags, packed bits,
-  units, fill values, and scale/offset as essential data.
-- Reuse existing project readers or audits when available, but verify that their
-  assumptions still match the new product.
+  units, fill values, special category codes, and scale/offset as essential data.
+- If project-specific readers or prior audits exist, use them as engineering
+  patterns, but verify that their assumptions match the current product.
 
-## Report Language
+## Report Language And Encoding
 
-Write inspection reports primarily in Chinese, with English retained for
-technical names, variable names, product names, file names, units, and standard
-remote-sensing terms.
+Inspection reports should be Chinese-first:
 
-Examples:
-
-```text
-中文解释为主；保留 CPD, COT, CER, DQF, QA, scale_factor, add_offset 等原始术语。
-```
-
-Tables may keep machine-readable English column names, but the report narrative,
-warnings, conclusions, and next-step recommendations should be Chinese-first.
+- use Chinese for narrative, warnings, conclusions, anomaly explanations, and
+  next-step recommendations
+- keep English for variable names, product names, filenames, units, code-table
+  labels, and technical terms such as `CPD`, `COT`, `CER`, `DQF`, `QA`,
+  `scale_factor`, and `add_offset`
+- keep CSV/JSON column names machine-readable in English
+- write Markdown/CSV/JSON as UTF-8 or UTF-8 with BOM when Excel compatibility is
+  important
+- verify that generated Chinese text is not mojibake before finishing
 
 ## Reader Choice
 
@@ -50,24 +49,30 @@ Prefer structured readers:
 - XML/manifest/package metadata: structured XML/ZIP readers where applicable
 
 If multiple readers are possible, compare their reported dimensions, variables,
-attributes, mask/scale behavior, and decoded values before choosing one.
+attributes, mask/scale behavior, raw values, decoded values, and reader-version
+metadata before choosing one. If the preferred reader is unavailable and a
+fallback reader is used, record the limitation in the manifest and report.
 
-## Required Inspection
+## Required Inventories
 
-For each representative file, enumerate and record:
+For representative files, produce these inventories when possible:
 
-- file path, size, modified time, product/platform hints, and parsed acquisition
-  time when available
-- groups, subgroups, datasets/variables, dimensions, coordinates, shape, dtype,
-  chunking, compression, and storage layout
-- global and variable attributes
-- `_FillValue`, `missing_value`, `valid_min`, `valid_max`, `valid_range`,
-  `scale_factor`, `add_offset`, `units`, `long_name`, `standard_name`,
-  `coordinates`, `grid_mapping`, and product-specific code-table attributes
-- raw values before automatic mask/scale and values after physical conversion
-- sample statistics: valid count, missing/fill count, min, max, mean where
-  meaningful, unique counts for categorical variables, and representative
-  sample values
+- file inventory: path, size, modified time, parsed platform/product/time,
+  version, and open status
+- structure inventory: group tree, dataset/variable count, dimension count,
+  global attribute count, and a stable structure signature/hash
+- dimension inventory: dimension names, lengths, unlimited status, dimension
+  scale relationships, and coordinate links
+- global attribute inventory: one row per global attribute, not only one large
+  JSON blob
+- variable inventory: variable path/name, role guess, shape, dtype, chunks,
+  compression, dimensions, coordinates, grid mapping, units, long name,
+  standard name, fill values, valid ranges, scale/offset, code-table attributes,
+  and all attributes
+- variable-attribute inventory: one row per variable attribute for auditability
+- sample statistics: raw and physical statistics with explicit sample scope
+- anomaly table: unreadable files, missing expected metadata, unit/value
+  contradictions, uncertain semantics, and reader limitations
 
 Variable discovery must be inclusive. Search for variables including but not limited to:
 
@@ -82,63 +87,46 @@ land/water/snow/ice/day/night/terminator masks, fill/missing/off-disk masks
 
 Also search attribute text for non-standard naming. A variable with an unusual
 name may still be a coordinate, quality flag, angle, mask, or science variable
-if its attributes, dtype, dimensions, or value distribution indicate that role.
+if its attributes, dtype, dimensions, links, or value distribution indicate that
+role.
 
-## Inspection Quicklooks
+## Values, Units, And Masks
 
-Generate quicklook PNGs when the product contains meaningful 2D numeric,
-categorical, mask, or decoded quality variables. Quicklooks are part of product
-inspection, not final publication figures.
+For numeric variables, inspect both raw storage values and interpreted physical
+values:
 
-Prefer existing project quicklook patterns before inventing new plotting logic:
+- record fill/missing values separately from documented category/sentinel codes
+  such as space, clear, nighttime, off-disk, no retrieval, or not processed
+- compute statistics for raw values, fill-masked values, and physical-only
+  values when category/sentinel codes are embedded in the numeric array
+- record whether statistics are full-array, sampled, or downsampled
+- flag unit/value contradictions, for example a geostationary satellite height
+  value that looks like meters while the unit attribute claims kilometers
+- do not silently apply `scale_factor` or `add_offset`; record values before and
+  after conversion
 
-```text
-D:\AAAresearch_paper\third_report\code\geo_data_audit\read_one_sample_each_product.py
-D:\AAAresearch_paper\third_report\code\geo_data_audit\standardize_one_time_cloud_v0.py
-D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage1_common.py
-D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\04_check_fy4b_geo_alignment.py
-D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\06_fuse_best_source.py
-```
-
-Quicklook requirements:
-
-- choose variables deliberately, including but not limited to primary science
-  fields, cloud variables, coordinates/angles, masks, DQF/QA, decoded bit fields,
-  and suspicious variables found during inspection
-- use categorical colors and explicit tick labels for enum, mask, and bit-field
-  outputs
-- use robust percentile scaling for continuous fields, with fill/missing values
-  masked to a neutral background
-- include readable title, product/time/variable context, colorbar, units where
-  known, and a note when semantics are uncertain
-- downsample large arrays for plotting without changing the statistics reported
-  in CSV outputs
-- write a quicklook index that records `plot_path`, `source_variable`,
-  `source_file`, `reader`, `scaling`, `colormap`, and `meaning_note`
-
-Use Satpy when it is the best available way to obtain calibrated or geolocated
-display data for that product, but do not use Satpy as a substitute for raw
-structure inspection. If Satpy output is used, also record the raw source
-variable and reader/calibration mode.
-
-## Bit Fields and Enums
+## Bit Fields, Enums, And Code Tables
 
 For bit fields, packed quality variables, enums, and categorical masks, decode
-explicitly before scientific use:
+explicitly before scientific use.
+
+Required outputs include:
 
 ```text
 raw_variable, raw_dtype, raw_unique_values, fill_codes,
-bit_numbering_convention, field_name, start_bit, bit_count,
-decoded_value_counts, enum_or_bit_meanings, meaning_source
+flag_values, flag_masks, flag_meanings,
+bit_numbering_convention, bit_index, bit_mask_decimal, bit_mask_hex,
+field_name, start_bit, bit_count, decoded_value_counts,
+observed_code_or_combination, decoded_meanings, meaning_source
 ```
 
-If the official code table is unavailable or ambiguous, report the decoded
-fields as diagnostic evidence, not as final production semantics.
+If the official code table is unavailable or ambiguous, report decoded fields as
+diagnostic evidence, not final production semantics.
 
 Do not convert bit fields or enum quality flags into a continuous quality weight
 unless a product-specific, documented mapping justifies it.
 
-## Coordinate, Projection, and Time Audit
+## Coordinate, Projection, And Time Audit
 
 Before downstream use, establish and report:
 
@@ -149,40 +137,54 @@ swath vs grid geometry, valid geolocation mask,
 time units/calendar/timezone, nominal vs observation vs scan time
 ```
 
+If per-pixel latitude/longitude are absent, say so explicitly and identify what
+navigation metadata exists instead. Do not imply geolocation is solved merely
+because projection x/y or sub-satellite metadata are present.
+
 Downstream geometric or temporal analysis belongs in a later task. First
 preserve the inspection outputs so later methods have a documented basis.
 
-## Existing Project Code
+## Cross-File Consistency
 
-When working in Geo Ring Cloud, check existing readers and audits before writing
-a new generic reader:
+When more than one file is available, report consistency across files:
 
-```text
-D:\AAAresearch_paper\third_report\code\FY4B
-D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage1_common.py
-D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\04b_fy4b_dqf_bit_decode_diagnostics.py
-D:\AAAresearch_paper\third_report\code\geo_data_audit
-```
+- file count, time coverage, cadence, missing or duplicate time slots
+- structure signature counts and any files with divergent signatures
+- variable presence/absence by file
+- shape/dtype/unit/fill/scale/offset consistency by variable
+- value-distribution changes for representative first/middle/last samples
+- product-version or processing-version changes
 
-Use them as references for patterns such as HDF5 traversal, NetCDF variable
-inspection, mask/scale handling, DQF/bit decoding, valid-mask construction, and
-metadata reporting. Do not assume they are complete for a new product; verify
-against the current file structure.
+## Inspection Quicklooks
 
-Also compare the new inspection against prior project audits when relevant:
+Generate quicklook PNGs when the product contains meaningful 2D numeric,
+categorical, mask, or decoded quality variables. Quicklooks are part of product
+inspection, not final publication figures.
 
-```text
-D:\AAAresearch_paper\third_report\code\geo_data_audit\read_one_sample_each_product.py
-D:\AAAresearch_paper\third_report\code\geo_data_audit\standardize_one_time_cloud_v0.py
-D:\AAAresearch_paper\third_report\code\geo_data_audit\deep_claas3_structure_audit.py
-D:\AAAresearch_paper\third_report\code\geo_data_audit\probe_claas3_downloaded_data.py
-D:\AAAresearch_paper\third_report\code\preview_baselines\README.md
-```
+Quicklook requirements:
 
-The comparison should ask what the earlier audit captured that the current
-inspection might miss: hidden groups, packed values, mask semantics, day/night
-behavior, quality flags, coordinate metadata, quicklook choices, and report
-language.
+- create quicklooks for multiple relevant variables, not only the first 2D array
+- include primary science fields, cloud variables, coordinates/angles when
+  present, masks, DQF/QA raw codes, decoded bit fields, and suspicious variables
+  found during inspection
+- plot physical fields with fill and category/sentinel codes masked out
+- when category/sentinel codes are scientifically important, create separate
+  categorical quicklooks for those masks
+- use categorical colors and explicit tick labels for enum, mask, and bit-field
+  outputs
+- use robust percentile scaling for continuous fields, with fill/missing values
+  masked to a neutral background
+- include readable title, product/time/variable context, colorbar, units where
+  known, and a note when semantics are uncertain
+- downsample large arrays for plotting without changing CSV statistics
+- write a quicklook index with `plot_path`, `source_variable`, `source_file`,
+  `reader`, `scaling`, `colormap`, `units`, `valid_mask_rule`, and
+  `meaning_note`
+
+Use Satpy when it is the best available way to obtain calibrated or geolocated
+display data for that product, but do not use Satpy as a substitute for raw
+structure inspection. If Satpy output is used, also record the raw source
+variable and reader/calibration mode.
 
 ## Output Convention
 
@@ -190,11 +192,18 @@ For Geo Ring Cloud stage outputs, first resolve the correct canonical stage ID
 from the project registry. Then use that stage ID as the prefix:
 
 ```text
+<canonical_stage_id>_<product>_file_inventory.csv
 <canonical_stage_id>_<product>_structure_inventory.csv
+<canonical_stage_id>_<product>_dimension_inventory.csv
+<canonical_stage_id>_<product>_global_attributes.csv
 <canonical_stage_id>_<product>_variable_inventory.csv
-<canonical_stage_id>_<product>_quality_flag_decode.csv
+<canonical_stage_id>_<product>_variable_attributes.csv
+<canonical_stage_id>_<product>_code_table.csv
+<canonical_stage_id>_<product>_bitfield_diagnostics.csv
+<canonical_stage_id>_<product>_observed_code_combinations.csv
 <canonical_stage_id>_<product>_sample_stats.csv
 <canonical_stage_id>_<product>_quicklook_index.csv
+<canonical_stage_id>_<product>_anomalies.csv
 <canonical_stage_id>_<product>_inspection_report.md
 <canonical_stage_id>_<product>_inspection_manifest.json
 ```
@@ -205,7 +214,8 @@ The manifest should include:
 
 ```text
 input_files, reader_versions, inspection_script, output_files,
-sample_strategy, variables_inspected, quicklooks, warnings, unresolved_semantics
+sample_strategy, variables_inspected, structure_signatures, quicklooks,
+warnings, unresolved_semantics
 ```
 
 Large rasters, arrays, images, HDF5, NetCDF, and other heavy outputs should not
@@ -215,9 +225,12 @@ be committed to Git. Index them by directory-level summaries or manifests.
 
 Before finishing:
 
-- confirm inspection outputs exist
-- confirm quicklooks exist or explain why no meaningful 2D variable was plotted
+- confirm required inventories exist, or explain why a table is not applicable
+- confirm quicklooks exist, or explain why no meaningful 2D variable was plotted
 - confirm every representative input file was opened or explain why not
-- report unreadable files, missing expected metadata, and uncertain semantics
-- verify that raw and decoded statistics are internally consistent
+- report unreadable files, missing expected metadata, unit contradictions, and
+  uncertain semantics
+- verify that raw, masked, physical, decoded, and quicklook statistics are
+  internally consistent
+- verify Chinese report text renders correctly
 - run project governance checks if working in a governed project repository
