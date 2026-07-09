@@ -1,0 +1,124 @@
+FY4B_CLM:
+  cloud_mask: [CLM, Cloud_Mask, cloud_mask, NOMChannelCLM, CBM]
+  quality_flag: [DQF, QA, QualityFlag, quality_flag]
+FY4B_CTH:
+  cloud_top_height: [CTH, Cloud_Top_Height, cloud_top_height, NOMChannelCTH]
+  quality_flag: [DQF, QA, QualityFlag, quality_flag]
+FY4B_CTT:
+  cloud_top_temperature: [CTT, Cloud_Top_Temperature, cloud_top_temperature, NOMChannelCTT]
+  quality_flag: [DQF, QA, QualityFlag, quality_flag]
+FY4B_CLT:
+  cloud_type: [CLT, Cloud_Type, cloud_type, NOMChannelCLT]
+  quality_flag: [DQF, QA, QualityFlag, quality_flag]
+FY4B_CTP:
+  cloud_top_pressure: [CTP, Cloud_Top_Pressure, cloud_top_pressure, NOMChannelCTP]
+  quality_flag: [DQF, QA, QualityFlag, quality_flag]
+FY4B_CLP:
+  cloud_phase: [CLP, Cloud_Phase, cloud_phase, NOMChannelCLP]
+  quality_flag: [DQF, QA, QualityFlag, quality_flag]
+FY4B_COT:
+  cloud_optical_thickness: [COT, Cloud_Optical_Thickness, cloud_optical_thickness]
+  quality_flag: [DQF, QA, QualityFlag, quality_flag]
+FY4B_CER:
+  cloud_effective_radius: [CER, Cloud_Effective_Radius, cloud_effective_radius]
+  quality_flag: [DQF, QA, QualityFlag, quality_flag]
+FY4B_FDI:
+  radiance: [NOMChannel01, NOMChannel02, NOMChannel03, NOMChannel04, NOMChannel05, NOMChannel06, NOMChannel07, NOMChannel08, NOMChannel09, NOMChannel10, NOMChannel11, NOMChannel12, NOMChannel13, NOMChannel14, NOMChannel15]
+  brightness_temperature: [NOMChannel07, NOMChannel08, NOMChannel09, NOMChannel10, NOMChannel11, NOMChannel12, NOMChannel13, NOMChannel14, NOMChannel15]
+  reflectance: [NOMChannel01, NOMChannel02, NOMChannel03, NOMChannel04, NOMChannel05, NOMChannel06]
+  quality_flag: [DQF, QA, CALChannel]
+FY4B_GEO:
+  latitude: [Latitude, lat, latitude, NOMLatitude]
+  longitude: [Longitude, lon, longitude, NOMLongitude]
+  sensor_zenith_angle: [SensorZenith, SatelliteZenith, VZA]
+  sensor_azimuth_angle: [SensorAzimuth, SatelliteAzimuth, VAA]
+  solar_zenith_angle: [SolarZenith, SZA]
+  solar_azimuth_angle: [SolarAzimuth, SAA]
+
+GOES_ACMF:
+  cloud_mask: [ACM, BCM, Cloud_Mask, cloud_mask]
+  quality_flag: [DQF, quality_flag]
+  projection_x: [x]
+  projection_y: [y]
+  geostationary_projection: [goes_imager_projection]
+  observation_time: [t, time]
+GOES_ACHAF:
+  cloud_top_height: [HT, CTH, cloud_top_height]
+  cloud_top_temperature: [TEMP, CTT, cloud_top_temperature]
+  cloud_top_pressure: [PRES, CTP, cloud_top_pressure]
+  quality_flag: [DQF, quality_flag]
+  projection_x: [x]
+  projection_y: [y]
+  geostationary_projection: [goes_imager_projection]
+  observation_time: [t, time]
+GOES_ACTPF:
+  cloud_phase: [Phase, ACTP, cloud_phase]
+  quality_flag: [DQF]
+  projection_x: [x]
+  projection_y: [y]
+  geostationary_projection: [goes_imager_projection]
+  observation_time: [t, time]
+GOES_CTPF:
+  cloud_top_pressure: [PRES, CTP, cloud_top_pressure]
+  quality_flag: [DQF]
+  projection_x: [x]
+  projection_y: [y]
+  geostationary_projection: [goes_imager_projection]
+  observation_time: [t, time]
+GOES_ACHTF:
+  cloud_top_temperature: [TEMP, CTT, cloud_top_temperature]
+  quality_flag: [DQF]
+  projection_x: [x]
+  projection_y: [y]
+  geostationary_projection: [goes_imager_projection]
+  observation_time: [t, time]
+GOES_CODF:
+  cloud_optical_thickness: [COD, COT, cloud_optical_depth, cloud_optical_thickness]
+  quality_flag: [DQF]
+  projection_x: [x]
+  projection_y: [y]
+  geostationary_projection: [goes_imager_projection]
+  observation_time: [t, time]
+GOES_CPSF:
+  cloud_effective_radius: [CPS, CER, cloud_particle_size, cloud_effective_radius]
+  quality_flag: [DQF]
+  projection_x: [x]
+  projection_y: [y]
+  geostationary_projection: [goes_imager_projection]
+  observation_time: [t, time]
+GOES_RadF:
+  radiance: [Rad, radiance]
+  brightness_temperature: [brightness_temperature]
+  reflectance: [reflectance]
+  quality_flag: [DQF]
+
+Himawari_CMSK:
+  cloud_mask: [CloudMask, CloudMaskBinary, CloudMaskPacked, cloud_mask]
+  cloud_probability: [CloudProbability, cloud_probability]
+  quality_flag: [DQF, QA, quality_flag]
+  latitude: [Latitude, latitude]
+  longitude: [Longitude, longitude]
+Himawari_CHGT:
+  cloud_top_height: [CldTopHght]
+  cloud_top_temperature: [CldTopTemp]
+  cloud_top_pressure: [CldTopPres]
+  cloud_optical_thickness: [CldOptDpth]
+  cloud_effective_radius: [CldEffRad, EffectiveRadius]
+  quality_flag: [DQF, QA, PackedQualityFlags, quality_flag]
+  latitude: [Latitude, latitude]
+  longitude: [Longitude, longitude]
+Himawari_HSD:
+  brightness_temperature: [BrightnessTemperature, BT]
+  reflectance: [Reflectance, Albedo]
+  radiance: [Radiance]
+
+Meteosat_CLM:
+  cloud_mask: [p260537, Cloud mask, MSGCLMK, CLM]
+  quality_flag: [quality, flag, qi]
+  projection: [GRIB_grid_definition_section]
+Meteosat_CTH:
+  cloud_top_height: [ctoph, Cloud top height, MSGCLTH, CTH]
+  cloud_top_temperature: [ctt, temperature, CTT_if_present]
+  cloud_top_pressure: [ctp, pressure, CTP_if_present]
+  quality_flag: [ctophqi, quality, flag, qi]
+  projection: [GRIB_grid_definition_section]

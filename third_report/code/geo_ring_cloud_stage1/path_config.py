@@ -1,0 +1,34 @@
+# -*- coding: utf-8 -*-
+"""Central path defaults for the GEO-ring Cloud project.
+
+The defaults preserve the current on-disk layout.  Set the corresponding
+environment variables when a directory is moved or mounted elsewhere.
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+
+def env_path(name: str, default: str | Path) -> Path:
+    return Path(os.environ.get(name, str(default)))
+
+
+PROJECT_ROOT = env_path("GEO_RING_PROJECT_ROOT", r"D:\AAAresearch_paper")
+THIRD_REPORT_ROOT = env_path("GEO_RING_THIRD_REPORT_ROOT", PROJECT_ROOT / "third_report")
+CODE_ROOT = env_path("GEO_RING_CODE_ROOT", THIRD_REPORT_ROOT / "code" / "geo_ring_cloud_stage1")
+
+STAGE_ROOT = env_path("GEO_RING_STAGE_ROOT", PROJECT_ROOT / "geo_ring_cloud_stage1")
+BASE_STAGE_ROOT = env_path("GEO_RING_BASE_STAGE_ROOT", STAGE_ROOT)
+RUNS_ROOT = env_path("GEO_RING_RUNS_ROOT", PROJECT_ROOT / "geo_ring_cloud_stage1_time_runs")
+EVIDENCE_ROOT = env_path("GEO_RING_EVIDENCE_ROOT", PROJECT_ROOT / "geo_ring_cloud_stage1_evidence_pack")
+
+DATA_CHECK_ROOT = env_path("GEO_RING_DATA_CHECK_ROOT", PROJECT_ROOT / "data_check_report")
+DATA_CHECK_GEOMETRY_ROOT = env_path("GEO_RING_DATA_CHECK_GEOMETRY_ROOT", DATA_CHECK_ROOT / "geometry_variable_audit")
+GEOMETRY_ROOT = env_path("GEO_RING_GEOMETRY_ROOT", PROJECT_ROOT / "geo_geometry_check")
+DATA_ROOT = env_path("GEO_RING_DATA_ROOT", PROJECT_ROOT / "data")
+HIMAWARI_R21_DIR = env_path("GEO_RING_HIMAWARI_R21_DIR", DATA_ROOT / "H09_Data")
+
+EXTERNAL_GEO_CLOUD_ROOT = env_path("GEO_RING_EXTERNAL_GEO_CLOUD_ROOT", r"E:\GEO_Cloud_2024")
+EXTERNAL_EPIC_L2_ROOT = env_path("GEO_RING_EXTERNAL_EPIC_L2_ROOT", r"F:\DSCOVR_EPIC_L2_CLOUD_03_2024.03")
+

@@ -1,0 +1,69 @@
+# Large or generated research data
+/data/
+/cloud/
+/geo_ring_cloud_stage1/
+/geo_ring_cloud_stage1_time_runs/
+/geo_ring_cloud_stage1_evidence_pack/
+/data_check_report/
+/geo_geometry_check/
+/_NON_GEO_ARCHIVE/
+/_PROJECT_INDEX/
+
+# Generated indexes and local databases
+/_GEO_RING_CLOUD_INDEX/*.sqlite
+/_GEO_RING_CLOUD_INDEX/*.db
+/_GEO_RING_CLOUD_INDEX/*.xlsx
+/research_tracker/*.db
+/research_tracker/**/*.db
+
+# Office and temporary files
+*.pptx
+~$*
+*.tmp
+*.part
+
+# Python and tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS/editor metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/
+
+# Research tracker generated/local assets
+/research_tracker/frontend/node_modules/
+/research_tracker/frontend/src/data/graph.json
+/research_tracker/reports/
+/research_tracker/frontend/dist/
+/research_tracker/frontend/.vite/
+
+# Generated report/output folders under third_report
+/third_report/*
+!/third_report/code/
+!/third_report/code/**
+!/third_report/scripts/
+!/third_report/scripts/**
+/third_report/reports/
+/third_report/outputs/
+/third_report/Satellite_Data_20240312/
+/third_report/code/**/outputs/
+/third_report/code/**/__pycache__/
+/third_report/code/**/*preview*_outputs/
+/third_report/code/**/*.png
+/third_report/code/**/*.jpg
+/third_report/code/**/*.jpeg
+/third_report/code/**/*.pdf
+/third_report/code/**/*.npz
+/third_report/code/**/*.nc
+/third_report/code/**/*.h5
+/third_report/code/**/*.ipynb
+/third_report/code/geo_cloud_download/*.log
+/third_report/code/geo_cloud_download/*.pid
+/third_report/code/geo_cloud_download/current_download_pid.txt
+/third_report/code/geo_cloud_download/*status.json

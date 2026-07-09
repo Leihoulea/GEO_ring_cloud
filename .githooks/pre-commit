@@ -1,0 +1,2 @@
+#!/bin/sh
+python _GEO_RING_CLOUD_INDEX/governance_check.py --staged

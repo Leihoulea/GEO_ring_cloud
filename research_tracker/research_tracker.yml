@@ -1,0 +1,80 @@
+# research_tracker 配置文件
+# 控制扫描范围、归组规则、自动推断权重等
+
+root: "D:/AAAresearch_paper"        # 科研项目根目录
+db_path: "research_tracker.db"       # SQLite 数据库路径
+
+# 子项目归组规则（路径前缀 → 子项目名）
+subprojects:
+  geo_ring_cloud_stage1: "geo_ring_cloud_stage1"
+  geo_ring_cloud_stage1_time_runs: "geo_ring_cloud_stage1"
+  geo_ring_cloud_stage1_evidence_pack: "geo_ring_cloud_stage1"
+  geo_geometry_check: "geo_ring_cloud_stage1"
+  third_report/code/standardized_l1_source_satpy.py: "code-standardized"
+  third_report/code/run_standardized_l1_source_batch.py: "code-standardized"
+  third_report/code/FY4B: "code-standardized"
+  third_report/code/GOES: "code-standardized"
+  third_report/code/Himawari: "code-standardized"
+  third_report/code/Meteosat: "code-standardized"
+  third_report/code/validate_standardized_l1_source_samples.py: "code-standardized"
+  third_report/code/preview_runner.py: "code-standardized"
+  third_report/code/plot_geo_satellite_coverage.py: "code-standardized"
+  third_report/code/L1g: "code-standardized"
+  third_report/code/epic_ceres: "code-epic_ceres"
+  third_report/code/geo_cloud_download: "code-download"
+  third_report/code/geo_data_audit: "code-audit"
+  third_report/code/geo_ring_cloud_stage1: "code-cloud_stage1"
+  third_report/code/priority_download_goes_meteosat: "code-download"
+  third_report/paper_notion_manager: "tool-paper_manager"
+  data_check_report: "report-data_check"
+  second_report: "report-second"
+  third_report/reports: "report-third"
+  third_report/outputs: "output-training"
+  third_report/Satellite_Data_20240312: "data-satellite"
+  fourth: "tool-fourth"
+  cloud: "reference-papers"
+
+# 扫描排除模式
+exclude_patterns:
+  - "*/_NON_GEO_ARCHIVE/*"
+  - "*/_GEO_RING_CLOUD_WORKSPACE/*"
+  - "*/__pycache__/*"
+  - "*.git/*"
+  - "*/node_modules/*"
+  - "*.ipynb_checkpoints/*"
+  - "*/build/*"
+  - "*/dist/*"
+  - "*.egg-info/*"
+  - "*.pyc"
+  - "*.pyo"
+  - "*.DS_Store"
+  - "*Thumbs.db"
+  - "*~$*"
+
+# 边权重配置
+edge_weights:
+  reads: 0.5
+  writes: 0.5
+  calls: 0.7
+  documents: 0.8
+  validates: 0.6
+  derived_from: 0.5
+  depends_on: 0.4
+
+# 节点类型颜色配置（用于前端展示）
+node_colors:
+  script: "#4A90D9"
+  function: "#50C878"
+  class: "#FF6B6B"
+  method: "#FFB347"
+  data: "#9370DB"
+  table: "#20B2AA"
+  notebook: "#FFB6C1"
+  report: "#F0E68C"
+  figure: "#DDA0DD"
+  paper: "#98FB98"
+  slide: "#FFA07A"
+  pdf: "#FFD700"
+  config: "#CD853F"
+  output: "#87CEEB"
+  unknown: "#AAAAAA"

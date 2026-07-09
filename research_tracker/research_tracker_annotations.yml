@@ -1,0 +1,47 @@
+# 人工标注文件
+# 用于修正节点状态、重要性、说明、关系和边
+# 通过 node_path 或 func_id/class_id 匹配自动推断的节点
+
+annotations:
+  # 示例：修正节点信息
+  # "third_report/code/standardized_l1_source_satpy.py":
+  #   importance: critical        # critical / high / normal / low / archive
+  #   status: active              # active / deprecated / experimental / planned
+  #   note: "核心Satpy标准化共享库，被Himawari/Meteosat builder复用"
+  #   tags: ["core", "satpy", "standardized"]
+  #   functions:
+  #     "satpy_channel_dataset":
+  #       note: "核心函数，组合多视角数据成标准化NetCDF"
+  #       importance: critical
+  #   classes:
+  #     "CaoStyleCNN":
+  #       note: "CNN模型结构，9x9输入patch→辐射通量"
+  #       importance: critical
+
+  # 示例：修正/补充边
+  # edges:
+  #   - source: "third_report/code/run_standardized_l1_source_batch.py"
+  #     target: "third_report/code/GOES/goes_standardized_l1_source_builder.py"
+  #     type: imports
+  #     confidence: 1.0
+  #     evidence: "人工确认：batch入口动态加载各builder"
+
+# 扫描配置
+scan:
+  exclude_dirs:
+    - ".git"
+    - "__pycache__"
+    - "venv"
+    - "node_modules"
+    - ".idea"
+    - ".vscode"
+    - "*.egg-info"
+  exclude_extensions:
+    - ".pyc"
+    - ".pyo"
+    - ".exe"
+    - ".dll"
+    - ".so"
+    - ".bin"
+  # 未变化的文件hash跳过解析
+  incremental: true

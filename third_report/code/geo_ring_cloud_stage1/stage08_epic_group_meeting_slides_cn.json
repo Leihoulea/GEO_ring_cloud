@@ -1,0 +1,203 @@
+[
+  {
+    "kind": "title",
+    "title": "阶段 08：GEO-ring 云产品与 DSCOVR EPIC 的独立对比验证",
+    "subtitle": "从“肉眼看差异”扩展为可复用的语义、几何和源卫星诊断框架",
+    "bullets": [
+      "目标：评估 GEO-ring 融合云产品与 EPIC L2 云观测在云掩膜形态和统计指标上的一致性。",
+      "定位：EPIC 是独立参照，不作为绝对真值，也不直接参与融合。",
+      "本阶段重点：云掩膜语义统一、样本工程化批处理、几何分层、融合前源卫星诊断和改进方向。"
+    ]
+  },
+  {
+    "kind": "bullets",
+    "title": "为什么要做 EPIC 对比",
+    "subtitle": "阶段 07 已完成内部重叠区验证，阶段 08 需要外部独立参照",
+    "bullets": [
+      "GEO-ring 已完成标准化、重投影、best-source 融合和单时次 overlap validation。",
+      "但内部一致性不能回答“拼接后从外部看是否合理”。",
+      "EPIC 从 L1 点观测日照地球盘面，视角和仪器体系独立，适合作为外部 sanity check。",
+      "核心问题不是简单判定好坏，而是识别差异来自语义、几何、源卫星还是融合策略。"
+    ]
+  },
+  {
+    "kind": "image_bullets",
+    "title": "阶段 08 工程化流程",
+    "subtitle": "避免一次性脚本，形成可重复运行的样本对比框架",
+    "image": "04_source_fraction_by_sample_cn.png",
+    "bullets": [
+      "08c：EPIC 与 GEO cloud mask 语义敏感性分析。",
+      "08e：多样本结果汇总与 quicklook 索引。",
+      "08f：几何分层与融合前 source-by-source 诊断。",
+      "08g：按 valid source count 分析单源区、重叠区和边界区差异。",
+      "批处理脚本支持不同角色样本和不同时间输入。"
+    ]
+  },
+  {
+    "kind": "image_bullets",
+    "title": "样本设计：不是只挑一个好看的时次",
+    "subtitle": "8 个完成样本覆盖 FY4B/Himawari、GOES、Meteosat 和混合边界场景",
+    "image": "01_sample_level_metrics_cn.png",
+    "bullets": [
+      "East Asia priority：重点检验 FY4B / Himawari 主导区。",
+      "GOES dominant control：检验 GOES 主导区的相对上限。",
+      "Meteosat dominant control：检验前期怀疑较弱的 Meteosat 区域。",
+      "Mixed / boundary：检验 source boundary 与多源竞争区域。"
+    ]
+  },
+  {
+    "kind": "bullets",
+    "title": "比较方式：当前是“EPIC 像元采样”，不是完整 EPIC 视角重投影",
+    "subtitle": "这是解释一致率的关键前提",
+    "bullets": [
+      "GEO-ring 产品先位于 0.05° 经纬网。",
+      "定量比较时，使用 EPIC L2 像元的 latitude / longitude，从 GEO-ring 网格最近邻采样。",
+      "这样可以进行统计比较，但还不是严格的辐射级 EPIC 视角投影。",
+      "高纬度、地球边缘、云边界和视差敏感区域会有代表性误差。",
+      "因此必须同时看 latitude、EPIC view angle、valid source count 和 pre-fusion source。"
+    ]
+  },
+  {
+    "kind": "bullets",
+    "title": "云掩膜语义是根源问题之一",
+    "subtitle": "不同卫星的 cloud mask 不是同一种二值变量",
+    "bullets": [
+      "GOES 接近二值，FY4B / Himawari / Meteosat / EPIC 通常包含多级云、可能云、清空、未处理等语义。",
+      "若直接把所有非零值当云或当有效，会把语义差异误判为融合失败。",
+      "08c 建立三种策略：A 包容二值、B 高置信二值、C 三分类不确定性诊断。",
+      "A/B 差异本身就是结果：它反映不确定云类和低置信类别对一致率的影响。"
+    ]
+  },
+  {
+    "kind": "image_only",
+    "title": "总体结果：Mode B 通常高于 Mode A",
+    "subtitle": "保守处理云类语义后，一致性提高",
+    "image": "plots/agreement_by_sample_A_B.png",
+    "note": "Mode B 的提升说明部分差异来自 cloud mask 语义和置信度，而不完全是几何错位或融合算法失效。"
+  },
+  {
+    "kind": "image_bullets",
+    "title": "按样本角色分组的核心结果",
+    "subtitle": "差异具有明显的源卫星依赖性",
+    "image": "02_group_summary_cn.png",
+    "bullets": [
+      "FY4B/Himawari 主导区：A 约 0.770，B 约 0.821。",
+      "GOES 主导区：A 约 0.807，B 约 0.838。",
+      "Meteosat 主导区：A 约 0.612，B 约 0.622。",
+      "混合/边界样本：A 约 0.678，B 约 0.694。",
+      "结论：不是整体都差，而是不同源卫星和不同区域表现差异很大。"
+    ]
+  },
+  {
+    "kind": "triptych",
+    "title": "代表性 quicklook：从图像上看差异在哪里",
+    "subtitle": "左：FY4B/Himawari 主导；中：GOES 主导；右：Meteosat 主导",
+    "images": [
+      "renamed_quicklooks/20240313_0400_east-asia-fy4b-himawari-priority_Himawari-9_B_B_high_confidence_only_epic_vs_georing_cloud_mask.png",
+      "renamed_quicklooks/20240313_2200_goes-dominant-control_GOES-18_B_B_high_confidence_only_epic_vs_georing_cloud_mask.png",
+      "renamed_quicklooks/20240311_1400_meteosat-dominant-control_Meteosat-0deg_B_B_high_confidence_only_epic_vs_georing_cloud_mask.png"
+    ]
+  },
+  {
+    "kind": "image_bullets",
+    "title": "融合前 source-by-source 诊断",
+    "subtitle": "判断问题是融合造成，还是源产品本身已经弱",
+    "image": "03_source_performance_cn.png",
+    "bullets": [
+      "把每个源卫星的 cloud mask 单独采样到 EPIC 像元，与 EPIC 比较。",
+      "GOES-18、Himawari、FY4B 整体优于 Meteosat CLM。",
+      "Meteosat 相关 cloud mask 在融合前就偏弱，不能简单归因于 source map 拼接。",
+      "这提示后续 v2 应对 Meteosat CLM 采取更保守的权重或只作为覆盖补全。"
+    ]
+  },
+  {
+    "kind": "image_only",
+    "title": "源卫星和样本类型的热力图",
+    "subtitle": "一致性不是随机噪声，而是有结构的",
+    "image": "plots/agreement_by_source_heatmap_A.png",
+    "note": "热力图说明差异与 source family、样本区域和云掩膜语义均有关。"
+  },
+  {
+    "kind": "bullets",
+    "title": "几何和纬度诊断",
+    "subtitle": "高纬和 EPIC 边缘会降低一致性，但不是全部原因",
+    "bullets": [
+      "全部样本 Mode A 平均 agreement 约 0.728。",
+      "|lat| < 60° 后 agreement 约 0.733，变化不大。",
+      "70°–90° 高纬 agreement 明显降低到约 0.448，但像元数相对较少。",
+      "EPIC 大观测天顶角区域一致性下降，符合边缘和代表性误差预期。",
+      "结论：纬度/边缘效应确实存在，但不能单独解释 20% 量级的整体差异。"
+    ]
+  },
+  {
+    "kind": "bullets",
+    "title": "重叠区与非重叠区：差异是否只发生在拼接边界？",
+    "subtitle": "08g 按 valid source count 做了补充诊断",
+    "bullets": [
+      "all valid：agreement 约 0.728，F1 约 0.780。",
+      "overlap >= 2：agreement 约 0.727，F1 约 0.777。",
+      "valid_count = 1：agreement 约 0.557，F1 约 0.644。",
+      "说明重叠区和单源边缘区都需要关注，不是简单“边界线”问题。",
+      "后续应输出 boundary uncertainty，而不是只给一张最终二值云图。"
+    ]
+  },
+  {
+    "kind": "bullets",
+    "title": "为什么不能把 EPIC 直接放进融合",
+    "subtitle": "EPIC 应作为独立参照，而不是产品输入",
+    "bullets": [
+      "EPIC 位于 L1 点，只观测日照半球，不能提供连续 GEO-ring 覆盖。",
+      "EPIC 时次、视角、空间分辨率和云产品定义均与 GEO 不同。",
+      "如果把 EPIC 加入融合，就会污染验证闭环：参照数据变成了输入数据。",
+      "合理用法：用 EPIC 诊断语义映射、源权重、边界不确定性和区域性偏差。"
+    ]
+  },
+  {
+    "kind": "bullets",
+    "title": "当前 06 融合策略的局限",
+    "subtitle": "best-source 是基线，不是最终科学融合",
+    "bullets": [
+      "当前每个格点、每个变量只选择 rating 最高的一个源。",
+      "rating 主要由 valid、view_weight、time_weight、product_level_weight 构成。",
+      "没有跨星平均、没有概率共识、没有源边界 feathering。",
+      "因此 fused cloud binary 很大程度上就是被选中源卫星的 cloud mask，接缝仍可能明显。",
+      "这正是阶段 08 能指出的问题：融合策略需要 v2。"
+    ]
+  },
+  {
+    "kind": "bullets",
+    "title": "下一步：cloud mask fusion v2 的方向",
+    "subtitle": "用 EPIC 作为诊断参照，改进 GEO 内部融合",
+    "bullets": [
+      "在多源重叠区引入 cloud probability / confidence / consensus voting。",
+      "对长期表现较弱的源或类别进行保守降权，特别是 Meteosat CLM。",
+      "输出 source uncertainty、boundary uncertainty 和 valid_count，不只输出二值图。",
+      "F1、IoU、agreement、混淆矩阵要同时报告，避免只看总体一致率。",
+      "EPIC 不直接参与生产融合，只用于检验和调参。"
+    ]
+  },
+  {
+    "kind": "bullets",
+    "title": "本阶段体现的工作量",
+    "subtitle": "不仅是下载 EPIC 图像看一眼",
+    "bullets": [
+      "完成 EPIC L2 cloud 产品结构探查和变量语义确认。",
+      "建立工程化多样本运行流程，支持不同角色样本自动统计。",
+      "完成 cloud mask 语义敏感性分析，避免错误二值化。",
+      "完成融合前源卫星诊断、几何纬度诊断、重叠区诊断。",
+      "形成图表、quicklook、CSV 指标和报告，可复查、可复跑、可扩展。"
+    ]
+  },
+  {
+    "kind": "bullets",
+    "title": "阶段 08 结论",
+    "subtitle": "当前产品可作为原型链路，但 cloud mask 融合还需升级",
+    "bullets": [
+      "GEO-ring 与 EPIC 在 GOES 主导区和 FY4B/Himawari 主导区具有可接受的一致性。",
+      "Meteosat 主导区是当前 cloud mask 的主要薄弱环节。",
+      "语义映射会显著影响一致率，不能把不同卫星的数值编码直接硬合并。",
+      "几何边缘和高纬效应存在，但不是唯一解释。",
+      "建议下一步推进 fusion v2：概率/共识/不确定性驱动，而不是单一 best-source 硬选择。"
+    ]
+  }
+]

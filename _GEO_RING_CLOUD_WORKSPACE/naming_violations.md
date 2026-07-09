@@ -1,0 +1,24 @@
+| project_id | path | legacy_label | issue_type | severity | suggested_canonical_stage_id | suggested_new_path | reason |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| epic_ceres | D:\AAAresearch_paper\_NON_GEO_ARCHIVE\third_report\code\epic_ceres | Stage9/Stage9.5 | cross_project_stage_collision | warning | epic_ceres.stage_09 / epic_ceres.stage_09_5 |  | Do not merge archived EPIC-CERES stages with GEO-ring Cloud Stage09 |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker | Step*/Stage* inferred labels | untrusted_tracker_stage_inference | warning |  |  | research_tracker regex labels are not canonical taxonomy |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | BuildStep9 | legacy_tracker_label | warning |  |  | Observed 1 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step0 | legacy_tracker_label | warning |  |  | Observed 29 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step005 | legacy_tracker_label | warning |  |  | Observed 1 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step1 | legacy_tracker_label | warning |  |  | Observed 23 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step10 | legacy_tracker_label | warning |  |  | Observed 2 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step108 | legacy_tracker_label | warning |  |  | Observed 8 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step12 | legacy_tracker_label | warning |  |  | Observed 2 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step13 | legacy_tracker_label | warning |  |  | Observed 12 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step16 | legacy_tracker_label | warning |  |  | Observed 386 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step18 | legacy_tracker_label | warning |  |  | Observed 386 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step2 | legacy_tracker_label | warning |  |  | Observed 8 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step2024 | legacy_tracker_label | warning |  |  | Observed 3 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step202403 | legacy_tracker_label | warning |  |  | Observed 3 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step3 | legacy_tracker_label | warning |  |  | Observed 54 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step4 | legacy_tracker_label | warning |  |  | Observed 1 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step5 | legacy_tracker_label | warning |  |  | Observed 1 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step6 | legacy_tracker_label | warning |  |  | Observed 1 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step7 | legacy_tracker_label | warning |  |  | Observed 1 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\research_tracker\research_tracker.db | Step9 | legacy_tracker_label | warning |  |  | Observed 5 files with non-canonical tracker label; requires project-aware review |
+| geo_ring_cloud | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 | 公共/运行器/下载/证据包/汇总 | component_role_misused_as_stage | info |  |  | These are component roles, not pipeline stages |
