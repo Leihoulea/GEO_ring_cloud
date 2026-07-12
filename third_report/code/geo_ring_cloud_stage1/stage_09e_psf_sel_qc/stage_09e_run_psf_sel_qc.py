@@ -394,48 +394,93 @@ def make_psf_figures(out: Path, by_kernel: list[dict[str, Any]], boundary: list[
     if not main.empty:
         for col in ["agreement_weighted", "f1_cloud_weighted", "iou_cloud_weighted"]:
             main[col] = pd.to_numeric(main[col], errors="coerce")
-        labels = main["kernel_name"] + "\n" + main["policy"].str[0]
-        fig, ax = plt.subplots(figsize=(max(10, 0.35 * len(labels)), 5), constrained_layout=True)
-        ax.bar(np.arange(len(labels)), main["agreement_weighted"], color="#386fa4")
-        ax.set_xticks(np.arange(len(labels)))
-        ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=7)
-        ax.set_ylim(0, 1)
-        ax.set_ylabel("agreement (unitless fraction)")
-        ax.set_title("Stage 09E PSF-like fused agreement by kernel")
-        ax.grid(axis="y", alpha=0.25)
+        nearest = main[main["kernel_name"] == "K0_nearest"].set_index("policy")["agreement_weighted"].to_dict()
+        main["delta_agreement_vs_nearest"] = main.apply(lambda r: r["agreement_weighted"] - nearest.get(r["policy"], np.nan), axis=1)
+        kernel_order = ["K0_nearest", "K1_box_3x3", "K3_box_7x7", "K5_gaussian_sigma_1p25_cell_radius_5"]
+        short = {
+            "K0_nearest": "nearest",
+            "K1_box_3x3": "box 3x3",
+            "K3_box_7x7": "box 7x7",
+            "K5_gaussian_sigma_1p25_cell_radius_5": "gauss 1.25",
+        }
+        policy_label = {
+            "A_inclusive_binary": "Policy A",
+            "B_high_confidence_only": "Policy B",
+            "C_uncertainty_aware_3class": "Policy C",
+        }
+        fig, axes = plt.subplots(2, 1, figsize=(9.5, 7.2), constrained_layout=True, sharex=True)
+        colors = {"A_inclusive_binary": "#386fa4", "B_high_confidence_only": "#2a9d8f", "C_uncertainty_aware_3class": "#e76f51"}
+        for policy, grp in main.groupby("policy"):
+            grp = grp.set_index("kernel_name").reindex(kernel_order)
+            x = np.arange(len(kernel_order))
+            axes[0].plot(x, grp["agreement_weighted"], marker="o", linewidth=2.0, color=colors.get(policy), label=policy_label.get(policy, policy))
+            axes[1].plot(x, grp["delta_agreement_vs_nearest"], marker="o", linewidth=2.0, color=colors.get(policy), label=policy_label.get(policy, policy))
+        axes[0].set_ylabel("agreement")
+        axes[0].set_title("Stage 09E PSF-like fused agreement")
+        axes[0].grid(axis="y", alpha=0.25)
+        axes[0].legend(ncol=3, fontsize=9)
+        axes[1].axhline(0, color="#555555", linewidth=0.8)
+        axes[1].set_ylabel("delta vs nearest")
+        axes[1].set_xticks(np.arange(len(kernel_order)))
+        axes[1].set_xticklabels([short[k] for k in kernel_order])
+        axes[1].grid(axis="y", alpha=0.25)
         p = figdir / "fig01_stage_09e_psf_agreement_by_kernel_policy.png"
         fig.savefig(p, dpi=170)
         plt.close(fig)
-        idx.append({"plot_path": str(p), "source_csv": str(kernel_csv), "description": "PSF-like fused agreement by kernel/policy", "created_time_utc": utc_now()})
+        idx.append({"plot_path": str(p), "source_csv": str(kernel_csv), "description": "PSF-like fused agreement and delta by kernel/policy", "created_time_utc": utc_now()})
     bdf = pd.DataFrame(boundary)
     if not bdf.empty:
         b = bdf[(bdf["policy"] == "A_inclusive_binary") & (bdf["threshold"].astype(str) == "0.50")].copy()
         if not b.empty:
-            pivot = b.pivot(index="kernel_name", columns="boundary_scene", values="agreement_weighted")
-            fig, ax = plt.subplots(figsize=(10, 5), constrained_layout=True)
-            pivot.plot(kind="bar", ax=ax)
-            ax.set_ylim(0, 1)
-            ax.set_ylabel("agreement (unitless fraction)")
-            ax.set_title("Stage 09E boundary/scene PSF contrast, Policy A")
+            b["agreement_weighted"] = pd.to_numeric(b["agreement_weighted"], errors="coerce")
+            nearest = b[b["kernel_name"] == "K0_nearest"].set_index("boundary_scene")["agreement_weighted"].to_dict()
+            b["delta_vs_nearest"] = b.apply(lambda r: r["agreement_weighted"] - nearest.get(r["boundary_scene"], np.nan), axis=1)
+            b = b[b["kernel_name"] != "K0_nearest"]
+            scene_order = ["boundary_or_broken_cloud", "non_boundary", "homogeneous_clear", "homogeneous_cloud"]
+            b = b[b["boundary_scene"].isin(scene_order)]
+            pivot = b.pivot(index="kernel_name", columns="boundary_scene", values="delta_vs_nearest").reindex(["K1_box_3x3", "K3_box_7x7", "K5_gaussian_sigma_1p25_cell_radius_5"])
+            fig, ax = plt.subplots(figsize=(10, 5.2), constrained_layout=True)
+            pivot.plot(kind="bar", ax=ax, color=["#e76f51", "#386fa4", "#8ab17d", "#2a9d8f"])
+            ax.axhline(0, color="#555555", linewidth=0.8)
+            ax.set_ylabel("agreement delta vs nearest")
+            ax.set_title("Stage 09E PSF improvement by boundary/scene, Policy A")
+            ax.set_xticklabels(["box 3x3", "box 7x7", "gauss 1.25"], rotation=0)
             ax.grid(axis="y", alpha=0.25)
+            ax.legend(title="scene", fontsize=8)
             p = figdir / "fig02_stage_09e_psf_boundary_scene_agreement.png"
             fig.savefig(p, dpi=170)
             plt.close(fig)
-            idx.append({"plot_path": str(p), "source_csv": str(boundary_csv), "description": "Boundary/scene PSF agreement contrast", "created_time_utc": utc_now()})
+            idx.append({"plot_path": str(p), "source_csv": str(boundary_csv), "description": "Boundary/scene PSF delta vs nearest", "created_time_utc": utc_now()})
     gdf = pd.DataFrame(gap)
     if not gdf.empty:
         g = gdf[(gdf["policy"] == "A_inclusive_binary") & (gdf["threshold"].astype(str) == "0.50")].copy()
         if not g.empty:
-            fig, ax = plt.subplots(figsize=(10, 4.5), constrained_layout=True)
-            ax.plot(g["kernel_name"], pd.to_numeric(g["best_non_meteosat_minus_meteosat"], errors="coerce"), marker="o", color="#e76f51")
-            ax.set_xticklabels(g["kernel_name"], rotation=45, ha="right")
-            ax.set_ylabel("agreement gap (unitless fraction)")
-            ax.set_title("Stage 09E Meteosat gap by PSF-like kernel, Policy A")
-            ax.grid(alpha=0.25)
+            order = ["K0_nearest", "K1_box_3x3", "K3_box_7x7", "K5_gaussian_sigma_1p25_cell_radius_5"]
+            g = g.set_index("kernel_name").reindex(order).reset_index()
+            labels = ["nearest", "box 3x3", "box 7x7", "gauss 1.25"]
+            for col in ["meteosat_agreement", "goes_agreement", "east_asia_agreement", "best_non_meteosat_minus_meteosat", "delta_gap_vs_nearest"]:
+                g[col] = pd.to_numeric(g[col], errors="coerce")
+            fig, axes = plt.subplots(2, 1, figsize=(9.5, 7.0), constrained_layout=True, sharex=True)
+            x = np.arange(len(g))
+            axes[0].plot(x, g["meteosat_agreement"], marker="o", label="Meteosat", color="#e76f51")
+            axes[0].plot(x, g["goes_agreement"], marker="o", label="GOES", color="#386fa4")
+            axes[0].plot(x, g["east_asia_agreement"], marker="o", label="East Asia", color="#2a9d8f")
+            axes[0].set_ylabel("agreement")
+            axes[0].set_title("Stage 09E regional agreement by PSF kernel, Policy A")
+            axes[0].grid(axis="y", alpha=0.25)
+            axes[0].legend(ncol=3, fontsize=9)
+            axes[1].bar(x, g["best_non_meteosat_minus_meteosat"], color="#7a5195", label="gap")
+            axes[1].plot(x, g["delta_gap_vs_nearest"], marker="o", color="#e76f51", label="delta gap vs nearest")
+            axes[1].axhline(0, color="#555555", linewidth=0.8)
+            axes[1].set_ylabel("gap / delta")
+            axes[1].set_xticks(x)
+            axes[1].set_xticklabels(labels)
+            axes[1].grid(axis="y", alpha=0.25)
+            axes[1].legend(fontsize=9)
             p = figdir / "fig03_stage_09e_psf_meteosat_gap.png"
             fig.savefig(p, dpi=170)
             plt.close(fig)
-            idx.append({"plot_path": str(p), "source_csv": str(gap_csv), "description": "Meteosat gap by kernel", "created_time_utc": utc_now()})
+            idx.append({"plot_path": str(p), "source_csv": str(gap_csv), "description": "Regional agreement and Meteosat gap by kernel", "created_time_utc": utc_now()})
     return idx
 
 
@@ -659,50 +704,145 @@ def make_selqc_figures(out: Path, consistency_summary_csv: Path, oracle_summary_
     idx: list[dict[str, str]] = []
     c = pd.read_csv(consistency_summary_csv)
     if not c.empty and "equal_count_fraction_weighted" in c:
-        a = c[c["policy"] == "A_inclusive_binary"]
-        fig, ax = plt.subplots(figsize=(8, 4.5), constrained_layout=True)
-        ax.bar(a["pixel_group"], pd.to_numeric(a["equal_count_fraction_weighted"], errors="coerce"), color="#386fa4")
-        ax.set_ylim(0, 1)
-        ax.set_ylabel("fraction")
-        ax.set_title("Stage 09E valid-source-count consistency, Policy A")
-        ax.tick_params(axis="x", rotation=25)
-        ax.grid(axis="y", alpha=0.25)
+        c = c.copy()
+        c["mismatch_fraction"] = 1 - pd.to_numeric(c["equal_count_fraction_weighted"], errors="coerce")
+        c["available_gt_stage06_fraction_weighted"] = pd.to_numeric(c["available_gt_stage06_fraction_weighted"], errors="coerce")
+        c["available_lt_stage06_fraction_weighted"] = pd.to_numeric(c["available_lt_stage06_fraction_weighted"], errors="coerce")
+        group_order = ["ALL_VALID", "valid_source_count_1", "valid_source_count_ge4"]
+        policy_order = ["A_inclusive_binary", "B_high_confidence_only", "C_uncertainty_aware_3class"]
+        policy_short = {"A_inclusive_binary": "Policy A", "B_high_confidence_only": "Policy B", "C_uncertainty_aware_3class": "Policy C"}
+        colors = {"A_inclusive_binary": "#386fa4", "B_high_confidence_only": "#e76f51", "C_uncertainty_aware_3class": "#2a9d8f"}
+        fig, ax = plt.subplots(figsize=(9.5, 5.2), constrained_layout=True)
+        x = np.arange(len(group_order))
+        width = 0.24
+        floor = 1e-7
+        for i, policy in enumerate(policy_order):
+            sub = c[c["policy"] == policy].set_index("pixel_group").reindex(group_order)
+            vals = sub["mismatch_fraction"].clip(lower=floor)
+            ax.bar(x + (i - 1) * width, vals, width=width, label=policy_short[policy], color=colors[policy])
+            for xpos, raw in zip(x + (i - 1) * width, sub["mismatch_fraction"]):
+                if pd.notna(raw) and raw > 0.001:
+                    ax.text(xpos, raw * 1.15, f"{raw:.3f}", ha="center", va="bottom", fontsize=8)
+        ax.set_yscale("log")
+        ax.set_ylabel("1 - equal_count_fraction (log scale)")
+        ax.set_title("Stage 09E valid-source-count mismatch fraction by policy")
+        ax.set_xticks(x)
+        ax.set_xticklabels(["All valid", "valid count = 1", "valid count >= 4"])
+        ax.grid(axis="y", alpha=0.25, which="both")
+        ax.legend(ncol=3, fontsize=9)
         p = out / "04_figures" / "fig01_stage_09e_selqc_valid_count_consistency.png"
         fig.savefig(p, dpi=170)
         plt.close(fig)
-        idx.append({"plot_path": str(p), "source_csv": str(consistency_summary_csv), "description": "valid_source_count consistency", "created_time_utc": utc_now()})
+        idx.append({"plot_path": str(p), "source_csv": str(consistency_summary_csv), "description": "valid_source_count mismatch fraction by policy", "created_time_utc": utc_now()})
+
+        fig, ax = plt.subplots(figsize=(10.5, 5.2), constrained_layout=True)
+        labels = []
+        gt_vals = []
+        lt_vals = []
+        for policy in policy_order:
+            sub = c[c["policy"] == policy].set_index("pixel_group").reindex(group_order)
+            for group in group_order:
+                labels.append(f"{policy_short[policy]}\n{group.replace('valid_source_count_', 'vc=')}")
+                gt_vals.append(float(sub.loc[group, "available_gt_stage06_fraction_weighted"]))
+                lt_vals.append(float(sub.loc[group, "available_lt_stage06_fraction_weighted"]))
+        x2 = np.arange(len(labels))
+        ax.bar(x2, gt_vals, color="#2a9d8f", label="available > Stage06 count")
+        ax.bar(x2, lt_vals, bottom=gt_vals, color="#e76f51", label="available < Stage06 count")
+        ax.set_ylabel("fraction")
+        ax.set_title("Stage 09E valid-source-count mismatch direction")
+        ax.set_xticks(x2)
+        ax.set_xticklabels(labels, rotation=35, ha="right", fontsize=8)
+        ax.set_ylim(0, 1)
+        ax.grid(axis="y", alpha=0.25)
+        ax.legend(fontsize=9)
+        p = out / "04_figures" / "fig01b_stage_09e_selqc_valid_count_mismatch_direction.png"
+        fig.savefig(p, dpi=170)
+        plt.close(fig)
+        idx.append({"plot_path": str(p), "source_csv": str(consistency_summary_csv), "description": "valid_source_count mismatch direction by policy", "created_time_utc": utc_now()})
     o = pd.read_csv(oracle_summary_csv)
     if not o.empty and "sample_group_regret_weighted" in o:
-        a = o[(o["policy"] == "A_inclusive_binary") & (o["pixel_group"].isin(["ALL_VALID", "valid_source_count_1", "valid_source_count_ge4", "selected_MeteosatIODC"]))]
-        fig, ax = plt.subplots(figsize=(9, 4.8), constrained_layout=True)
-        ax.bar(a["pixel_group"], pd.to_numeric(a["sample_group_regret_weighted"], errors="coerce"), color="#e76f51", label="sample_group_regret")
-        ax.plot(a["pixel_group"], pd.to_numeric(a["pixel_oracle_regret_weighted"], errors="coerce"), marker="o", color="#2a9d8f", label="pixel_oracle_regret")
-        ax.set_ylabel("agreement regret")
-        ax.set_title("Stage 09E oracle granularity comparison, Policy A")
-        ax.tick_params(axis="x", rotation=25)
-        ax.grid(axis="y", alpha=0.25)
-        ax.legend()
+        groups = ["ALL_VALID", "valid_source_count_1", "valid_source_count_ge4", "selected_MeteosatIODC"]
+        a = o[(o["policy"] == "A_inclusive_binary") & (o["pixel_group"].isin(groups))].copy()
+        a = a.set_index("pixel_group").reindex(groups).reset_index()
+        for col in ["current_selected_agreement_weighted", "sample_group_level_best_agreement_weighted", "pixel_level_oracle_agreement_weighted", "sample_group_regret_weighted", "pixel_oracle_regret_weighted"]:
+            a[col] = pd.to_numeric(a[col], errors="coerce")
+        labels = ["All valid", "valid count = 1", "valid count >= 4", "selected IODC"]
+        x = np.arange(len(a))
+        fig, axes = plt.subplots(2, 1, figsize=(10.0, 7.2), constrained_layout=True, sharex=True)
+        width = 0.25
+        axes[0].bar(x - width, a["current_selected_agreement_weighted"], width=width, label="current selected", color="#386fa4")
+        axes[0].bar(x, a["sample_group_level_best_agreement_weighted"], width=width, label="sample-group oracle", color="#e76f51")
+        axes[0].bar(x + width, a["pixel_level_oracle_agreement_weighted"], width=width, label="pixel oracle", color="#2a9d8f")
+        axes[0].set_ylabel("agreement")
+        axes[0].set_title("Stage 09E oracle granularity, Policy A")
+        axes[0].grid(axis="y", alpha=0.25)
+        axes[0].legend(ncol=3, fontsize=9)
+        axes[1].bar(x - width / 2, a["sample_group_regret_weighted"], width=width, label="sample-group regret", color="#e76f51")
+        axes[1].bar(x + width / 2, a["pixel_oracle_regret_weighted"], width=width, label="pixel-oracle regret", color="#2a9d8f")
+        axes[1].axhline(0, color="#555555", linewidth=0.8)
+        axes[1].set_ylabel("agreement regret")
+        axes[1].set_xticks(x)
+        axes[1].set_xticklabels(labels)
+        axes[1].grid(axis="y", alpha=0.25)
+        axes[1].legend(ncol=2, fontsize=9)
         p = out / "04_figures" / "fig02_stage_09e_selqc_oracle_granularity.png"
         fig.savefig(p, dpi=170)
         plt.close(fig)
         idx.append({"plot_path": str(p), "source_csv": str(oracle_summary_csv), "description": "oracle granularity comparison", "created_time_utc": utc_now()})
     s = pd.read_csv(common_summary_csv)
     if not s.empty and "agreement_weighted" in s:
-        a = s[(s["policy"] == "A_inclusive_binary") & (s["pixel_group"].isin(["valid_source_count_ge4", "selected_MeteosatIODC"]))].copy()
-        if not a.empty:
-            a["label"] = a["pixel_group"] + "\n" + a["source_set"] + "\n" + a["source_name"]
-            fig, ax = plt.subplots(figsize=(max(10, 0.35 * len(a)), 5), constrained_layout=True)
-            ax.bar(np.arange(len(a)), pd.to_numeric(a["agreement_weighted"], errors="coerce"), color="#386fa4")
-            ax.set_xticks(np.arange(len(a)))
-            ax.set_xticklabels(a["label"], rotation=65, ha="right", fontsize=7)
-            ax.set_ylim(0, 1)
-            ax.set_ylabel("agreement")
-            ax.set_title("Stage 09E common-valid source comparison, Policy A")
-            ax.grid(axis="y", alpha=0.25)
+        key_rows = [
+            ("valid_source_count_ge4", "valid_count_ge4_all_available", ["FY4B", "Meteosat-IODC"], "vc>=4: FY4B vs IODC"),
+            ("selected_MeteosatIODC", "FY4B_and_IODC", ["FY4B", "Meteosat-IODC"], "selected IODC: FY4B vs IODC"),
+            ("ALL_VALID", "Meteosat0deg_and_GOES16", ["GOES-16", "Meteosat-0deg"], "All valid: GOES16 vs Met0"),
+            ("ALL_VALID", "Himawari_and_IODC", ["Himawari-9", "Meteosat-IODC"], "All valid: Himawari vs IODC"),
+        ]
+        rows = []
+        for pixel_group, source_set, sources, label in key_rows:
+            sub = s[(s["policy"] == "A_inclusive_binary") & (s["pixel_group"] == pixel_group) & (s["source_set"] == source_set)]
+            if sub.empty:
+                continue
+            row = {"comparison": label}
+            for source in sources:
+                hit = sub[sub["source_name"] == source]
+                row[source] = pd.to_numeric(hit["agreement_weighted"], errors="coerce").iloc[0] if not hit.empty else np.nan
+            row["sources"] = sources
+            rows.append(row)
+        if rows:
+            fig, ax = plt.subplots(figsize=(10.0, 5.4), constrained_layout=True)
+            y = np.arange(len(rows))
+            color_map = {"FY4B": "#2a9d8f", "Meteosat-IODC": "#e76f51", "GOES-16": "#386fa4", "Meteosat-0deg": "#7a5195", "Himawari-9": "#8ab17d"}
+            for i, row in enumerate(rows):
+                vals = [(src, row.get(src, np.nan)) for src in row["sources"]]
+                finite = [(src, val) for src, val in vals if pd.notna(val)]
+                if len(finite) == 2:
+                    ax.plot([finite[0][1], finite[1][1]], [i, i], color="#999999", linewidth=1.3, zorder=1)
+                for src, val in finite:
+                    ax.scatter(val, i, s=90, color=color_map.get(src, "#386fa4"), label=src, zorder=2)
+                    xoff = 0.010 if val < 0.72 else -0.010
+                    ha = "left" if val < 0.72 else "right"
+                    ax.text(
+                        val + xoff,
+                        i,
+                        f"{src} {val:.3f}",
+                        va="center",
+                        ha=ha,
+                        fontsize=8,
+                        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.82, "pad": 1.0},
+                    )
+            ax.set_yticks(y)
+            ax.set_yticklabels([r["comparison"] for r in rows])
+            ax.set_xlim(0.3, 0.85)
+            ax.set_xlabel("agreement")
+            ax.set_title("Stage 09E common-valid same-pixel source contrasts, Policy A")
+            ax.grid(axis="x", alpha=0.25)
+            handles, labels = ax.get_legend_handles_labels()
+            unique = dict(zip(labels, handles))
+            ax.legend(unique.values(), unique.keys(), ncol=5, fontsize=8, loc="lower center", bbox_to_anchor=(0.5, -0.18))
             p = out / "04_figures" / "fig03_stage_09e_selqc_common_valid_source_comparison.png"
             fig.savefig(p, dpi=170)
             plt.close(fig)
-            idx.append({"plot_path": str(p), "source_csv": str(common_summary_csv), "description": "common-valid source comparison", "created_time_utc": utc_now()})
+            idx.append({"plot_path": str(p), "source_csv": str(common_summary_csv), "description": "common-valid same-pixel source contrasts", "created_time_utc": utc_now()})
     return idx
 
 
@@ -762,7 +902,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--stage09d-dir", default=str(DEFAULT_STAGE09D_DIR))
     ap.add_argument("--psf-output-dir", default=str(DEFAULT_PSF_OUT))
     ap.add_argument("--selqc-output-dir", default=str(DEFAULT_SELQC_OUT))
-    ap.add_argument("--only", choices=["all", "selqc", "psf_fused", "report"], default="all")
+    ap.add_argument("--only", choices=["all", "selqc", "psf_fused", "report", "figures"], default="all")
     ap.add_argument("--kernel-set", choices=["pilot", "full"], default="pilot")
     ap.add_argument("--min-valid-weight", type=float, default=0.50)
     ap.add_argument("--max-samples", type=int, default=0)
@@ -776,6 +916,25 @@ def run_report_only(args: argparse.Namespace) -> list[Path]:
     psf_boundary = read_csv(psf / "05_boundary_scene_psf" / "stage_09e_psf_metrics_by_boundary_scene.csv")
     psf_gap = read_csv(psf / "06_meteosat_gap_psf" / "stage_09e_psf_meteosat_gap_by_kernel.csv")
     psf_warnings = read_csv(psf / "logs" / "stage_09e_psf_warnings.csv")
+    psf_plot_index = make_psf_figures(
+        psf,
+        psf_by_kernel,
+        psf_boundary,
+        psf_gap,
+        psf / "01_fused_psf_metrics" / "stage_09e_fused_psf_metrics_by_kernel.csv",
+        psf / "05_boundary_scene_psf" / "stage_09e_psf_metrics_by_boundary_scene.csv",
+        psf / "06_meteosat_gap_psf" / "stage_09e_psf_meteosat_gap_by_kernel.csv",
+    )
+    write_csv(psf / "08_figures" / "stage_09e_psf_plot_index.csv", psf_plot_index)
+    sel_plot_index = make_selqc_figures(
+        sel,
+        sel / "01_valid_count_consistency" / "stage_09e_selqc_valid_count_consistency_summary.csv",
+        sel / "02_oracle_granularity" / "stage_09e_selqc_oracle_granularity_summary.csv",
+        sel / "03_common_valid_comparison" / "stage_09e_selqc_common_valid_source_comparison_summary.csv",
+    )
+    write_csv(sel / "04_figures" / "stage_09e_selqc_plot_index.csv", sel_plot_index)
+    if args.only == "figures":
+        return [psf / "08_figures" / "stage_09e_psf_plot_index.csv", sel / "04_figures" / "stage_09e_selqc_plot_index.csv"]
     psf_report = write_psf_report(
         psf,
         psf_by_kernel,
