@@ -47,3 +47,15 @@
 | stage09d_interpretation/answer_stage09d_questions.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | stage09d_interpretation/audit_meteosat_semantics_stage09d.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | stage09d_interpretation/build_stage09d_interpretation_package.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
+| stage_09d_diagnostic_common.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
+| stage_09d_geo_visible_control/stage_09d_vis_postprocess.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
+| stage_09d_geo_visible_control/stage_09d_vis_run.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
+| stage_09d_source_selection_sensitivity/stage_09d_sel_postprocess.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
+| stage_09d_source_selection_sensitivity/stage_09d_sel_run.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
+| stage_09d_vis_sel_joint/stage_09d_vis_sel_joint_report.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
+| stage_09e_psf_sel_qc/stage_09e_run_psf_sel_qc.py | geo_ring_cloud | stage_09e |  | 09e | 当前文件系统扫描补充脚本；推断阶段 09e |  |
+| stage_10_cth_validation/stage_10_qc_audit.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
+| stage_10_cth_validation/stage_10_rewrite_cth_report.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
+| stage_10_cth_validation/stage_10_run_cth_validation.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
+| stage_10p_composite_inventory.py | geo_ring_cloud | stage_10p |  | 10p | 当前文件系统扫描补充脚本；推断阶段 10p |  |
+| stage_10p2_approx_fov_aggregation/run_stage_10p2_approx_fov.py | geo_ring_cloud | stage_10p2 |  | 10p2 | 当前文件系统扫描补充脚本；推断阶段 10p2 |  |

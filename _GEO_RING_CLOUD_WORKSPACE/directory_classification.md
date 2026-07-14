@@ -1,12 +1,12 @@
 | path | relevance | role | file_count | size_text | referenced_by_code | exists_now | move_candidate | path_risk | note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| D:\AAAresearch_paper\data | 强相关 | 原始卫星数据（FY4A/FY4B L1 + FY4B 云产品 CLM/CLP/CLT/CTH/CTP/CTT/GEO + H09_Data） | 4598 | 100.8 GB | 是 | 是 | 否 | keep_in_place | stage1_common.py:27 HIMAWARI_R21_DIR=data/H09_Data；06f 扫描 data/ |
-| D:\AAAresearch_paper\data_check_report | 强相关 | 前序数据审计报告（REPORT_ROOT，00-00f 阶段证据源） | 185 | 872.3 MB | 是 | 是 | 否 | keep_in_place | stage1_common.py:25 REPORT_ROOT；PARSED_METADATA/MAPPING_YAML 等 |
+| D:\AAAresearch_paper\data | 强相关 | 原始卫星数据（FY4A/FY4B L1 + FY4B 云产品 CLM/CLP/CLT/CTH/CTP/CTT/GEO + H09_Data） | 4650 | 102.1 GB | 是 | 是 | 否 | keep_in_place | stage1_common.py:27 HIMAWARI_R21_DIR=data/H09_Data；06f 扫描 data/ |
+| D:\AAAresearch_paper\data_check_report | 强相关 | 前序数据审计报告（REPORT_ROOT，00-00f 阶段证据源） | 242 | 886.6 MB | 是 | 是 | 否 | keep_in_place | stage1_common.py:25 REPORT_ROOT；PARSED_METADATA/MAPPING_YAML 等 |
 | D:\AAAresearch_paper\geo_geometry_check | 强相关 | 几何校验样本（download_geo_geometry_samples.py 产物 + 06c/06d 审计） | 50 | 1.3 GB | 是 | 是 | 否 | keep_in_place | download_geo_geometry_samples.py:22 OUT_ROOT；06c/06d/06e 引用 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1 | 强相关 | Stage1 主产物根目录（STAGE_ROOT） | 816 | 6.3 GB | 是 | 是 | 否 | keep_in_place | standardized_native/reprojected_grid/fused_best_source/overlap_validation/reports 等产物 + scripts 副本 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack | 强相关 | Stage1 证据包（latest + 10 snapshots） | 264 | 471.2 KB | 是 | 是 | 否 | keep_in_place | rebuild_stage1_evidence_pack.py:EVIDENCE_ROOT 产出 |
-| D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | 强相关 | 多时次运行目录（48 批次 + 5 EPIC 专题） | 32286 | 149.7 GB | 是 | 是 | 否 | keep_in_place | 08e/08f/08g/08h/08i/08j/09 等脚本以 RUNS_ROOT 引用 |
-| D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 | 强相关 | Stage1 主代码（41 个 .py，01-09 全流水线） | 51 | 1.2 MB | 是 | 是 | 否 | keep_in_place | ring cloud 真正的代码源；产物写到根 geo_ring_cloud_stage1/ |
+| D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | 强相关 | 多时次运行目录（48 批次 + 5 EPIC 专题） | 32615 | 149.8 GB | 是 | 是 | 否 | keep_in_place | 08e/08f/08g/08h/08i/08j/09 等脚本以 RUNS_ROOT 引用 |
+| D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 | 强相关 | Stage1 主代码（41 个 .py，01-09 全流水线） | 63 | 1.5 MB | 是 | 是 | 否 | keep_in_place | ring cloud 真正的代码源；产物写到根 geo_ring_cloud_stage1/ |
 | D:\AAAresearch_paper\third_report\Satellite_Data_20240312 | 上游相关 | 2024-03-12 主数据集快照（六星原生 + standardized_L1 样例 + reprojected 旧版） | 8741 | 122.4 GB | 间接 | 是 | 否 | keep_in_place | 含 channel_mapping/standardized_L1_source 等 |
 | D:\AAAresearch_paper\third_report\code\FY4B | 上游相关 | FY4B/AGRI standardized_L1 builder + 探查/预览 | 25 | 25.1 MB | 间接 | 是 | 否 | keep_in_place | 产出 standardized_L1_source 供 stage1 输入 |
 | D:\AAAresearch_paper\third_report\code\GOES | 上游相关 | GOES-16/18/ABI standardized_L1 builder | 18 | 14.2 MB | 间接 | 是 | 否 | keep_in_place | 同上 |
@@ -14,7 +14,7 @@
 | D:\AAAresearch_paper\third_report\code\L1g | 上游相关 | standardized_L1_source 规范 + 全球 0.05° 网格规范 | 4 | 60.9 KB | 间接 | 是 | 否 | keep_in_place | ring cloud 上游标准化层规范文档 |
 | D:\AAAresearch_paper\third_report\code\Meteosat | 上游相关 | Meteosat-9/10/SEVIRI standardized_L1 builder | 14 | 8.4 MB | 间接 | 是 | 否 | keep_in_place | 同上 |
 | D:\AAAresearch_paper\third_report\code\geo_cloud_download | 上游相关 | GEO 云产品下载器（EUMETSAT API + S3） | 23 | 116.2 KB | 间接 | 是 | 否 | keep_in_place | 下载原始云产品到 data/ 与 E 盘 |
-| D:\AAAresearch_paper\third_report\code\geo_data_audit | 上游相关 | 数据审计脚本（前序审计 00-00f 的执行代码） | 16 | 425.2 KB | 间接 | 是 | 否 | keep_in_place | audit_geometry_and_variables.py 等产出 data_check_report |
+| D:\AAAresearch_paper\third_report\code\geo_data_audit | 上游相关 | 数据审计脚本（前序审计 00-00f 的执行代码） | 17 | 479.3 KB | 间接 | 是 | 否 | keep_in_place | audit_geometry_and_variables.py 等产出 data_check_report |
 | D:\AAAresearch_paper\third_report\code\plot_geo_satellite_coverage.py | 上游相关 | 六星地球覆盖边界图 | 1 | 4.2 KB | 间接 | 是 | 否 | keep_in_place |  |
 | D:\AAAresearch_paper\third_report\code\preview_baselines | 上游相关 | 基线预览图索引 | 13 | 20.8 MB | 间接 | 是 | 否 | keep_in_place | 六星基线 quicklook |
 | D:\AAAresearch_paper\third_report\code\preview_runner.py | 上游相关 | 预览批处理入口 | 1 | 2.6 KB | 间接 | 是 | 否 | keep_in_place |  |

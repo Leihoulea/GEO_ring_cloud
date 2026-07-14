@@ -53,7 +53,7 @@ AMBIGUOUS_STAGE_PATTERNS = [
 ]
 
 CANONICAL_STAGE_PATTERN = re.compile(
-    r"(^|[\\/._-])stage_\d{2}(?:_[0-9]+|[a-z]+|_[a-z0-9]+)?($|[\\/._-])"
+    r"(^|[\\/._-])stage_\d{2}(?:_[0-9]+|[a-z0-9]+|_[a-z0-9]+)?($|[\\/._-])"
 )
 
 DANGEROUS_PATH_PATTERNS = [
@@ -124,9 +124,13 @@ def staged_paths() -> tuple[list[str], set[str]]:
     return paths, added
 
 
-def all_repo_candidate_paths() -> list[str]:
-    result = run_git(["ls-files", "-co", "--exclude-standard", "-z"])
-    return [p for p in result.stdout.split("\0") if p]
+def all_repo_candidate_paths() -> tuple[list[str], set[str]]:
+    tracked = run_git(["ls-files", "-z"])
+    untracked = run_git(["ls-files", "-o", "--exclude-standard", "-z"])
+    tracked_paths = [p for p in tracked.stdout.split("\0") if p]
+    untracked_paths = [p for p in untracked.stdout.split("\0") if p]
+    paths = sorted(set(tracked_paths + untracked_paths))
+    return paths, set(untracked_paths)
 
 
 def read_text(rel_path: str) -> str | None:
@@ -226,8 +230,9 @@ def main() -> int:
     if args.staged:
         paths, added = staged_paths()
     else:
-        paths = all_repo_candidate_paths()
-        added = set(paths) if not baseline_mode else set()
+        paths, added = all_repo_candidate_paths()
+        if baseline_mode:
+            added = set()
 
     findings: list[Finding] = []
     findings.extend(check_naming(paths, added, baseline_mode=baseline_mode))

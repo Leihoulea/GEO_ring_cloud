@@ -102,6 +102,16 @@ def infer_stage_from_name(rel_name: str) -> str:
     base = Path(name).name
     if base == "stage1_common.py":
         return "公共"
+    if base.startswith("stage_10p2_") or name.startswith("stage_10p2_") or "/stage_10p2_" in name:
+        return "10p2"
+    if base.startswith("stage_10p_") or name.startswith("stage_10p_") or "/stage_10p_" in name:
+        return "10p"
+    if base.startswith("stage_10_") or name.startswith("stage_10_") or "/stage_10_" in name or "/stage_10_cth_validation/" in name:
+        return "10"
+    if base.startswith("stage_09e_") or name.startswith("stage_09e_") or "/stage_09e_" in name:
+        return "09e"
+    if base.startswith("stage_09d_") or name.startswith("stage_09d_") or "/stage_09d_" in name:
+        return "09d"
     if base.startswith("stage09d_") or name.startswith("stage09d_") or "/stage09d_" in name:
         return "09d"
     if base.startswith("stage09c_") or name.startswith("stage09c_") or "/stage09c_" in name:
@@ -345,6 +355,11 @@ COMPONENT_ROLES = {
     "": "support",
 }
 ARTIFACT_STAGE_HINTS = {
+    "stage_10p2": "stage_10p2",
+    "stage_10p": "stage_10p",
+    "stage_10_cth_validation": "stage_10",
+    "stage_10_": "stage_10",
+    "stage_09e": "stage_09e",
     "core_time_index": "stage_01",
     "standardized_native_build": "stage_02",
     "standardized_native_validate": "stage_03",
@@ -709,13 +724,18 @@ def insert_stage_registry(conn: sqlite3.Connection) -> None:
                     "notes": "Script-derived canonical stage not present in original pipeline table",
                 }
 
-    # Current Stage09d code was discovered from the file system and must be first-class in the registry.
+    # Current post-Stage09 diagnostic code discovered from the file system must be first-class in the registry.
     for canonical, name, evidence in [
         ("stage_09b", "Stage 09b full overnight diagnostics", "geo_ring_cloud_stage1_time_runs/stage09b_full_202403_overnight_diagnostics"),
         ("stage_09c", "Stage 09c scaled March batch", "geo_ring_cloud_stage1_time_runs/stage09c_scaled_202403_batch"),
         ("stage_09d", "Stage 09d full-pixel diagnostics and interpretation", "geo_ring_cloud_stage1_time_runs/stage09d_full_pixel_diagnostics_202403"),
+        ("stage_09e", "Stage 09e PSF-like EPIC-view spatial representativeness and SEL-QC diagnostics", "geo_ring_cloud_stage1_time_runs/stage_09e_psf_aware_epic_view_202403,geo_ring_cloud_stage1_time_runs/stage_09e_sel_qc_common_valid_202403"),
+        ("stage_10", "Stage 10 fused CTH validation and mechanism diagnostics", "geo_ring_cloud_stage1_time_runs/stage_10_cth_fused_product_validation_202403"),
+        ("stage_10p", "Stage 10p EPIC Composite PSF-aware inventory", "geo_ring_cloud_stage1_time_runs/stage_10p_psf_inventory_202401"),
+        ("stage_10p2", "Stage 10p2 approximate EPIC FOV aggregation diagnostics", "geo_ring_cloud_stage1_time_runs/stage_10p2_approx_epic_fov_aggregation_202403"),
     ]:
         key = (PROJECT_ID, canonical)
+        collision_guard = "epic_ceres.stage_09,epic_ceres.stage_09_5" if canonical.startswith("stage_09") else ""
         rows.setdefault(key, {
             "project_id": PROJECT_ID,
             "canonical_stage_id": canonical,
@@ -725,14 +745,15 @@ def insert_stage_registry(conn: sqlite3.Connection) -> None:
             "stage_order": stage_sort_key(canonical),
             "name": name,
             "meaning": name,
-            "input": "Stage09 / time_runs outputs",
+            "input": "Stage09 / Stage10 / time_runs outputs",
             "output": evidence,
             "status": "",
             "evidence_paths": evidence,
-            "do_not_merge_with": "epic_ceres.stage_09,epic_ceres.stage_09_5",
-            "notes": "Current filesystem-derived Stage09 extension",
+            "do_not_merge_with": collision_guard,
+            "notes": "Current filesystem-derived diagnostic extension",
         })
-        rows[key]["do_not_merge_with"] = "epic_ceres.stage_09,epic_ceres.stage_09_5"
+        if collision_guard:
+            rows[key]["do_not_merge_with"] = collision_guard
         if evidence not in rows[key]["evidence_paths"]:
             rows[key]["evidence_paths"] = (rows[key]["evidence_paths"] + "," + evidence).strip(",")
 
@@ -772,7 +793,7 @@ def insert_stage_registry(conn: sqlite3.Connection) -> None:
             "output": "",
             "status": "archived",
             "evidence_paths": str(ARCHIVE_DIR / "third_report"),
-            "do_not_merge_with": "geo_ring_cloud.stage_09,geo_ring_cloud.stage_09b,geo_ring_cloud.stage_09c,geo_ring_cloud.stage_09d",
+            "do_not_merge_with": "geo_ring_cloud.stage_09,geo_ring_cloud.stage_09b,geo_ring_cloud.stage_09c,geo_ring_cloud.stage_09d,geo_ring_cloud.stage_09e",
             "notes": notes,
         }
 
