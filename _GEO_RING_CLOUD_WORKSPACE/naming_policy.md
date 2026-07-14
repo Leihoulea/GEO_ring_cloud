@@ -4,14 +4,16 @@
 
 - Use `project_id + canonical_stage_id` for every stage decision.
 - Main project namespace: `geo_ring_cloud`.
-- Stage IDs use lowercase ASCII: `stage_00`, `stage_03_5`, `stage_06c`, `stage_07p_b`, `stage_07v2`, `stage_09d`.
+- Stage IDs use lowercase ASCII: `stage_00`, `stage_03_5`, `stage_06c`, `stage_07p_b`, `stage_07v2`, `stage_09d`, `stage_10p2`.
 - Do not use `Step` for project-level phases. `Step` may only describe an internal procedure inside a script or report.
 
 ## New file and directory names
 
 - Prefix new stage-owned files with the canonical stage ID, for example `stage_09d_full_pixel_diagnostics_report.md`.
+- New stage-owned directories must also use the canonical stage ID, for example `stage_10p2_approx_fov_aggregation`.
 - Put substep numbers after the stage directory or in report sections, for example `stage_09d/00_sample_manifest`.
-- Shared utilities should use `component_role`, not a fake stage: `shared_library`, `runner`, `downloader`, `evidence_pack_builder`, `summary_helper`.
+- Shared utilities must use `geo_ring_cloud_<role>_<purpose>.py` and `component_role`, not a fake stage: `shared_library`, `runner`, `downloader`, `evidence_pack_builder`, `summary_helper`.
+- Do not create new `Step*`, `stage10*`, `Stage10*`, `09_stage*`, or numeric-prefix stage names.
 
 ## Collision rules
 
@@ -22,3 +24,9 @@
 ## Migration rule
 
 Historical files are not renamed by default. Rename only after code references, evidence references, and a rollback manifest are checked.
+
+## Enforcement rule
+
+- Newly added non-canonical stage names are errors.
+- Existing historical names remain warnings during normal checks.
+- Use `python _GEO_RING_CLOUD_INDEX\governance_check.py --all --strict` for strict audit mode.

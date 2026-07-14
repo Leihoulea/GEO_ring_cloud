@@ -1,0 +1,38 @@
+# GEO-ring Cloud Engineering Policy
+
+This document is the enforceable engineering contract for Geo Ring Cloud work.
+It applies to humans and AI agents.
+
+## Required workflow
+
+- MUST check `stage_registry.md`, `artifact_index.md`, and the SQLite index before creating new code or reports.
+- MUST reuse existing scripts, manifests, reports, and products when they already answer the task.
+- MUST decide the `project_id + canonical_stage_id` before naming files.
+- MUST run `python _GEO_RING_CLOUD_INDEX\build_index.py` after adding or changing stage scripts.
+- MUST run `python _GEO_RING_CLOUD_INDEX\governance_check.py --staged` before commit.
+
+## Naming and identity
+
+- MUST use canonical stage IDs for new stage-owned files, such as `stage_10p2_approx_fov_report.md`.
+- MUST NOT create new `Step*`, `stage10*`, `Stage10*`, or `10_stage*` names.
+- MUST use `geo_ring_cloud_<role>_<purpose>.py` for new non-stage core utilities.
+- MUST NOT treat `geo_ring_cloud.stage_09` and `epic_ceres.stage_09` as the same stage.
+
+## Output lineage
+
+- New stage outputs MUST include a manifest with `project_id`, `canonical_stage_id`, generating script, inputs, outputs, parameters, timestamp, and commit when available.
+- Reports SHOULD be Chinese-first, with English retained for technical terms and variable names.
+- Key outputs SHOULD include concise CSV/Markdown indexes instead of relying only on directory names.
+
+## Path and artifact rules
+
+- Core code MUST use `path_config.py` or environment-variable overrides for project paths.
+- New core code MUST NOT hard-code `D:\AAAresearch_paper\...` unless explicitly allowlisted.
+- Core code MUST NOT depend on `_NON_GEO_ARCHIVE`, `second_report`, `forth`, or EPIC-CERES code/output paths.
+- Raw data, time runs, evidence packs, SQLite/XLSX indexes, PPTX, images, NetCDF/HDF/HDF5, NPZ, and other large generated artifacts MUST stay out of Git by default.
+
+## Enforcement levels
+
+- New violations are errors in the staged governance check.
+- Historical naming and path debt remains warnings unless `--strict` is used.
+- Historical warnings should be cleaned in dedicated cleanup work, not opportunistically mixed into scientific changes.

@@ -1,117 +1,133 @@
 ---
 name: geo-ring-cloud-governance
-description: Use when working in D:\AAAresearch_paper on the Geo Ring Cloud project, especially before adding code, reports, artifacts, or commits. Guides Codex to query the project memory index, reuse existing stage scripts/results, follow canonical stage naming, run governance checks, and commit cleanly.
-metadata:
-  short-description: Geo Ring Cloud project memory and governance workflow
+description: Enforce Geo Ring Cloud project governance in D:\AAAresearch_paper. Use before adding, editing, moving, naming, indexing, committing, or reviewing Geo Ring Cloud code, scripts, reports, manifests, artifacts, stage taxonomy, paths, or Git changes. Requires querying the project memory index, reusing existing work, following canonical stage IDs, writing run/artifact lineage, and passing governance checks.
 ---
 
 # Geo Ring Cloud Governance
 
-Use this skill for any task in `D:\AAAresearch_paper` that touches Geo Ring
-Cloud code, reports, artifacts, stage naming, indexing, Git commits, or project
-organization.
+Use this skill for any Geo Ring Cloud work in `D:\AAAresearch_paper`.
+Treat it as an engineering contract, not guidance.
 
-## Operating Rule
+## Required Order
 
-Do not start by writing new code. First identify whether the project already has
-usable code, reports, artifacts, or stage definitions.
+MUST do these steps before writing or moving files:
 
-## Canonical Entry Points
+1. Read `_GEO_RING_CLOUD_WORKSPACE/README.md`.
+2. Read `_GEO_RING_CLOUD_WORKSPACE/engineering_policy.md`.
+3. Check `_GEO_RING_CLOUD_WORKSPACE/stage_registry.md`.
+4. Check `_GEO_RING_CLOUD_WORKSPACE/artifact_index.md`.
+5. Query `_GEO_RING_CLOUD_INDEX/geo_ring_cloud_index.sqlite` when a precise lookup is cheaper than broad file search.
+6. Search focused code paths with `rg` only after the index/workspace checks.
 
-Read these first, in this order, only as much as needed:
-
-1. `D:\AAAresearch_paper\_GEO_RING_CLOUD_WORKSPACE\README.md`
-2. `D:\AAAresearch_paper\_GEO_RING_CLOUD_WORKSPACE\stage_registry.md`
-3. `D:\AAAresearch_paper\_GEO_RING_CLOUD_WORKSPACE\artifact_index.md`
-4. `D:\AAAresearch_paper\_GEO_RING_CLOUD_WORKSPACE\naming_policy.md`
-5. `D:\AAAresearch_paper\_GEO_RING_CLOUD_WORKSPACE\git_governance.md`
-
-The canonical SQLite memory database is:
-
-```text
-D:\AAAresearch_paper\_GEO_RING_CLOUD_INDEX\geo_ring_cloud_index.sqlite
-```
-
-Prefer precise SQLite queries over broad filesystem scans.
-
-## Search Order
-
-1. Check `stage_registry` for the canonical stage.
-2. Check `artifact_index` for existing reports, CSV/JSON/XLSX, scripts, and key directories.
-3. Check `scripts` for reusable stage scripts or component-role utilities.
-4. Use `rg` only in focused directories:
-   - `D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1`
-   - `D:\AAAresearch_paper\_GEO_RING_CLOUD_INDEX`
-   - `D:\AAAresearch_paper\_GEO_RING_CLOUD_WORKSPACE`
-
-Do not scan raw data, time-run outputs, evidence packs, or `_NON_GEO_ARCHIVE`
-unless the task specifically requires it.
+MUST NOT scan raw data, time-run outputs, evidence packs, or `_NON_GEO_ARCHIVE`
+unless the task explicitly requires those artifacts.
 
 ## Stage Identity
 
-Use `project_id + canonical_stage_id`; never globally merge similar labels.
+MUST use `project_id + canonical_stage_id`.
 
-Examples:
+Valid examples:
 
 ```text
-geo_ring_cloud.stage_09
 geo_ring_cloud.stage_09d
+geo_ring_cloud.stage_10
+geo_ring_cloud.stage_10p2
 epic_ceres.stage_09
 ```
 
-`geo_ring_cloud.stage_09` is not the same thing as `epic_ceres.stage_09`.
+MUST NOT globally merge labels such as `Step9`, `Stage09`, `stage09`, and
+`09_stage09`. Treat them as legacy aliases or violations unless the registry
+explicitly maps them.
 
-Historical labels such as `Step9`, `Stage09`, `stage09`, and `09_stage09` are
-legacy aliases or naming violations unless the registry explicitly maps them.
+## Naming Contract
 
-## Naming Rules
-
-New stage-owned files must use canonical stage IDs:
-
-```text
-stage_09d_visible_filter_audit.py
-stage_09d_visible_filter_summary.csv
-stage_09d_visible_filter_report.md
-stage_09d_visible_filter_manifest.json
-```
-
-Avoid new names such as:
+MUST name new stage-owned files and directories with canonical stage IDs:
 
 ```text
-step9_report.md
-Stage09D_result.csv
-09_stage09_notes.md
+stage_10p2_approx_fov_report.md
+stage_10p2_approx_fov_manifest.json
+stage_10p2_approx_fov_matches.csv
 ```
 
-Shared utilities should use a project/component name, not a fake stage:
+MUST NOT create new names such as:
 
 ```text
-geo_ring_cloud_path_audit.py
-geo_ring_cloud_artifact_lineage.py
+step10_report.md
+stage10p2_result.csv
+10_stage10_notes.md
 ```
 
-## Path Rules
+New non-stage utilities in Geo Ring Cloud core code MUST use:
 
-Geo Ring Cloud code should use `path_config.py` or environment-variable
-overrides for project paths. Do not add new hard-coded absolute paths unless
-there is a clear, documented reason.
+```text
+geo_ring_cloud_<role>_<purpose>.py
+```
 
-Do not make Geo Ring Cloud core code depend on `_NON_GEO_ARCHIVE`.
+Do not invent fake stages for runners, downloaders, evidence-pack builders,
+summaries, or shared helpers. Use `component_role` for those.
 
-## Commit Workflow
+## Output Contract
 
-Before commit:
+For new stage outputs, MUST create a run or artifact manifest containing at
+minimum:
+
+- `project_id`
+- `canonical_stage_id`
+- generating script path
+- input paths or artifact IDs
+- output paths
+- parameter summary
+- timestamp
+- code commit when available
+
+MUST produce human-readable reports primarily in Chinese, with English retained
+for technical names such as `CPD`, `COT`, `CTH`, `PSF`, and variable names.
+
+MUST NOT commit raw data, time-run products, generated SQLite/XLSX, PowerPoint
+files, quicklook images, NetCDF/HDF/HDF5, NPZ, or other large generated
+artifacts unless a narrow allowlist is explicitly added.
+
+## Path Contract
+
+Geo Ring Cloud core code MUST use `path_config.py` or environment-variable
+overrides for project paths.
+
+MUST NOT add new hard-coded `D:\AAAresearch_paper\...` paths outside the
+allowlist.
+
+MUST NOT make Geo Ring Cloud core code depend on `_NON_GEO_ARCHIVE`,
+`second_report`, `forth`, `third_report/code/epic_ceres`, or
+`third_report/outputs/epic_ceres*`.
+
+## Index And Git Contract
+
+After adding or changing stage scripts, MUST run:
 
 ```powershell
-python D:\AAAresearch_paper\_GEO_RING_CLOUD_INDEX\governance_check.py --staged
+python _GEO_RING_CLOUD_INDEX\build_index.py
 ```
 
-Commit messages should name the stage or component and the purpose:
+MUST stage updated workspace Markdown when stage code changes, especially:
 
 ```text
-Add stage_09d visible-filter diagnostics
-Update geo_ring_cloud artifact index governance
+_GEO_RING_CLOUD_WORKSPACE/stage_registry.md
+_GEO_RING_CLOUD_WORKSPACE/artifact_index.md
 ```
 
-If the check reports historical warnings only, do not rewrite history just to
-silence them. Fix new violations introduced by the current task.
+Before committing, MUST run:
+
+```powershell
+python _GEO_RING_CLOUD_INDEX\governance_check.py --staged
+```
+
+Commit messages MUST include a canonical stage ID or component role, for
+example:
+
+```text
+Add stage_10p2 FOV aggregation diagnostics
+Update geo_ring_cloud governance enforcement
+```
+
+Historical warnings are not a reason to rewrite legacy files. Fix only the
+new violations introduced by the current task unless the user asks for a
+dedicated cleanup.

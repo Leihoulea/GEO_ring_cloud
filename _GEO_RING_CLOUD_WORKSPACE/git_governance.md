@@ -28,6 +28,12 @@ Before each commit, Git runs:
 python _GEO_RING_CLOUD_INDEX/governance_check.py --staged
 ```
 
+Before accepting a commit message, Git runs:
+
+```text
+python _GEO_RING_CLOUD_INDEX/governance_check.py --commit-msg <message-file>
+```
+
 The first commit is treated as the historical baseline. During that baseline,
 legacy naming issues are warnings. After the baseline commit exists, newly added
 files with ambiguous stage/step naming become errors.
@@ -35,9 +41,17 @@ files with ambiguous stage/step naming become errors.
 ## Current Enforcement Scope
 
 - Blocks newly added ambiguous stage/step names after the baseline commit.
+- Blocks newly added stage-owned core scripts whose path and `STAGE_ID` /
+  `PROJECT_STAGE_ID` disagree.
+- Blocks newly added non-stage core utilities unless their filename starts with
+  `geo_ring_cloud_`.
 - Checks Geo Ring Cloud core code for references to archived or non-Geo paths.
-- Warns on hard-coded `D:/AAAresearch_paper/...` paths so they can be migrated
-  gradually to `path_config.py` or environment overrides.
+- Blocks newly staged generated or large artifacts such as SQLite/XLSX, PPTX,
+  NPZ, NetCDF/HDF/HDF5, PDF, and image files.
+- Blocks commit messages that do not name a canonical stage ID or project
+  component role.
+- Warns on historical hard-coded `D:/AAAresearch_paper/...` paths so they can
+  be migrated gradually to `path_config.py` or environment overrides.
 
 ## Naming Direction
 
@@ -54,4 +68,13 @@ Avoid new project-level names such as:
 step9_report.md
 Stage09D_result.csv
 09_stage09_notes.md
+```
+
+## Strict Audit
+
+Normal checks use gradual enforcement: new violations are errors and historical
+debt remains warnings. For manual audits, run:
+
+```text
+python _GEO_RING_CLOUD_INDEX/governance_check.py --all --strict
 ```

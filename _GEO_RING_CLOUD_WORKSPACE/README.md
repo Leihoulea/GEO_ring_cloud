@@ -1,6 +1,6 @@
 # GEO-ring Cloud Workspace
 
-Generated: `2026-07-14T01:48:04Z`
+Generated: `2026-07-14T02:05:40Z`
 
 This folder is a lightweight control surface for the GEO-ring Cloud project. It intentionally does not copy large data products.
 
@@ -23,3 +23,4 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 - `artifact_index.md`: project memory index for key reports, tables, configs, workbooks, scripts, and directory summaries.
 - `legacy_aliases.md`: legacy labels mapped to canonical stage IDs.
 - `naming_policy.md`: naming rules for new work and known non-canonical labels.
+- `engineering_policy.md`: enforceable engineering contract for humans and AI agents.
