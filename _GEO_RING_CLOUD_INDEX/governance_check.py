@@ -106,6 +106,7 @@ CORE_CODE_PREFIX = "third_report/code/geo_ring_cloud_stage1/"
 WORKSPACE_INDEX_DOCS = {
     "_GEO_RING_CLOUD_WORKSPACE/stage_registry.md",
     "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md",
+    "_GEO_RING_CLOUD_WORKSPACE/data_product_audits.md",
 }
 COMMIT_MESSAGE_TOKEN = re.compile(
     r"\b(stage_\d{2}(?:_[0-9]+|[a-z0-9]+|_[a-z0-9]+)?|geo_ring_cloud|governance|index|artifact|skill|path_config|data_audit|research_tracker)\b",

@@ -352,6 +352,7 @@ COMPONENT_ROLES = {
     "下载": "downloader",
     "证据包": "evidence_pack_builder",
     "汇总": "summary_helper",
+    "data_product_audit": "data_product_audit",
     "": "support",
 }
 ARTIFACT_STAGE_HINTS = {
@@ -397,6 +398,41 @@ ARTIFACT_STAGE_HINTS = {
     "stage09d": "stage_09d",
     "stage09": "stage_09",
 }
+
+DATA_PRODUCT_AUDIT_OVERRIDES = {
+    "audit_geometry_and_variables.py": ("GEO cloud products", "geometry and variable inventory", "stage_00c", "generic product capability audit"),
+    "check_download_completeness.py": ("GEO raw/cloud products", "download completeness", "stage_00", "data availability audit"),
+    "claas3_202403_audit.py": ("CLAAS3", "structure and availability", "stage_00d", "Meteosat upstream product audit"),
+    "compare_claas3_and_operational_meteosat.py": ("CLAAS3 / operational Meteosat", "cross-product comparison", "stage_00d", "Meteosat product family comparison"),
+    "deep_claas3_structure_audit.py": ("CLAAS3", "deep product structure", "stage_00d", "Meteosat product structure audit"),
+    "fy4b_cpd_product_inspection.py": ("FY4B CPD", "product structure, variables, flags, quicklook readiness", "", "generic FY4B CPD product inspection"),
+    "latest_fy4b_goes_structure_probe.py": ("FY4B / GOES", "latest structure probe", "stage_00b,stage_00c", "cross-satellite sample probe"),
+    "make_claas3_operational_visual_check_20240305.py": ("CLAAS3 / operational Meteosat", "visual check", "stage_00d", "representative visual audit"),
+    "manual_variable_mapping_by_product.yaml": ("GEO cloud products", "manual variable mapping", "stage_00c,stage_02", "audit-derived mapping config"),
+    "meteosat_catalogue_discovery.py": ("Meteosat", "catalogue discovery", "stage_00d", "upstream catalogue audit"),
+    "meteosat_priority_cloud_download.py": ("Meteosat", "priority download", "stage_00f", "download planning utility"),
+    "meteosat_product_series_audit.py": ("Meteosat", "product series audit", "stage_00d", "product series discovery"),
+    "probe_claas3_downloaded_data.py": ("CLAAS3", "downloaded data probe", "stage_00d", "local downloaded product probe"),
+    "probe_meteosat_grib_cfgrib.py": ("Meteosat GRIB", "cfgrib read probe", "stage_00d", "format read probe"),
+    "read_one_sample_each_product.py": ("GEO cloud products", "one-sample read", "stage_00b", "sample-level product read audit"),
+    "rewrite_meteosat_catalogue_report.py": ("Meteosat", "catalogue report rewrite", "stage_00d", "report postprocess"),
+    "standardize_one_time_cloud_v0.py": ("GEO cloud products", "one-time standardization prototype", "stage_00e", "prototype standardization audit"),
+}
+
+STAGE_SCOPED_DATA_PRODUCT_AUDITS = [
+    {
+        "audit_id": "stage_10p_epic_composite_psf_inventory",
+        "primary_path": str(ROOT / "third_report/code/geo_ring_cloud_stage1/stage_10p_composite_inventory.py"),
+        "canonical_stage_id": "stage_10p",
+        "related_stage_ids": "stage_10,stage_10p",
+        "data_domain": "DSCOVR EPIC",
+        "product_family": "EPIC L2 COMPOSITE_02 / PSF-aware benchmark evidence",
+        "audit_scope": "Composite file, variable, global-attribute, keyword, and cloud-property candidate inventory",
+        "status": "active",
+        "output_root": str(ROOT / "geo_ring_cloud_stage1_time_runs/stage_10p_psf_inventory_202401"),
+        "notes": "Primary role is data_product_audit; related to Stage 10 validation but not a production pipeline transform",
+    },
+]
 
 
 def canonical_stage_id(label: str) -> str:
@@ -457,6 +493,8 @@ def infer_canonical_from_path(path: Path) -> tuple[str, str, str]:
     """Infer project, canonical stage, and legacy stage label from a path."""
     text = str(path).replace("\\", "/").lower()
     name = path.name.lower()
+    if "/third_report/code/geo_data_audit/" in text or text.endswith("/third_report/code/geo_data_audit"):
+        return PROJECT_ID, "", "data_product_audit"
     if "_non_geo_archive" in text and "epic_ceres" in text:
         if "stage9_5" in text or "stage_9_5" in text or "run_stage_9_5" in text:
             return "epic_ceres", "stage_09_5", "epic_ceres_stage9_5"
@@ -495,6 +533,23 @@ def infer_canonical_from_path(path: Path) -> tuple[str, str, str]:
             return PROJECT_ID, canonical, stage
     return PROJECT_ID, "", ""
 
+
+def component_role_for_path(path: Path, canonical: str, legacy: str) -> str:
+    text = str(path).replace("\\", "/").lower()
+    name = path.name.lower()
+    if "/third_report/code/geo_data_audit/" in text or text.endswith("/third_report/code/geo_data_audit"):
+        return "data_product_audit"
+    if name == "stage_10p_composite_inventory.py" or "stage_10p_psf_inventory" in text:
+        return "data_product_audit"
+    return "" if canonical else COMPONENT_ROLES.get(legacy, "")
+
+
+def component_role_for_script(rel_name: str, canonical: str) -> str:
+    normalized = rel_name.replace("\\", "/").lower()
+    if normalized == "stage_10p_composite_inventory.py":
+        return "data_product_audit"
+    return "" if canonical else "support"
+
 # ---------------------------------------------------------------------------
 # 7. 主流程：扫描 → 建 sqlite → 导出 xlsx
 # ---------------------------------------------------------------------------
@@ -512,6 +567,7 @@ def create_schema(conn):
     DROP TABLE IF EXISTS stage_registry;
     DROP TABLE IF EXISTS stage_aliases;
     DROP TABLE IF EXISTS artifact_index;
+    DROP TABLE IF EXISTS data_product_audits;
     DROP TABLE IF EXISTS naming_violations;
     DROP TABLE IF EXISTS meta;
 
@@ -595,6 +651,21 @@ def create_schema(conn):
         summary TEXT,
         trace_source TEXT
     );
+    CREATE TABLE data_product_audits (
+        id INTEGER PRIMARY KEY,
+        project_id TEXT,
+        audit_id TEXT,
+        primary_path TEXT,
+        component_role TEXT,
+        canonical_stage_id TEXT,
+        related_stage_ids TEXT,
+        data_domain TEXT,
+        product_family TEXT,
+        audit_scope TEXT,
+        status TEXT,
+        output_root TEXT,
+        notes TEXT
+    );
     CREATE TABLE naming_violations (
         id INTEGER PRIMARY KEY,
         project_id TEXT,
@@ -615,6 +686,7 @@ def create_schema(conn):
     CREATE INDEX idx_extref_loc ON external_data_refs(location);
     CREATE INDEX idx_stage_registry_project ON stage_registry(project_id);
     CREATE INDEX idx_artifact_stage ON artifact_index(project_id, canonical_stage_id);
+    CREATE INDEX idx_data_product_audit_role ON data_product_audits(project_id, component_role);
     CREATE INDEX idx_alias_lookup ON stage_aliases(project_id, alias);
     """)
     conn.commit()
@@ -731,7 +803,7 @@ def insert_stage_registry(conn: sqlite3.Connection) -> None:
         ("stage_09d", "Stage 09d full-pixel diagnostics and interpretation", "geo_ring_cloud_stage1_time_runs/stage09d_full_pixel_diagnostics_202403"),
         ("stage_09e", "Stage 09e PSF-like EPIC-view spatial representativeness and SEL-QC diagnostics", "geo_ring_cloud_stage1_time_runs/stage_09e_psf_aware_epic_view_202403,geo_ring_cloud_stage1_time_runs/stage_09e_sel_qc_common_valid_202403"),
         ("stage_10", "Stage 10 fused CTH validation and mechanism diagnostics", "geo_ring_cloud_stage1_time_runs/stage_10_cth_fused_product_validation_202403"),
-        ("stage_10p", "Stage 10p EPIC Composite PSF-aware inventory", "geo_ring_cloud_stage1_time_runs/stage_10p_psf_inventory_202401"),
+        ("stage_10p", "Stage 10p related EPIC Composite PSF-aware data product audit", "geo_ring_cloud_stage1_time_runs/stage_10p_psf_inventory_202401"),
         ("stage_10p2", "Stage 10p2 approximate EPIC FOV aggregation diagnostics", "geo_ring_cloud_stage1_time_runs/stage_10p2_approx_epic_fov_aggregation_202403"),
     ]:
         key = (PROJECT_ID, canonical)
@@ -752,6 +824,9 @@ def insert_stage_registry(conn: sqlite3.Connection) -> None:
             "do_not_merge_with": collision_guard,
             "notes": "Current filesystem-derived diagnostic extension",
         })
+        if canonical == "stage_10p":
+            rows[key]["component_role"] = "data_product_audit"
+            rows[key]["notes"] = "Stage-scoped data product audit; primary lookup is data_product_audits.md"
         if collision_guard:
             rows[key]["do_not_merge_with"] = collision_guard
         if evidence not in rows[key]["evidence_paths"]:
@@ -820,7 +895,7 @@ def insert_stage_registry(conn: sqlite3.Connection) -> None:
 def insert_artifact(conn: sqlite3.Connection, path: Path, role: str, trace_source: str, summary: str = "") -> None:
     cur = conn.cursor()
     project_id, canonical, legacy = infer_canonical_from_path(path)
-    component_role = "" if canonical else COMPONENT_ROLES.get(legacy, "")
+    component_role = component_role_for_path(path, canonical, legacy)
     try:
         stat = path.stat()
         size = stat.st_size if path.is_file() else None
@@ -856,6 +931,7 @@ def insert_artifact(conn: sqlite3.Connection, path: Path, role: str, trace_sourc
 def insert_artifacts(conn: sqlite3.Connection) -> None:
     roots = [
         (ROOT / "third_report/code/geo_ring_cloud_stage1", "source_code", "code root"),
+        (ROOT / "third_report/code/geo_data_audit", "data_product_audit_source", "generic EO product audit code root"),
         (ROOT / "geo_ring_cloud_stage1/reports", "stage_report", "stage1 reports"),
         (ROOT / "geo_ring_cloud_stage1/config", "config", "stage1 config"),
         (ROOT / "geo_ring_cloud_stage1/time_index", "table", "stage1 time index"),
@@ -885,6 +961,63 @@ def insert_artifacts(conn: sqlite3.Connection) -> None:
                 continue
             if fp.suffix.lower() in KEY_ARTIFACT_EXTS:
                 insert_artifact(conn, fp, role, trace)
+    conn.commit()
+
+
+def insert_data_product_audits(conn: sqlite3.Connection) -> None:
+    cur = conn.cursor()
+    audit_root = ROOT / "third_report/code/geo_data_audit"
+    if audit_root.exists():
+        for fp in sorted(audit_root.iterdir()):
+            if not fp.is_file() or fp.suffix.lower() not in (".py", ".yaml", ".yml"):
+                continue
+            product_family, audit_scope, related, notes = DATA_PRODUCT_AUDIT_OVERRIDES.get(
+                fp.name,
+                ("Earth observation product", "generic product audit", "", "generic EO product audit utility"),
+            )
+            output_root = ""
+            if fp.name == "fy4b_cpd_product_inspection.py":
+                output_root = str(ROOT / "data_check_report/fy4b_cpd_product_inspection")
+            elif fp.suffix.lower() == ".py":
+                output_root = str(ROOT / "data_check_report")
+            cur.execute(
+                "INSERT INTO data_product_audits(project_id,audit_id,primary_path,component_role,canonical_stage_id,related_stage_ids,data_domain,product_family,audit_scope,status,output_root,notes) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    PROJECT_ID,
+                    fp.stem,
+                    str(fp),
+                    "data_product_audit",
+                    "",
+                    related,
+                    product_family.split()[0] if product_family else "Earth observation",
+                    product_family,
+                    audit_scope,
+                    "active" if fp.exists() else "missing",
+                    output_root,
+                    notes,
+                ),
+            )
+
+    for row in STAGE_SCOPED_DATA_PRODUCT_AUDITS:
+        cur.execute(
+            "INSERT INTO data_product_audits(project_id,audit_id,primary_path,component_role,canonical_stage_id,related_stage_ids,data_domain,product_family,audit_scope,status,output_root,notes) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                PROJECT_ID,
+                row["audit_id"],
+                row["primary_path"],
+                "data_product_audit",
+                row["canonical_stage_id"],
+                row["related_stage_ids"],
+                row["data_domain"],
+                row["product_family"],
+                row["audit_scope"],
+                row["status"],
+                row["output_root"],
+                row["notes"],
+            ),
+        )
     conn.commit()
 
 
@@ -1031,7 +1164,7 @@ def build_sqlite():
                 continue
             stage = infer_stage_from_name(rel_name)
             canonical = canonical_stage_id(stage)
-            component_role = "" if canonical else "support"
+            component_role = component_role_for_script(rel_name, canonical)
             cur.execute(
                 "INSERT INTO scripts(path,filename,stage,project_id,canonical_stage_id,component_role,legacy_stage,responsibility,refs_external_paths) "
                 "VALUES(?,?,?,?,?,?,?,?,?)",
@@ -1077,6 +1210,7 @@ def build_sqlite():
     # --- canonical taxonomy / memory index ---
     insert_stage_registry(conn)
     insert_artifacts(conn)
+    insert_data_product_audits(conn)
     insert_naming_violations(conn)
 
     # --- meta 表 ---
@@ -1110,9 +1244,10 @@ def export_xlsx(db_path: Path = DB_PATH):
     wrap = Alignment(wrap_text=True, vertical="top")
 
     sheets = {
-        "Canonical阶段注册表": "SELECT project_id,canonical_stage_id,display_label,name,status,legacy_labels,evidence_paths,do_not_merge_with,notes FROM stage_registry ORDER BY project_id,stage_order,canonical_stage_id",
+        "Canonical阶段注册表": "SELECT project_id,canonical_stage_id,component_role,display_label,name,status,legacy_labels,evidence_paths,do_not_merge_with,notes FROM stage_registry ORDER BY project_id,stage_order,canonical_stage_id",
         "阶段别名": "SELECT project_id,alias,canonical_stage_id,confidence,reason FROM stage_aliases ORDER BY project_id,alias",
         "产物索引": "SELECT project_id,canonical_stage_id,component_role,artifact_type,path,legacy_stage_label,role,size_bytes,file_count,ext_summary,last_modified,summary FROM artifact_index ORDER BY project_id,canonical_stage_id,artifact_type,path",
+        "DataProductAudits": "SELECT project_id,audit_id,component_role,canonical_stage_id,related_stage_ids,data_domain,product_family,audit_scope,status,primary_path,output_root,notes FROM data_product_audits ORDER BY component_role,canonical_stage_id,audit_id",
         "命名问题": "SELECT project_id,path,legacy_label,issue_type,severity,suggested_canonical_stage_id,suggested_new_path,reason FROM naming_violations ORDER BY severity DESC,project_id,path",
         "目录相关性": "SELECT path,relevance,role,file_count,size_text,referenced_by_code,exists_now,move_candidate,path_risk,last_seen,note FROM directories ORDER BY CASE relevance WHEN '强相关' THEN 1 WHEN '上游相关' THEN 2 WHEN '弱相关' THEN 3 ELSE 4 END, path",
         "文件清单": "SELECT path,name,ext,category,stage,relevance,size_bytes FROM files ORDER BY relevance,category,path",
@@ -1189,7 +1324,7 @@ def export_workspace_reports(db_path: Path = DB_PATH) -> None:
     )
     registry = fetch_dicts(
         conn,
-        "SELECT project_id,canonical_stage_id,display_label,name,status,legacy_labels,evidence_paths,do_not_merge_with,notes FROM stage_registry ORDER BY project_id,stage_order,canonical_stage_id",
+        "SELECT project_id,canonical_stage_id,component_role,display_label,name,status,legacy_labels,evidence_paths,do_not_merge_with,notes FROM stage_registry ORDER BY project_id,stage_order,canonical_stage_id",
     )
     aliases = fetch_dicts(
         conn,
@@ -1198,6 +1333,10 @@ def export_workspace_reports(db_path: Path = DB_PATH) -> None:
     artifacts = fetch_dicts(
         conn,
         "SELECT project_id,canonical_stage_id,component_role,artifact_type,path,legacy_stage_label,role,file_count,ext_summary,summary FROM artifact_index ORDER BY project_id,canonical_stage_id,artifact_type,path",
+    )
+    data_audits = fetch_dicts(
+        conn,
+        "SELECT project_id,audit_id,component_role,canonical_stage_id,related_stage_ids,data_domain,product_family,audit_scope,status,primary_path,output_root,notes FROM data_product_audits ORDER BY component_role,canonical_stage_id,audit_id",
     )
     violations = fetch_dicts(
         conn,
@@ -1228,6 +1367,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 - `archive_manifest_dry_run.csv`: dry-run archive candidates generated before physical moves.
 - `stage_registry.md`: canonical stage taxonomy and collision guards.
 - `artifact_index.md`: project memory index for key reports, tables, configs, workbooks, scripts, and directory summaries.
+- `data_product_audits.md`: horizontal index of generic and stage-scoped EO product inspections.
 - `legacy_aliases.md`: legacy labels mapped to canonical stage IDs.
 - `naming_policy.md`: naming rules for new work and known non-canonical labels.
 - `engineering_policy.md`: enforceable engineering contract for humans and AI agents.
@@ -1256,12 +1396,17 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
     write_markdown_table(
         WORKSPACE_DIR / "stage_registry.md",
         registry,
-        ["project_id", "canonical_stage_id", "display_label", "name", "status", "legacy_labels", "evidence_paths", "do_not_merge_with", "notes"],
+        ["project_id", "canonical_stage_id", "component_role", "display_label", "name", "status", "legacy_labels", "evidence_paths", "do_not_merge_with", "notes"],
     )
     write_markdown_table(
         WORKSPACE_DIR / "artifact_index.md",
         artifacts,
         ["project_id", "canonical_stage_id", "component_role", "artifact_type", "path", "legacy_stage_label", "role", "file_count", "ext_summary", "summary"],
+    )
+    write_markdown_table(
+        WORKSPACE_DIR / "data_product_audits.md",
+        data_audits,
+        ["project_id", "audit_id", "component_role", "canonical_stage_id", "related_stage_ids", "data_domain", "product_family", "audit_scope", "status", "primary_path", "output_root", "notes"],
     )
     write_markdown_table(
         WORKSPACE_DIR / "legacy_aliases.md",
@@ -1280,7 +1425,7 @@ It applies to humans and AI agents.
 
 ## Required workflow
 
-- MUST check `stage_registry.md`, `artifact_index.md`, and the SQLite index before creating new code or reports.
+- MUST check `stage_registry.md`, `artifact_index.md`, `data_product_audits.md`, and the SQLite index before creating new code or reports.
 - MUST reuse existing scripts, manifests, reports, and products when they already answer the task.
 - MUST decide the `project_id + canonical_stage_id` before naming files.
 - MUST run `python _GEO_RING_CLOUD_INDEX\\build_index.py` after adding or changing stage scripts.
@@ -1298,6 +1443,7 @@ It applies to humans and AI agents.
 - New stage outputs MUST include a manifest with `project_id`, `canonical_stage_id`, generating script, inputs, outputs, parameters, timestamp, and commit when available.
 - Reports SHOULD be Chinese-first, with English retained for technical terms and variable names.
 - Key outputs SHOULD include concise CSV/Markdown indexes instead of relying only on directory names.
+- Generic data/product inspections SHOULD be indexed in `data_product_audits.md`; stage-scoped inspections should keep `related_stage_ids`.
 
 ## Path and artifact rules
 
@@ -1329,6 +1475,7 @@ It applies to humans and AI agents.
 - New stage-owned directories must also use the canonical stage ID, for example `stage_10p2_approx_fov_aggregation`.
 - Put substep numbers after the stage directory or in report sections, for example `stage_09d/00_sample_manifest`.
 - Shared utilities must use `geo_ring_cloud_<role>_<purpose>.py` and `component_role`, not a fake stage: `shared_library`, `runner`, `downloader`, `evidence_pack_builder`, `summary_helper`.
+- Generic EO data/product inspections must use `component_role=data_product_audit`; keep legacy `third_report/code/geo_data_audit` paths until references are audited, and index them in `data_product_audits.md`.
 - Do not create new `Step*`, `stage10*`, `Stage10*`, `09_stage*`, or numeric-prefix stage names.
 
 ## Collision rules

@@ -57,5 +57,5 @@
 | stage_10_cth_validation/stage_10_qc_audit.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
 | stage_10_cth_validation/stage_10_rewrite_cth_report.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
 | stage_10_cth_validation/stage_10_run_cth_validation.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
-| stage_10p_composite_inventory.py | geo_ring_cloud | stage_10p |  | 10p | 当前文件系统扫描补充脚本；推断阶段 10p |  |
+| stage_10p_composite_inventory.py | geo_ring_cloud | stage_10p | data_product_audit | 10p | 当前文件系统扫描补充脚本；推断阶段 10p |  |
 | stage_10p2_approx_fov_aggregation/run_stage_10p2_approx_fov.py | geo_ring_cloud | stage_10p2 |  | 10p2 | 当前文件系统扫描补充脚本；推断阶段 10p2 |  |

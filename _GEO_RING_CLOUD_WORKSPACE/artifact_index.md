@@ -3,10 +3,12 @@
 | geo_ring_cloud |  | support | config_or_manifest | D:\AAAresearch_paper\geo_ring_cloud_stage1\config\core_product_definition.yaml |  | config |  |  | core_product_definition.yaml |
 | geo_ring_cloud |  | support | config_or_manifest | D:\AAAresearch_paper\geo_ring_cloud_stage1\reports\fy4b_quality_flag_rules.yaml |  | stage_report |  |  | fy4b_quality_flag_rules.yaml |
 | geo_ring_cloud |  | support | config_or_manifest | D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack\latest\evidence_manifest.json |  | evidence |  |  | evidence_manifest.json |
+| geo_ring_cloud |  | data_product_audit | config_or_manifest | D:\AAAresearch_paper\third_report\code\geo_data_audit\manual_variable_mapping_by_product.yaml | data_product_audit | data_product_audit_source |  |  | manual_variable_mapping_by_product.yaml |
 | geo_ring_cloud |  | support | directory_summary | D:\AAAresearch_paper\geo_ring_cloud_stage1\config |  | directory_summary | 1 | .yaml:1 | config |
 | geo_ring_cloud |  | support | directory_summary | D:\AAAresearch_paper\geo_ring_cloud_stage1\reports |  | directory_summary | 73 | .png:44, .md:20, .csv:8, .yaml:1 | reports |
 | geo_ring_cloud |  | support | directory_summary | D:\AAAresearch_paper\geo_ring_cloud_stage1\time_index |  | directory_summary | 3 | .csv:2, .md:1 | time_index |
 | geo_ring_cloud |  | support | directory_summary | D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack\latest |  | directory_summary | 38 | .md:37, .json:1 | latest |
+| geo_ring_cloud |  | data_product_audit | directory_summary | D:\AAAresearch_paper\third_report\code\geo_data_audit | data_product_audit | directory_summary | 17 | .py:16, .yaml:1 | geo_data_audit |
 | geo_ring_cloud |  | support | directory_summary | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 |  | directory_summary | 63 | .py:59, .ps1:3, .json:1 | geo_ring_cloud_stage1 |
 | geo_ring_cloud |  | support | report | D:\AAAresearch_paper\geo_ring_cloud_stage1\reports\fy4b_quality_mapping_note.md |  | stage_report |  |  | fy4b_quality_mapping_note.md |
 | geo_ring_cloud |  | support | report | D:\AAAresearch_paper\geo_ring_cloud_stage1\reports\geo_ring_cloud_next_stage_report.md |  | stage_report |  |  | geo_ring_cloud_next_stage_report.md |
@@ -22,6 +24,22 @@
 | geo_ring_cloud |  | support | report | D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack\latest\cross_cutting\report_inventory.md |  | evidence |  |  | report_inventory.md |
 | geo_ring_cloud |  | support | report | D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack\latest\cross_cutting\script_manifest.md |  | evidence |  |  | script_manifest.md |
 | geo_ring_cloud |  | support | report | D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack\latest\stage_registry.md |  | evidence |  |  | stage_registry.md |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\audit_geometry_and_variables.py | data_product_audit | data_product_audit_source |  |  | audit_geometry_and_variables.py |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\check_download_completeness.py | data_product_audit | data_product_audit_source |  |  | check_download_completeness.py |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\claas3_202403_audit.py | data_product_audit | data_product_audit_source |  |  | claas3_202403_audit.py |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\compare_claas3_and_operational_meteosat.py | data_product_audit | data_product_audit_source |  |  | compare_claas3_and_operational_meteosat.py |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\deep_claas3_structure_audit.py | data_product_audit | data_product_audit_source |  |  | deep_claas3_structure_audit.py |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\fy4b_cpd_product_inspection.py | data_product_audit | data_product_audit_source |  |  | fy4b_cpd_product_inspection.py |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\latest_fy4b_goes_structure_probe.py | data_product_audit | data_product_audit_source |  |  | latest_fy4b_goes_structure_probe.py |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\make_claas3_operational_visual_check_20240305.py | data_product_audit | data_product_audit_source |  |  | make_claas3_operational_visual_check_20240305.py |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\meteosat_catalogue_discovery.py | data_product_audit | data_product_audit_source |  |  | meteosat_catalogue_discovery.py |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\meteosat_priority_cloud_download.py | data_product_audit | data_product_audit_source |  |  | meteosat_priority_cloud_download.py |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\meteosat_product_series_audit.py | data_product_audit | data_product_audit_source |  |  | meteosat_product_series_audit.py |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\probe_claas3_downloaded_data.py | data_product_audit | data_product_audit_source |  |  | probe_claas3_downloaded_data.py |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\probe_meteosat_grib_cfgrib.py | data_product_audit | data_product_audit_source |  |  | probe_meteosat_grib_cfgrib.py |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\read_one_sample_each_product.py | data_product_audit | data_product_audit_source |  |  | read_one_sample_each_product.py |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\rewrite_meteosat_catalogue_report.py | data_product_audit | data_product_audit_source |  |  | rewrite_meteosat_catalogue_report.py |
+| geo_ring_cloud |  | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_data_audit\standardize_one_time_cloud_v0.py | data_product_audit | data_product_audit_source |  |  | standardize_one_time_cloud_v0.py |
 | geo_ring_cloud |  | support | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\08e_summarize_epic_georing_multisample.py |  | source_code |  |  | 08e_summarize_epic_georing_multisample.py |
 | geo_ring_cloud |  | support | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\08f_geometry_and_prefusion_epic_diagnostics.py |  | source_code |  |  | 08f_geometry_and_prefusion_epic_diagnostics.py |
 | geo_ring_cloud |  | support | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\download_geo_geometry_samples.py |  | source_code |  |  | download_geo_geometry_samples.py |
@@ -525,5 +543,5 @@
 | geo_ring_cloud | stage_10 |  | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage_10_cth_validation\stage_10_qc_audit.py | stage_10_cth_validation | source_code |  |  | stage_10_qc_audit.py |
 | geo_ring_cloud | stage_10 |  | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage_10_cth_validation\stage_10_rewrite_cth_report.py | stage_10_cth_validation | source_code |  |  | stage_10_rewrite_cth_report.py |
 | geo_ring_cloud | stage_10 |  | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage_10_cth_validation\stage_10_run_cth_validation.py | stage_10_cth_validation | source_code |  |  | stage_10_run_cth_validation.py |
-| geo_ring_cloud | stage_10p |  | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage_10p_composite_inventory.py | stage_10p | source_code |  |  | stage_10p_composite_inventory.py |
+| geo_ring_cloud | stage_10p | data_product_audit | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage_10p_composite_inventory.py | stage_10p | source_code |  |  | stage_10p_composite_inventory.py |
 | geo_ring_cloud | stage_10p2 |  | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage_10p2_approx_fov_aggregation\run_stage_10p2_approx_fov.py | stage_10p2 | source_code |  |  | run_stage_10p2_approx_fov.py |

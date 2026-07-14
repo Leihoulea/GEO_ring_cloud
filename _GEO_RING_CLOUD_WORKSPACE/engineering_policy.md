@@ -5,7 +5,7 @@ It applies to humans and AI agents.
 
 ## Required workflow
 
-- MUST check `stage_registry.md`, `artifact_index.md`, and the SQLite index before creating new code or reports.
+- MUST check `stage_registry.md`, `artifact_index.md`, `data_product_audits.md`, and the SQLite index before creating new code or reports.
 - MUST reuse existing scripts, manifests, reports, and products when they already answer the task.
 - MUST decide the `project_id + canonical_stage_id` before naming files.
 - MUST run `python _GEO_RING_CLOUD_INDEX\build_index.py` after adding or changing stage scripts.
@@ -23,6 +23,7 @@ It applies to humans and AI agents.
 - New stage outputs MUST include a manifest with `project_id`, `canonical_stage_id`, generating script, inputs, outputs, parameters, timestamp, and commit when available.
 - Reports SHOULD be Chinese-first, with English retained for technical terms and variable names.
 - Key outputs SHOULD include concise CSV/Markdown indexes instead of relying only on directory names.
+- Generic data/product inspections SHOULD be indexed in `data_product_audits.md`; stage-scoped inspections should keep `related_stage_ids`.
 
 ## Path and artifact rules
 

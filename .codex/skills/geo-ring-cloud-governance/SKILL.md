@@ -16,8 +16,9 @@ MUST do these steps before writing or moving files:
 2. Read `_GEO_RING_CLOUD_WORKSPACE/engineering_policy.md`.
 3. Check `_GEO_RING_CLOUD_WORKSPACE/stage_registry.md`.
 4. Check `_GEO_RING_CLOUD_WORKSPACE/artifact_index.md`.
-5. Query `_GEO_RING_CLOUD_INDEX/geo_ring_cloud_index.sqlite` when a precise lookup is cheaper than broad file search.
-6. Search focused code paths with `rg` only after the index/workspace checks.
+5. Check `_GEO_RING_CLOUD_WORKSPACE/data_product_audits.md` for generic and stage-scoped EO product inspections.
+6. Query `_GEO_RING_CLOUD_INDEX/geo_ring_cloud_index.sqlite` when a precise lookup is cheaper than broad file search.
+7. Search focused code paths with `rg` only after the index/workspace checks.
 
 MUST NOT scan raw data, time-run outputs, evidence packs, or `_NON_GEO_ARCHIVE`
 unless the task explicitly requires those artifacts.
@@ -65,6 +66,10 @@ geo_ring_cloud_<role>_<purpose>.py
 
 Do not invent fake stages for runners, downloaders, evidence-pack builders,
 summaries, or shared helpers. Use `component_role` for those.
+
+Generic data/product inspections SHOULD use `component_role=data_product_audit`.
+If an inspection supports a downstream stage, keep the generic audit role and
+record the linked stage in `related_stage_ids` / `canonical_stage_id`.
 
 ## Output Contract
 
