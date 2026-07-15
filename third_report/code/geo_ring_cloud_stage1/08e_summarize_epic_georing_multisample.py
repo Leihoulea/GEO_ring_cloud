@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -12,11 +13,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from geo_ring_cloud_run_discovery import discover_run_dirs, run_time_tag
+
 
 RUNS_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs")
 SELECTION_INVENTORY = RUNS_ROOT / "epic_202403_target_selection" / "epic_202403_geo_source_candidate_inventory.csv"
 OUT_DIR = RUNS_ROOT / "epic_202403_multisample_summary"
 QL_DIR = OUT_DIR / "renamed_quicklooks"
+SOURCE_PROFILE = os.environ.get("GEO_RING_SOURCE_PROFILE", "operational_baseline")
 
 
 def write_csv(path: Path, rows: list[dict[str, Any]], fields: list[str]) -> None:
@@ -30,10 +34,9 @@ def write_csv(path: Path, rows: list[dict[str, Any]], fields: list[str]) -> None
 
 def find_runs() -> list[Path]:
     runs = []
-    for path in sorted(RUNS_ROOT.iterdir()):
-        if not path.is_dir():
-            continue
-        sens = path / f"epic_l2_cloud_mask_semantic_sensitivity_{path.name}"
+    for path in discover_run_dirs(RUNS_ROOT, SOURCE_PROFILE):
+        tag = run_time_tag(path)
+        sens = path / f"epic_l2_cloud_mask_semantic_sensitivity_{tag}"
         if (sens / "epic_georing_cloud_mask_sensitivity_metrics.csv").exists():
             runs.append(path)
     return runs
@@ -82,7 +85,7 @@ def collect() -> tuple[pd.DataFrame, pd.DataFrame, list[dict[str, Any]]]:
     QL_DIR.mkdir(parents=True, exist_ok=True)
 
     for run in find_runs():
-        tag = run.name
+        tag = run_time_tag(run)
         sens = run / f"epic_l2_cloud_mask_semantic_sensitivity_{tag}"
         metrics = read_csv_rows(sens / "epic_georing_cloud_mask_sensitivity_metrics.csv")
         source_metrics = read_csv_rows(sens / "epic_georing_cloud_mask_metrics_by_source.csv")

@@ -5,12 +5,15 @@ import csv
 import json
 import math
 import re
+import os
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+from geo_ring_cloud_run_discovery import discover_run_dirs as discover_profile_run_dirs, run_time_tag
 
 import matplotlib
 
@@ -111,13 +114,7 @@ def parse_source_fraction(value: Any) -> dict[str, float]:
 
 
 def discover_run_dirs(runs_root: Path) -> list[Path]:
-    if not runs_root.exists():
-        return []
-    return [
-        p
-        for p in sorted(runs_root.iterdir())
-        if p.is_dir() and re.fullmatch(r"20\d{6}_\d{4}", p.name)
-    ]
+    return discover_profile_run_dirs(runs_root, os.environ.get("GEO_RING_SOURCE_PROFILE", "operational_baseline"))
 
 
 def prefusion_sources_for_run(run_dir: Path, tag: str) -> tuple[list[str], list[str]]:
@@ -142,7 +139,7 @@ def build_inventory(runs_root: Path, out_dir: Path, warnings: list[dict[str, Any
         if tag and tag not in selection_by_tag:
             selection_by_tag[tag] = row
 
-    run_dirs = {p.name: p for p in discover_run_dirs(runs_root)}
+    run_dirs = {run_time_tag(p): p for p in discover_run_dirs(runs_root)}
     all_tags = sorted(set(selection_by_tag) | set(run_dirs))
     rows: list[dict[str, Any]] = []
 

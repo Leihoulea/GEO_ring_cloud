@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import os
@@ -17,6 +18,16 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import BoundaryNorm, ListedColormap
 
+import path_config
+from geo_ring_cloud_lineage import write_manifest
+from geo_ring_cloud_source_registry import (
+    REGISTRY_VERSION,
+    SOURCE_BY_KEY,
+    SOURCE_ID_MAP,
+    tie_order,
+    validate_profile,
+    variable_rules,
+)
 from stage1_common import (
     REPORT_DIR,
     SCRIPT_DIR,
@@ -47,58 +58,15 @@ FREQ_CSV = OUT_DIR / "fusion_source_frequency.csv"
 REPORT_MD = REPORT_DIR / "fuse_best_source_report.md"
 
 TARGET_SHAPE = (3600, 7200)
-TIE_ORDER = ["GOES-16", "GOES-18", "FY4B", "Himawari-9", "Meteosat-0deg", "Meteosat-IODC"]
-SOURCE_ID_MAP = {sat: idx + 1 for idx, sat in enumerate(TIE_ORDER)}
+SOURCE_PROFILE = validate_profile(os.environ.get("GEO_RING_SOURCE_PROFILE", "operational_baseline"))
+TIE_ORDER = tie_order(SOURCE_PROFILE)
 EARTH_RADIUS_KM = 6378.137
 GEO_ALTITUDE_KM = 35786.023
 SATELLITE_RADIUS_KM = EARTH_RADIUS_KM + GEO_ALTITUDE_KM
 
 VARIABLE_RULES: dict[str, list[dict[str, str]]] = {
-    "cloud_mask": [
-        {"satellite": "FY4B", "product": "CLM"},
-        {"satellite": "GOES-16", "product": "ACMF"},
-        {"satellite": "GOES-18", "product": "ACMF"},
-        {"satellite": "Himawari-9", "product": "CMSK"},
-        {"satellite": "Meteosat-0deg", "product": "CLM"},
-        {"satellite": "Meteosat-IODC", "product": "CLM"},
-    ],
-    "cloud_top_height_km": [
-        {"satellite": "FY4B", "product": "CTH"},
-        {"satellite": "GOES-16", "product": "ACHAF"},
-        {"satellite": "GOES-18", "product": "ACHAF"},
-        {"satellite": "Himawari-9", "product": "CHGT"},
-        {"satellite": "Meteosat-0deg", "product": "CTH"},
-        {"satellite": "Meteosat-IODC", "product": "CTH"},
-    ],
-    "cloud_top_temperature_K": [
-        {"satellite": "FY4B", "product": "CTT"},
-        {"satellite": "GOES-16", "product": "ACHTF"},
-        {"satellite": "GOES-18", "product": "ACHTF"},
-        {"satellite": "Himawari-9", "product": "CHGT"},
-    ],
-    "cloud_top_pressure_hPa": [
-        {"satellite": "FY4B", "product": "CTP"},
-        {"satellite": "GOES-16", "product": "CTPF"},
-        {"satellite": "GOES-18", "product": "CTPF"},
-        {"satellite": "Himawari-9", "product": "CHGT"},
-    ],
-    "cloud_phase": [
-        {"satellite": "FY4B", "product": "CLP"},
-        {"satellite": "GOES-16", "product": "ACTPF"},
-        {"satellite": "GOES-18", "product": "ACTPF"},
-    ],
-    "cloud_type": [
-        {"satellite": "FY4B", "product": "CLT"},
-    ],
-    "cloud_optical_thickness": [
-        {"satellite": "GOES-16", "product": "CODF"},
-        {"satellite": "GOES-18", "product": "CODF"},
-        {"satellite": "Himawari-9", "product": "CHGT"},
-    ],
-    "cloud_effective_radius_um": [
-        {"satellite": "GOES-16", "product": "CPSF"},
-        {"satellite": "GOES-18", "product": "CPSF"},
-    ],
+    variable: [{"satellite": item["source_key"], "product": item["product"]} for item in rules]
+    for variable, rules in variable_rules(SOURCE_PROFILE).items()
 }
 
 CATEGORICAL_VARS = {"cloud_mask", "cloud_phase", "cloud_type"}
@@ -182,6 +150,8 @@ def infer_subpoint_from_native_latlon(path: Path) -> float:
 
 
 def infer_subpoint_longitude(satellite: str, catalog: dict[tuple[str, str, str], Path]) -> tuple[float, str]:
+    if satellite == "CLAAS3-0deg":
+        return SOURCE_BY_KEY[satellite].service_longitude_deg, "source_registry_service_longitude"
     if satellite == "FY4B":
         sample = catalog.get((satellite, "CLM", "cloud_mask")) or catalog.get((satellite, "CTH", "cloud_top_height_km"))
         if sample is None:
@@ -335,6 +305,8 @@ def cloud_mask_to_standard(satellite: str, product: str, raw: np.ndarray) -> np.
         mapping = {0: 0, 1: 1, 2: 2, 3: 3}
     elif sat.startswith("Meteosat") and prod == "CLM":
         mapping = {0: 0, 1: 0, 2: 3}
+    elif sat == "CLAAS3-0deg" and prod == "CMA":
+        mapping = {0: 0, 3: 3}
     else:
         mapping = {}
     for raw_code, std_code in mapping.items():
@@ -502,6 +474,8 @@ def fuse_variable(
     best_dt = np.full(TARGET_SHAPE, np.inf, dtype=np.float32)
     best_order = np.full(TARGET_SHAPE, 999, dtype=np.int16)
     best_valid = np.zeros(TARGET_SHAPE, dtype=bool)
+    claas_valid = np.zeros(TARGET_SHAPE, dtype=bool)
+    non_claas_valid = np.zeros(TARGET_SHAPE, dtype=bool)
     warning_notes: set[str] = set()
     participant_rows: list[dict[str, Any]] = []
 
@@ -518,6 +492,10 @@ def fuse_variable(
             data = np.asarray(cand["data"], dtype=np.float32)
             valid &= np.isfinite(data)
         valid_count += valid.astype(np.int16)
+        if sat == "CLAAS3-0deg":
+            claas_valid |= valid
+        else:
+            non_claas_valid |= valid
 
         rating = np.zeros(TARGET_SHAPE, dtype=np.float32)
         if np.any(valid):
@@ -599,6 +577,11 @@ def fuse_variable(
     arrays_out[f"source_map_{variable}"] = source_map
     arrays_out[f"rating_map_{variable}"] = rating_map
     arrays_out[f"valid_count_map_{variable}"] = valid_count
+    coverage_state = np.zeros(TARGET_SHAPE, dtype=np.uint8)
+    coverage_state[non_claas_valid & ~claas_valid] = 1
+    coverage_state[non_claas_valid & claas_valid] = 2
+    coverage_state[claas_valid & ~non_claas_valid] = 3
+    arrays_out[f"coverage_state_map_{variable}"] = coverage_state
 
     coverage = float(np.count_nonzero(fused_valid) / fused_valid.size)
     source_rows: list[dict[str, Any]] = []
@@ -622,6 +605,7 @@ def fuse_variable(
         "participants": [f"{row['satellite']}:{row['product']}" for row in participant_rows],
         "coverage_ratio": coverage,
         "status": "OK",
+        "fusion_mode": "single_source_passthrough" if len(participant_rows) == 1 else "multi_source_best_source",
         "warnings": sorted(warning_notes),
     }
     return summary, participant_rows, source_rows, arrays_out
@@ -639,7 +623,11 @@ def save_variable_outputs(variable: str, arrays_out: dict[str, np.ndarray], targ
         "view_weight_mode": "ANGLE_LAYER_OR_OFFICIAL_NAV_DERIVED",
         "cloud_mask_uses_fusion_valid_mask": variable == "cloud_mask",
         "fy4b_quality_flag_raw_excluded_from_rating": True,
-        "meteosat_only_used_for_cloud_mask_and_cth": True,
+        "operational_meteosat_only_used_for_cloud_mask_and_cth": True,
+        "claas3_richer_variables_enabled": SOURCE_PROFILE == "claas3_candidate",
+        "source_profile": SOURCE_PROFILE,
+        "source_registry_version": REGISTRY_VERSION,
+        "coverage_state_codes": {0: "no_data", 1: "baseline_only", 2: "enriched_overlap", 3: "enriched_only"},
     }
     valid_mask = arrays_out[f"valid_count_map_{variable}"] > 0
     for name, arr in arrays_out.items():
@@ -823,6 +811,18 @@ def determine_status(summaries: list[dict[str, Any]], bundle_arrays: dict[str, n
 
 
 def main() -> int:
+    global SOURCE_PROFILE, TIE_ORDER, VARIABLE_RULES
+    parser = argparse.ArgumentParser(description="Profile-driven variable-level GEO-ring cloud fusion")
+    parser.add_argument("--source-profile", default=SOURCE_PROFILE, choices=["operational_baseline", "claas3_candidate"])
+    parser.add_argument("--claas3-root", type=Path, default=path_config.CLAAS3_ROOT)
+    parser.add_argument("--run-id", default=os.environ.get("GEO_RING_RUN_ID", ""))
+    args = parser.parse_args()
+    SOURCE_PROFILE = validate_profile(args.source_profile)
+    TIE_ORDER = tie_order(SOURCE_PROFILE)
+    VARIABLE_RULES = {
+        variable: [{"satellite": item["source_key"], "product": item["product"]} for item in rules]
+        for variable, rules in variable_rules(SOURCE_PROFILE).items()
+    }
     ensure_dirs()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     QUICKLOOK_DIR.mkdir(parents=True, exist_ok=True)
@@ -885,12 +885,28 @@ def main() -> int:
         "subpoint_longitudes": subpoints,
         "cloud_mask_uses_fusion_valid_mask": True,
         "fy4b_quality_flag_raw_excluded_from_rating": True,
-        "meteosat_only_used_for_cloud_mask_and_cth": True,
+        "operational_meteosat_only_used_for_cloud_mask_and_cth": True,
+        "claas3_richer_variables_enabled": SOURCE_PROFILE == "claas3_candidate",
+        "run_id": args.run_id,
+        "source_profile": SOURCE_PROFILE,
+        "source_registry_version": REGISTRY_VERSION,
     }
     write_bundle(bundle_arrays, bundle_meta)
 
     status = determine_status(summaries, bundle_arrays)
     write_report(status, summaries, freq_df, participant_df)
+    write_manifest(
+        OUT_DIR / "stage_06_claas3_fusion_manifest.json",
+        canonical_stage_id="stage_06",
+        run_id=args.run_id,
+        source_profile=SOURCE_PROFILE,
+        generating_script=Path(__file__),
+        input_paths=list(catalog.values()),
+        output_paths=[FUSED_BUNDLE, INVENTORY_CSV, STATS_CSV, FREQ_CSV],
+        parameters={"target_time": TARGET_TIME, "variable_rules": VARIABLE_RULES, "neutral_product_weight": 1.0},
+        project_root=path_config.PROJECT_ROOT,
+        extra={"registry_version": REGISTRY_VERSION, "product_versions": {"CLAAS3": "405"} if SOURCE_PROFILE == "claas3_candidate" else {}, "status": status},
+    )
     print(f"06 {status}: variables_fused={len(summaries)}")
     print(f"report={REPORT_MD}")
     return 0 if status != "FAIL" else 2

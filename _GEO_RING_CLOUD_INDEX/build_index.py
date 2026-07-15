@@ -189,6 +189,17 @@ EXTERNAL_DISKS = [
 #    (文件名, 阶段, 职责)
 # ---------------------------------------------------------------------------
 SCRIPTS = [
+    ("path_config.py", "common", "Central environment-overridable paths including GEO_RING_CLAAS3_ROOT"),
+    ("geo_ring_cloud_source_registry.py", "common", "Stable source IDs, processing streams, products, profiles, tolerances, and variable rules"),
+    ("geo_ring_cloud_claas3_adapter.py", "common", "CLAAS-3 recursive discovery, deterministic deduplication, decoding, unit conversion, QA, and per-variable masks"),
+    ("geo_ring_cloud_lineage.py", "common", "Common run and artifact lineage manifest writer"),
+    ("geo_ring_cloud_run_discovery.py", "common", "Matrix-manifest-first run discovery with legacy time-tag compatibility"),
+    ("geo_ring_cloud_time_run_matrix.py", "runner", "Matched operational_baseline and claas3_candidate runner with SQLite indexing"),
+    ("stage_00d_claas3_integration_readiness.py", "00d", "CLAAS-3 March 2024 cadence, structure, QA, projection, and integration readiness gate"),
+    ("stage_06c_claas3_geometry_angle_lineage.py", "06c", "CLAAS-3 CF projection and navigation-derived angle lineage gate"),
+    ("stage_07p_claas3_profile_pair_evaluation.py", "07p", "Common-domain CLAAS-3 versus operational Meteosat consistency and boundary diagnostics"),
+    ("stage_09d_claas3_epic_profile_pair_evaluation.py", "09d", "Matched common-domain EPIC cloud-mask profile-pair metrics and sample-block bootstrap"),
+    ("stage_10_claas3_epic_relative_height_evaluation.py", "10", "A/B-band EPIC-relative effective-height profile-pair diagnostics with common approximate PSF"),
     ("stage1_common.py", "公共", "核心共享库：路径常量(STAGE_ROOT/REPORT_ROOT/HIMAWARI_R21_DIR)、标准变量名、cloud_mask 码表(FY4B/GOES/Himawari/Meteosat)、产品读取器、单位转换、quicklook 绘图"),
     ("01_build_core_time_index.py", "01", "从 data_check_report/parsed_file_metadata.csv 构建核心时次索引，按卫星完整度评分，选定原型时次 2024-03-05T00:00Z"),
     ("02_build_standardized_cloud_native.py", "02", "读取各卫星原生云产品，按统一变量名映射标准化为 native-grid NPZ，输出到 standardized_native/"),
@@ -347,6 +358,8 @@ PROJECT_ID = "geo_ring_cloud"
 KEY_ARTIFACT_EXTS = {".md", ".csv", ".json", ".yaml", ".yml", ".xlsx", ".py", ".ps1"}
 AGGREGATE_EXTS = {".png", ".npz", ".nc", ".nc4", ".h5", ".hdf", ""}
 COMPONENT_ROLES = {
+    "common": "shared_library",
+    "runner": "runner",
     "公共": "shared_library",
     "运行器": "runner",
     "下载": "downloader",
@@ -356,6 +369,11 @@ COMPONENT_ROLES = {
     "": "support",
 }
 ARTIFACT_STAGE_HINTS = {
+    "stage_00d_claas3": "stage_00d",
+    "stage_06c_claas3": "stage_06c",
+    "stage_07p_claas3": "stage_07p",
+    "stage_09d_claas3": "stage_09d",
+    "stage_10_claas3": "stage_10",
     "stage_10p2": "stage_10p2",
     "stage_10p": "stage_10p",
     "stage_10_cth_validation": "stage_10",
@@ -420,6 +438,18 @@ DATA_PRODUCT_AUDIT_OVERRIDES = {
 }
 
 STAGE_SCOPED_DATA_PRODUCT_AUDITS = [
+    {
+        "audit_id": "stage_00d_claas3_integration_readiness",
+        "primary_path": str(ROOT / "third_report/code/geo_ring_cloud_stage1/stage_00d_claas3_integration_readiness.py"),
+        "canonical_stage_id": "stage_00d",
+        "related_stage_ids": "stage_00d,stage_01,stage_02,stage_03_5",
+        "data_domain": "Meteosat 0deg",
+        "product_family": "CM SAF CLAAS-3 V003 ICDR CMA/CTX/CPP",
+        "audit_scope": "March 2024 cadence, duplicate/version resolution, structure, CF projection, QA flags, and integration contract",
+        "status": "active",
+        "output_root": str(ROOT / "data_check_report/claas3_integration_readiness"),
+        "notes": "PASS_WITH_WARNINGS on local data; warnings are deterministic duplicate-order records",
+    },
     {
         "audit_id": "stage_10p_epic_composite_psf_inventory",
         "primary_path": str(ROOT / "third_report/code/geo_ring_cloud_stage1/stage_10p_composite_inventory.py"),
@@ -537,6 +567,8 @@ def infer_canonical_from_path(path: Path) -> tuple[str, str, str]:
 def component_role_for_path(path: Path, canonical: str, legacy: str) -> str:
     text = str(path).replace("\\", "/").lower()
     name = path.name.lower()
+    if "geo_ring_cloud_time_run_pruning_" in text:
+        return "time_run_pruning"
     if "/third_report/code/geo_data_audit/" in text or text.endswith("/third_report/code/geo_data_audit"):
         return "data_product_audit"
     if name == "stage_10p_composite_inventory.py" or "stage_10p_psf_inventory" in text:
@@ -603,7 +635,8 @@ def create_schema(conn):
     );
     CREATE TABLE time_runs (
         id INTEGER PRIMARY KEY,
-        run_id TEXT, kind TEXT, target_utc TEXT, note TEXT
+        run_id TEXT, kind TEXT, target_utc TEXT, note TEXT,
+        parent_run_id TEXT, source_profile TEXT, status TEXT, manifest_path TEXT
     );
     CREATE TABLE external_disks (
         id INTEGER PRIMARY KEY,
@@ -940,6 +973,8 @@ def insert_artifacts(conn: sqlite3.Connection) -> None:
     time_runs = ROOT / "geo_ring_cloud_stage1_time_runs"
     if time_runs.exists():
         for d in sorted(time_runs.iterdir()):
+            if d.is_dir() and d.name.lower().startswith("geo_ring_cloud_time_run_pruning_"):
+                roots.append((d, "time_run_pruning", "time-run accepted-artifact pruning record"))
             if d.is_dir() and d.name.lower().startswith("stage09"):
                 roots.append((d, "stage09_artifact_root", "time_runs stage09 extension"))
                 for sub in sorted(d.rglob("*")):
@@ -1205,6 +1240,28 @@ def build_sqlite():
     for tid, desc in EPIC_TOPICS:
         cur.execute("INSERT INTO time_runs(run_id,kind,target_utc,note) VALUES(?,?,?,?)",
                     (tid, "EPIC专题", "", desc))
+    matrix_root = ROOT / "geo_ring_cloud_stage1_time_runs"
+    matrix_paths = sorted(matrix_root.glob("*/geo_ring_cloud_time_run_matrix_manifest.json")) if matrix_root.exists() else []
+    for manifest_path in matrix_paths:
+        try:
+            matrix = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        common = matrix.get("common_inputs", {})
+        for profile_run in matrix.get("profile_runs", []):
+            cur.execute(
+                "INSERT INTO time_runs(run_id,kind,target_utc,note,parent_run_id,source_profile,status,manifest_path) VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    matrix.get("run_id", manifest_path.parent.name),
+                    "PROFILE_MATRIX",
+                    common.get("target_time", ""),
+                    "CLAAS-3 matched profile run",
+                    matrix.get("parent_run_id", matrix.get("run_id", "")),
+                    profile_run.get("source_profile", ""),
+                    profile_run.get("status", matrix.get("status", "")),
+                    profile_run.get("manifest_path", ""),
+                ),
+            )
     conn.commit()
 
     # --- canonical taxonomy / memory index ---
@@ -1255,7 +1312,7 @@ def export_xlsx(db_path: Path = DB_PATH):
         "外部数据依赖": "SELECT external_path,referenced_by_script,line_no,purpose,location FROM external_data_refs ORDER BY location,referenced_by_script",
         "外部数据盘": "SELECT path,location,description,referenced FROM external_disks",
         "流水线阶段": "SELECT stage,name,input,output,gate_status,evidence_dir FROM pipeline_stages ORDER BY CAST(stage AS REAL), stage",
-        "时间运行批次": "SELECT run_id,kind,target_utc,note FROM time_runs ORDER BY run_id",
+        "时间运行批次": "SELECT run_id,kind,target_utc,parent_run_id,source_profile,status,manifest_path,note FROM time_runs ORDER BY run_id,source_profile",
         "元信息": "SELECT key,value FROM meta",
     }
     # 删除默认 sheet

@@ -25,6 +25,7 @@ SOURCE_NAMES = {
     4: "Himawari-9",
     5: "Meteosat-0deg",
     6: "Meteosat-IODC",
+    7: "CLAAS3-0deg",
 }
 
 EPIC_POLICIES = {

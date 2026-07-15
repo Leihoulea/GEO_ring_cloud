@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import os
@@ -17,6 +18,9 @@ from scipy.spatial import cKDTree
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+import path_config
+from geo_ring_cloud_lineage import write_manifest
+from geo_ring_cloud_source_registry import REGISTRY_VERSION, tie_order, validate_profile
 from stage1_common import (
     REPORT_DIR,
     SCRIPT_DIR,
@@ -60,6 +64,7 @@ VARIABLE_PRIORITY = [
     "cloud_top_pressure_hPa",
     "cloud_optical_thickness",
     "cloud_effective_radius_um",
+    "cloud_water_path_g_m2",
     "cloud_probability",
     "sensor_zenith_angle",
     "solar_zenith_angle",
@@ -73,7 +78,8 @@ SUSPECT_CODES = {
     "quality_flag_standard": {-128, 126, 127, 255},
     "valid_mask": {-128, 126, 127, 255},
 }
-SATELLITES = ["FY4B", "GOES-16", "GOES-18", "Himawari-9", "Meteosat-0deg", "Meteosat-IODC"]
+SOURCE_PROFILE = validate_profile(os.environ.get("GEO_RING_SOURCE_PROFILE", "operational_baseline"))
+SATELLITES = tie_order(SOURCE_PROFILE)
 METEOSAT_PRODUCTS_ALLOWED = {"CLM", "CTH"}
 ONLY_CLOUD_MASK = os.environ.get("ONLY_CLOUD_MASK", "").strip().lower() in {"1", "true", "yes", "y"}
 
@@ -113,9 +119,12 @@ def available(bundle: dict[str, Any], variable: str) -> bool:
 
 
 def normalize_longitude(lon: np.ndarray) -> np.ndarray:
-    out = ((np.asarray(lon, dtype=np.float32) + 180.0) % 360.0) - 180.0
-    out[np.isclose(out, -180.0)] = 180.0
-    return out.astype(np.float32)
+    values = np.asarray(lon, dtype=np.float32)
+    out = np.full(values.shape, np.nan, dtype=np.float32)
+    finite = np.isfinite(values)
+    out[finite] = ((values[finite] + 180.0) % 360.0) - 180.0
+    out[finite & np.isclose(out, -180.0)] = 180.0
+    return out
 
 
 def valid_for_variable(variable: str, arr: np.ndarray) -> np.ndarray:
@@ -198,6 +207,36 @@ def goes_lonlat(bundle: dict[str, Any], shape: tuple[int, int]) -> tuple[np.ndar
     return lon, lat, ["GOES lon/lat derived from projection_x/projection_y and goes_imager_projection; x/y are scan angles multiplied by perspective_point_height."]
 
 
+def claas3_lonlat(bundle: dict[str, Any], shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    arrays = bundle["arrays"]
+    meta = bundle["meta"]
+    x = np.asarray(arrays.get("projection_x"), dtype=np.float64)
+    y = np.asarray(arrays.get("projection_y"), dtype=np.float64)
+    if x.size != shape[1] or y.size != shape[0]:
+        raise RuntimeError(f"CLAAS-3 x/y size {x.size}/{y.size} does not match data shape {shape}")
+    attrs = meta.get("geostationary_projection_attrs", {})
+    required = {"perspective_point_height", "longitude_of_projection_origin"}
+    if not required.issubset(attrs):
+        raise RuntimeError("CLAAS-3 CF geostationary projection attributes are incomplete")
+    h = float(attrs["perspective_point_height"])
+    lon0 = float(attrs["longitude_of_projection_origin"])
+    a = float(attrs.get("semi_major_axis", 6378137.0))
+    b = float(attrs.get("semi_minor_axis", 6356752.31414))
+    sweep = str(attrs.get("sweep_angle_axis", "y"))
+    xx, yy = np.meshgrid(x * h, y * h)
+    geos = CRS.from_proj4(f"+proj=geos +h={h} +lon_0={lon0} +a={a} +b={b} +units=m +sweep={sweep} +no_defs")
+    geo = CRS.from_proj4("+proj=longlat +datum=WGS84 +no_defs")
+    lon, lat = Transformer.from_crs(geos, geo, always_xy=True).transform(xx, yy)
+    lon = normalize_longitude(lon)
+    lat = np.asarray(lat, dtype=np.float32)
+    bad = ~np.isfinite(lon) | ~np.isfinite(lat) | (lat < -90) | (lat > 90)
+    lon[bad] = np.nan
+    lat[bad] = np.nan
+    if abs(float(np.nanmedian(lon))) > 1.0:
+        raise RuntimeError(f"CLAAS-3 projection center failed 0-degree check: median longitude={np.nanmedian(lon):.3f}")
+    return lon, lat, ["CLAAS-3 lon/lat derived from CF projection plus x/y scan angles; no array-index geolocation was used."]
+
+
 def native_lonlat(bundle: dict[str, Any], variable_shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray, list[str]]:
     if not available(bundle, "latitude") or not available(bundle, "longitude"):
         raise RuntimeError("latitude/longitude unavailable")
@@ -223,6 +262,8 @@ def geolocate(bundle: dict[str, Any], variable_shape: tuple[int, int]) -> tuple[
         return read_fy4b_lonlat_from_source(bundle, variable_shape)
     if sat.startswith("GOES"):
         return goes_lonlat(bundle, variable_shape)
+    if sat == "CLAAS3-0deg":
+        return claas3_lonlat(bundle, variable_shape)
     return native_lonlat(bundle, variable_shape)
 
 
@@ -289,6 +330,8 @@ def output_dtype_and_fill(variable: str, arr: np.ndarray) -> tuple[np.dtype, flo
 
 
 def variable_units(meta: dict[str, Any], variable: str) -> str:
+    if meta.get("satellite_family") == "CLAAS3":
+        return str(meta.get("physical_units", {}).get(variable, ""))
     attrs = meta.get("reader_attrs", {}).get(f"attrs_{variable}", {})
     return str(attrs.get("units", ""))
 
@@ -510,7 +553,10 @@ def reproject_product(row: dict[str, Any], target_lon: np.ndarray, target_lat: n
             inv_rows.append({"satellite": sat, "product": product, "variable": variable, "status": "SKIPPED", "reason": f"shape {arr.shape} does not match geolocation shape {ref_shape}", "output_file": ""})
             continue
         cloud_mask_display_src = cloud_mask_fusion_src = cloud_mask_off_disc_src = None
-        if variable == "cloud_mask":
+        variable_fusion_mask = bundle["arrays"].get(f"fusion_valid_mask_{variable}")
+        if variable_fusion_mask is not None and np.asarray(variable_fusion_mask).shape == arr.shape:
+            source_valid = np.asarray(variable_fusion_mask).astype(bool) & valid_for_variable(variable, arr)
+        elif variable == "cloud_mask":
             cloud_mask_display_src, cloud_mask_fusion_src, cloud_mask_off_disc_src = cloud_mask_masks(sat, product, arr)
             source_valid = cloud_mask_display_src
         else:
@@ -755,6 +801,14 @@ def determine_status(inventory: pd.DataFrame, sat_stats: pd.DataFrame, preflight
 
 
 def main() -> int:
+    global SATELLITES, SOURCE_PROFILE
+    parser = argparse.ArgumentParser(description="Reproject profile-selected cloud products to the GEO-ring grid")
+    parser.add_argument("--source-profile", default=SOURCE_PROFILE, choices=["operational_baseline", "claas3_candidate"])
+    parser.add_argument("--claas3-root", type=Path, default=path_config.CLAAS3_ROOT)
+    parser.add_argument("--run-id", default=os.environ.get("GEO_RING_RUN_ID", ""))
+    args = parser.parse_args()
+    SOURCE_PROFILE = validate_profile(args.source_profile)
+    SATELLITES = tie_order(SOURCE_PROFILE)
     ensure_dirs()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     QUICKLOOK_DIR.mkdir(parents=True, exist_ok=True)
@@ -792,6 +846,18 @@ def main() -> int:
     status = determine_status(inventory, stats, preflight_warnings, target_grid)
     write_report(status, inventory, stats, preflight_warnings, target_grid)
     write_cloud_mask_fusion_report(cloud_code, stats)
+    write_manifest(
+        OUT_DIR / "stage_05_claas3_reprojection_manifest.json",
+        canonical_stage_id="stage_05",
+        run_id=args.run_id,
+        source_profile=SOURCE_PROFILE,
+        generating_script=Path(__file__),
+        input_paths=[row["npz_file"] for row in rows],
+        output_paths=inventory["output_file"].dropna().astype(str).tolist() if not inventory.empty else [],
+        parameters={"target_time": TARGET_TIME, "grid_resolution_degree": GRID_RES, "max_distance_degree": MAX_DISTANCE_DEG, "resampling": "nearest"},
+        project_root=path_config.PROJECT_ROOT,
+        extra={"registry_version": REGISTRY_VERSION, "product_versions": {"CLAAS3": "405"} if SOURCE_PROFILE == "claas3_candidate" else {}},
+    )
     print(f"05 {status}: variables_ok={len(inventory[inventory['status']=='OK']) if not inventory.empty else 0}")
     print(f"report={REPORT_MD}")
     print(f"cloud_mask_report={CLOUD_MASK_FUSION_REPORT_MD}")

@@ -278,6 +278,9 @@ def parse_satellite_sensor_product(path: Path) -> dict[str, Any]:
             elif parts[0].startswith("Meteosat-IODC"):
                 sat = "Meteosat-IODC"
                 sensor = "SEVIRI"
+            elif parts[0].startswith("CLAAS3-0deg"):
+                sat = "CLAAS3-0deg"
+                sensor = "SEVIRI"
         if len(parts) >= 2 and product is None:
             product = parts[1]
     return {

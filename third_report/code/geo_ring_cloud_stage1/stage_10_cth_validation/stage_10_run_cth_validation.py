@@ -32,9 +32,9 @@ from path_config import RUNS_ROOT  # noqa: E402
 
 
 STAGE_ID = "stage_10"
-SOURCE_ID = {1: "GOES-16", 2: "GOES-18", 3: "FY4B", 4: "Himawari-9", 5: "Meteosat-0deg", 6: "Meteosat-IODC"}
+SOURCE_ID = {1: "GOES-16", 2: "GOES-18", 3: "FY4B", 4: "Himawari-9", 5: "Meteosat-0deg", 6: "Meteosat-IODC", 7: "CLAAS3-0deg"}
 SOURCE_TO_ID = {v: k for k, v in SOURCE_ID.items()}
-SOURCES = ["FY4B", "GOES-16", "GOES-18", "Himawari-9", "Meteosat-0deg", "Meteosat-IODC"]
+SOURCES = ["FY4B", "GOES-16", "GOES-18", "Himawari-9", "Meteosat-0deg", "Meteosat-IODC", "CLAAS3-0deg"]
 SOURCE_PAIR_LIST = [
     ("FY4B", "Himawari-9"),
     ("FY4B", "Meteosat-IODC"),

@@ -3,12 +3,15 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
 
 import netCDF4
 import numpy as np
+
+from geo_ring_cloud_run_discovery import resolve_run_dir
 
 
 RUNS_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs")
@@ -22,6 +25,7 @@ SOURCE_ID_TO_NAME = {
     4: "Himawari-9",
     5: "Meteosat-0deg",
     6: "Meteosat-IODC",
+    7: "CLAAS3-0deg",
 }
 SOURCE_PRODUCT = {
     "GOES-16": "ACMF",
@@ -215,7 +219,7 @@ def find_source_file(run_root: Path, source: str, tag: str) -> Path | None:
 
 def analyze_sample(row: dict[str, str], out_dir: Path) -> dict[str, list[dict[str, Any]]]:
     tag = row["time_tag"]
-    run_root = RUNS_ROOT / tag
+    run_root = resolve_run_dir(RUNS_ROOT, tag, os.environ.get("GEO_RING_SOURCE_PROFILE", "operational_baseline")) or (RUNS_ROOT / tag)
     epic_path = Path(row["epic_file"])
     grid = load_grid(run_root)
     epic = read_epic(epic_path)

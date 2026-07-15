@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,8 @@ from typing import Any
 import netCDF4
 import numpy as np
 import pandas as pd
+
+from geo_ring_cloud_run_discovery import resolve_run_dir
 
 
 RUNS_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs")
@@ -190,7 +193,7 @@ def run() -> Path:
     for _, row in summary.iterrows():
         tag = str(row["time_tag"])
         epic_file = Path(str(row["epic_file"]))
-        run_root = RUNS_ROOT / tag
+        run_root = resolve_run_dir(RUNS_ROOT, tag, os.environ.get("GEO_RING_SOURCE_PROFILE", "operational_baseline")) or (RUNS_ROOT / tag)
         if not epic_file.exists() or not run_root.exists():
             continue
         epic = read_epic(epic_file)

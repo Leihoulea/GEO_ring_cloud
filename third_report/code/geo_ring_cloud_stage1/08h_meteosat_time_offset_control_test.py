@@ -3,12 +3,15 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from geo_ring_cloud_run_discovery import resolve_run_dir
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -157,7 +160,7 @@ def run_candidate(row: dict[str, Any], args: argparse.Namespace) -> dict[str, An
 
 def collect_metrics_for_run(row: dict[str, Any], cohort: str, note: str) -> list[dict[str, Any]]:
     tag = row.get("time_tag") or time_tag_from_hour(row.get("nearest_hour") or row.get("target_time") or "")
-    run_root = RUNS_ROOT / tag
+    run_root = resolve_run_dir(RUNS_ROOT, tag, os.environ.get("GEO_RING_SOURCE_PROFILE", "operational_baseline")) or (RUNS_ROOT / tag)
     metrics_path = run_root / f"epic_l2_cloud_mask_semantic_sensitivity_{tag}" / "epic_georing_cloud_mask_sensitivity_metrics.csv"
     metrics = read_csv(metrics_path)
     out: list[dict[str, Any]] = []

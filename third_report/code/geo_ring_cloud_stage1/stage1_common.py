@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import gc
+import hashlib
 import json
 import math
 import os
 import re
-import tempfile
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -46,6 +47,7 @@ STANDARD_VARS = [
     "cloud_top_pressure_hPa",
     "cloud_optical_thickness",
     "cloud_effective_radius_um",
+    "cloud_water_path_g_m2",
     "quality_flag_raw",
     "quality_flag_standard",
     "latitude",
@@ -72,6 +74,7 @@ QUICKLOOK_PRIORITY = [
     "cloud_type",
     "cloud_optical_thickness",
     "cloud_effective_radius_um",
+    "cloud_water_path_g_m2",
     "sensor_zenith_angle",
     "solar_zenith_angle",
 ]
@@ -122,6 +125,11 @@ CLOUD_MASK_CODE_TABLES: dict[tuple[str, str], dict[int, dict[str, Any]]] = {
         2: {"meaning": "cloud_inferred", "is_cloudy": True, "is_clear": False, "is_off_disc": False, "valid_for_display": True, "valid_for_fusion": True, "meaning_source": "EUMETSAT CLM abstract plus spatial inference"},
         3: {"meaning": "not_processed_off_earth_disc_inferred", "is_cloudy": False, "is_clear": False, "is_off_disc": True, "valid_for_display": True, "valid_for_fusion": False, "meaning_source": "EUMETSAT CLM abstract plus radial edge pattern"},
     },
+    ("CLAAS3", "CMA"): {
+        0: {"meaning": "clear", "is_cloudy": False, "is_clear": True, "is_off_disc": False, "valid_for_display": True, "valid_for_fusion": True, "meaning_source": "CLAAS-3 CMA flag_values/flag_meanings"},
+        3: {"meaning": "cloudy", "is_cloudy": True, "is_clear": False, "is_off_disc": False, "valid_for_display": True, "valid_for_fusion": True, "meaning_source": "Canonicalized from CLAAS-3 CMA cloudy code 1"},
+        -9999: {"meaning": "fill_or_off_disc", "is_cloudy": False, "is_clear": False, "is_off_disc": True, "valid_for_display": False, "valid_for_fusion": False, "meaning_source": "CLAAS-3 adapter fill policy"},
+    },
 }
 
 
@@ -134,6 +142,8 @@ def cloud_mask_semantics(satellite: str, product: str) -> dict[int, dict[str, An
         return CLOUD_MASK_CODE_TABLES[("Himawari", prod)]
     if sat.startswith("Meteosat") and ("Meteosat", prod) in CLOUD_MASK_CODE_TABLES:
         return CLOUD_MASK_CODE_TABLES[("Meteosat", prod)]
+    if sat.startswith("CLAAS3") and ("CLAAS3", prod) in CLOUD_MASK_CODE_TABLES:
+        return CLOUD_MASK_CODE_TABLES[("CLAAS3", prod)]
     return CLOUD_MASK_CODE_TABLES.get((sat, prod), {})
 
 
@@ -639,7 +649,7 @@ def read_meteosat_zip(path: Path, product: str, mapping: dict[str, dict[str, lis
     arrays: dict[str, np.ndarray] = {}
     source_variables: dict[str, str] = {}
     warnings: list[str] = []
-    attrs: dict[str, Any] = {"source_file": str(path), "reader": "zip+cfgrib", "zip_entries": []}
+    attrs: dict[str, Any] = {"source_file": str(path), "reader": "zip+cfgrib_cached_extract", "zip_entries": []}
     key = product_mapping_key("Meteosat", product)
     product_map = mapping.get(key, {})
     try:
@@ -647,7 +657,10 @@ def read_meteosat_zip(path: Path, product: str, mapping: dict[str, dict[str, lis
     except Exception as exc:
         return ReadResult(arrays, attrs, source_variables, [f"xarray/cfgrib unavailable: {exc}"])
 
-    with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory() as tmp:
+    extract_cache = STAGE_ROOT / "cache" / "meteosat_extract"
+    extract_cache.mkdir(parents=True, exist_ok=True)
+    attrs["extract_cache"] = str(extract_cache)
+    with zipfile.ZipFile(path) as zf:
         entries = zf.namelist()
         attrs["zip_entries"] = entries
         grib_entries = [e for e in entries if e.lower().endswith((".grb", ".grib", ".grb2", ".bin"))]
@@ -655,8 +668,12 @@ def read_meteosat_zip(path: Path, product: str, mapping: dict[str, dict[str, lis
             warnings.append("no GRIB entry found in ZIP")
             return ReadResult(arrays, attrs, source_variables, warnings)
         for entry in grib_entries:
-            extracted = Path(tmp) / Path(entry).name
-            extracted.write_bytes(zf.read(entry))
+            suffix = Path(entry).suffix or ".grb"
+            cache_key = hashlib.sha1(f"{path.resolve()}|{entry}".encode("utf-8")).hexdigest()
+            extracted = extract_cache / f"{cache_key}{suffix}"
+            payload = zf.read(entry)
+            if not extracted.exists() or extracted.stat().st_size != len(payload):
+                extracted.write_bytes(payload)
             try:
                 ds = xr.open_dataset(extracted, engine="cfgrib", backend_kwargs={"indexpath": ""})
             except Exception as exc:
@@ -668,7 +685,7 @@ def read_meteosat_zip(path: Path, product: str, mapping: dict[str, dict[str, lis
                 resolved = resolve_variable_names(names, product_map)
                 for var_name, standard in resolved.items():
                     data = ds[var_name]
-                    arr = np.asarray(data.values)
+                    arr = np.array(data.values, copy=True)
                     arr = reshape_square_if_needed(arr)
                     if arr.dtype.kind in "fc":
                         arr = mask_sentinel_values(arr.astype(np.float32))
@@ -676,13 +693,15 @@ def read_meteosat_zip(path: Path, product: str, mapping: dict[str, dict[str, lis
                     source_variables[standard] = var_name
                     attrs[f"attrs_{standard}"] = {k: attr_to_python(v) for k, v in data.attrs.items()}
                 if "latitude" not in arrays and "latitude" in ds.coords:
-                    arrays["latitude"] = reshape_square_if_needed(np.asarray(ds["latitude"].values, dtype=np.float32))
+                    arrays["latitude"] = reshape_square_if_needed(np.array(ds["latitude"].values, dtype=np.float32, copy=True))
                     source_variables["latitude"] = "latitude"
                 if "longitude" not in arrays and "longitude" in ds.coords:
-                    arrays["longitude"] = reshape_square_if_needed(np.asarray(ds["longitude"].values, dtype=np.float32))
+                    arrays["longitude"] = reshape_square_if_needed(np.array(ds["longitude"].values, dtype=np.float32, copy=True))
                     source_variables["longitude"] = "longitude"
             finally:
                 ds.close()
+                del ds
+                gc.collect()
     add_valid_and_quality(arrays)
     return ReadResult(arrays=arrays, attrs=attrs, source_variables=source_variables, warnings=warnings)
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import shutil
@@ -10,6 +11,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+import path_config
+from geo_ring_cloud_lineage import write_manifest
+from geo_ring_cloud_source_registry import REGISTRY_VERSION, validate_profile
 from stage1_common import NATIVE_DIR, REPORT_DIR, SCRIPT_DIR, ensure_dirs, utc_now
 
 
@@ -30,6 +34,9 @@ def as_scalar_text(value: Any) -> str:
 
 
 def attrs_for(metadata: dict[str, Any], variable: str) -> dict[str, Any]:
+    direct = metadata.get("variable_attrs", {}).get(variable, {})
+    if isinstance(direct, dict) and direct:
+        return direct
     reader_attrs = metadata.get("reader_attrs", {})
     raw = reader_attrs.get(f"attrs_{variable}", {})
     return raw if isinstance(raw, dict) else {}
@@ -261,7 +268,7 @@ def semantic_validate_one(npz_file: Path) -> tuple[list[dict[str, Any]], list[di
                 if qm_issue:
                     issues.append(qm_issue)
             issues.extend(metadata_completeness_issues(meta, variable))
-        for variable in ["cloud_top_height_km", "cloud_top_temperature_K", "cloud_top_pressure_hPa", "cloud_optical_thickness", "cloud_effective_radius_um", "latitude", "longitude"]:
+        for variable in ["cloud_top_height_km", "cloud_top_temperature_K", "cloud_top_pressure_hPa", "cloud_optical_thickness", "cloud_effective_radius_um", "cloud_water_path_g_m2", "latitude", "longitude"]:
             if variable not in npz.files:
                 continue
             availability = json.loads(str(npz["variable_availability_json"]))
@@ -284,6 +291,21 @@ def semantic_validate_one(npz_file: Path) -> tuple[list[dict[str, Any]], list[di
             src = meta.get("source_variables", {})
             target = "cloud_mask" if meta.get("product") == "ACMF" else "cloud_phase"
             issues.append(issue("INFO", "GOES_LAYER_SELECTION", meta, target, f"{target}={src.get(target)}; quality_flag_raw={src.get('quality_flag_raw')}"))
+        if meta.get("satellite_group") == "CLAAS3-0deg":
+            availability = json.loads(str(npz["variable_availability_json"]))
+            for variable in [name.replace("has_", "") for name, enabled in availability.items() if enabled]:
+                if variable not in npz.files or np.asarray(npz[variable]).ndim != 2:
+                    continue
+                for kind in ("physical", "fusion", "diagnostic"):
+                    mask_name = f"{kind}_valid_mask_{variable}"
+                    if mask_name not in npz.files:
+                        issues.append(issue("FAIL", "CLAAS3_VARIABLE_MASK_MISSING", meta, variable, mask_name))
+                    elif np.asarray(npz[mask_name]).shape != np.asarray(npz[variable]).shape:
+                        issues.append(issue("FAIL", "CLAAS3_VARIABLE_MASK_SHAPE", meta, variable, f"{mask_name} shape mismatch"))
+            if not meta.get("geostationary_projection_attrs"):
+                issues.append(issue("FAIL", "CLAAS3_CF_PROJECTION_MISSING", meta, "projection", "CF geostationary attributes are required"))
+            if "exactly once" not in str(meta.get("scale_offset_policy", "")):
+                issues.append(issue("FAIL", "CLAAS3_SCALE_PROVENANCE_MISSING", meta, "", "scale/add-offset application count is not documented"))
     return issues, code_rows
 
 
@@ -334,6 +356,11 @@ def write_report(status: str, issues_df: pd.DataFrame, code_df: pd.DataFrame) ->
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Stage 03.5 semantic and per-variable mask gate")
+    parser.add_argument("--source-profile", default="operational_baseline", choices=["operational_baseline", "claas3_candidate"])
+    parser.add_argument("--run-id", default="")
+    args = parser.parse_args()
+    source_profile = validate_profile(args.source_profile)
     ensure_dirs()
     shutil.copy2(__file__, SCRIPT_DIR / Path(__file__).name)
     inventory = pd.read_csv(NATIVE_DIR / "standardized_native_inventory.csv")
@@ -370,6 +397,18 @@ def main() -> int:
     code_df.to_csv(OUT_CODE_TABLES, index=False, encoding="utf-8-sig")
     status = status_from_issues(all_issues)
     write_report(status, issues_df, code_df)
+    write_manifest(
+        NATIVE_DIR / "stage_03_5_claas3_semantic_manifest.json",
+        canonical_stage_id="stage_03.5",
+        run_id=args.run_id,
+        source_profile=source_profile,
+        generating_script=Path(__file__),
+        input_paths=inventory["npz_file"].dropna().astype(str).tolist(),
+        output_paths=[OUT_ISSUES, OUT_CODE_TABLES, OUT_REPORT],
+        parameters={"profile_gate": source_profile},
+        project_root=path_config.PROJECT_ROOT,
+        extra={"registry_version": REGISTRY_VERSION, "product_versions": {"CLAAS3": "405"} if source_profile == "claas3_candidate" else {}, "status": status},
+    )
     print(f"03.5 {status}: issues={len(issues_df)} code_rows={len(code_df)}")
     print(f"report={OUT_REPORT}")
     return 0 if status != "FAIL" else 2
@@ -377,4 +416,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

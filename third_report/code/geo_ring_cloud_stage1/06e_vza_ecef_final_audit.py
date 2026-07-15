@@ -3,12 +3,15 @@ from __future__ import annotations
 import importlib.util
 import json
 import math
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+from geo_ring_cloud_source_registry import tie_order, validate_profile
 
 
 SCRIPT_PATH = Path(__file__).resolve()
@@ -26,7 +29,7 @@ TIME_TAG = "20240305_0000"
 TARGET_TIME = "2024-03-05T00:00:00Z"
 TARGET_SHAPE = (3600, 7200)
 ROW_CHUNK = 120
-TIE_ORDER = ["GOES-16", "GOES-18", "FY4B", "Himawari-9", "Meteosat-0deg", "Meteosat-IODC"]
+TIE_ORDER = tie_order(validate_profile(os.environ.get("GEO_RING_SOURCE_PROFILE", "operational_baseline")))
 
 SOURCE_CSV = LOCAL_REPORT_ROOT / "06e_current_vza_source_inventory.csv"
 COMPARISON_CSV = LOCAL_REPORT_ROOT / "06e_vza_vs_audited_ecef.csv"

@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import argparse
 import json
 import shutil
 from pathlib import Path
 
 import pandas as pd
 import yaml
+
+import path_config
+from geo_ring_cloud_claas3_adapter import discover_files, records_as_dicts, select_for_time
+from geo_ring_cloud_lineage import write_manifest
+from geo_ring_cloud_source_registry import REGISTRY_VERSION, SOURCE_BY_KEY
 
 from stage1_common import (
     CONFIG_DIR,
@@ -146,6 +152,58 @@ def build_index(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return pd.DataFrame(rows), ranked
 
 
+def append_claas3_rows(index_df: pd.DataFrame, records: list[object]) -> pd.DataFrame:
+    source = SOURCE_BY_KEY["CLAAS3-0deg"]
+    rows: list[dict[str, object]] = []
+    for hour in pd.date_range(START, END, freq="h", tz="UTC"):
+        nominal_time = iso_z(hour)
+        product_files: dict[str, dict[str, object]] = {}
+        missing: list[str] = []
+        deltas: dict[str, float] = {}
+        for product in source.products:
+            selected, delta = select_for_time(records, product, nominal_time)
+            deltas[product] = delta
+            if selected is None:
+                missing.append(product)
+                continue
+            product_files[product] = {
+                "file_path": selected.path,
+                "file_size": selected.size_bytes,
+                "parse_status": "PARSED",
+                "suffix": ".nc",
+                "source_key": source.source_key,
+                "product_family": "CLAAS3",
+                "processing_stream": source.processing_stream,
+                "product_version": selected.product_version,
+                "nominal_time": selected.nominal_time,
+                "time_delta_minutes": delta,
+                "profile_eligibility": "claas3_candidate",
+            }
+        present = len(product_files)
+        rows.append({
+            "nominal_time": nominal_time,
+            "satellite_group": source.source_key,
+            "satellite_family": source.family,
+            "satellite": source.platform,
+            "core_products": "|".join(source.products),
+            "optional_products": "",
+            "present_core_count": present,
+            "total_core_count": len(source.products),
+            "complete_core": not missing,
+            "missing_core_products": "|".join(missing),
+            "product_files_json": json.dumps(product_files, ensure_ascii=False),
+            "satellite_score": present * 10 + (100 if not missing else 0),
+            "status": "PASS" if not missing else ("PARTIAL" if present else "MISSING"),
+            "source_key": source.source_key,
+            "product_family": "CLAAS3",
+            "processing_stream": source.processing_stream,
+            "product_version": "405",
+            "time_delta": json.dumps(deltas),
+            "profile_eligibility": "claas3_candidate",
+        })
+    return pd.concat([index_df, pd.DataFrame(rows)], ignore_index=True, sort=False)
+
+
 def write_report(index_df: pd.DataFrame, ranked: pd.DataFrame) -> None:
     prototype = ranked[ranked["selection_role"] == "prototype"].head(1)
     lines = [
@@ -186,6 +244,11 @@ def write_report(index_df: pd.DataFrame, ranked: pd.DataFrame) -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Build operational and CLAAS-3 source-file catalogs")
+    parser.add_argument("--source-profile", default="operational_baseline", choices=["operational_baseline", "claas3_candidate"])
+    parser.add_argument("--claas3-root", type=Path, default=path_config.CLAAS3_ROOT)
+    parser.add_argument("--run-id", default="stage01_catalog")
+    args = parser.parse_args()
     ensure_dirs()
     shutil.copy2(__file__, SCRIPT_DIR / Path(__file__).name)
     core_yaml = {
@@ -197,9 +260,37 @@ def main() -> int:
     (CONFIG_DIR / "core_product_definition.yaml").write_text(yaml.safe_dump(core_yaml, sort_keys=False, allow_unicode=True), encoding="utf-8")
     df = load_metadata()
     index_df, ranked = build_index(df)
+    claas_records, duplicate_rows = discover_files(args.claas3_root)
+    catalog = pd.DataFrame(records_as_dicts(claas_records))
+    if not catalog.empty:
+        catalog["source_key"] = "CLAAS3-0deg"
+        catalog["product_family"] = "CLAAS3"
+        catalog["processing_stream"] = SOURCE_BY_KEY["CLAAS3-0deg"].processing_stream
+        catalog["time_delta"] = 0.0
+        catalog["profile_eligibility"] = "claas3_candidate"
+    catalog_path = TIME_INDEX_DIR / "stage_01_source_file_catalog.csv"
+    catalog.to_csv(catalog_path, index=False, encoding="utf-8-sig")
+    pd.DataFrame(duplicate_rows).to_csv(TIME_INDEX_DIR / "stage_01_claas3_duplicate_resolution.csv", index=False, encoding="utf-8-sig")
+    index_df = append_claas3_rows(index_df, claas_records)
     index_df.to_csv(TIME_INDEX_DIR / "core_time_index.csv", index=False, encoding="utf-8-sig")
     ranked.to_csv(TIME_INDEX_DIR / "usable_times_ranked.csv", index=False, encoding="utf-8-sig")
     write_report(index_df, ranked)
+    write_manifest(
+        TIME_INDEX_DIR / "stage_01_claas3_time_index_manifest.json",
+        canonical_stage_id="stage_01",
+        run_id=args.run_id,
+        source_profile=args.source_profile,
+        generating_script=Path(__file__),
+        input_paths=[PARSED_METADATA, args.claas3_root],
+        output_paths=[catalog_path, TIME_INDEX_DIR / "core_time_index.csv", TIME_INDEX_DIR / "usable_times_ranked.csv"],
+        parameters={"start": str(START), "end": str(END)},
+        project_root=path_config.PROJECT_ROOT,
+        extra={
+            "registry_version": REGISTRY_VERSION,
+            "product_versions": {"CLAAS3": sorted({item.product_version for item in claas_records})},
+            "claas3_duplicate_count": len(duplicate_rows),
+        },
+    )
     (REPORT_DIR / "geo_ring_cloud_next_stage_report.md").write_text(
         "# GEO-ring Cloud Next Stage Report\n\n"
         f"- Generated UTC: {utc_now()}\n"
@@ -213,4 +304,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

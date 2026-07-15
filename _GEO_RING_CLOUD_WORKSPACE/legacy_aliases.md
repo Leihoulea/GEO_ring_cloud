@@ -83,6 +83,8 @@
 | geo_ring_cloud | 09_stage09_epic_georing_cloud_mask_diagnostics.py | stage_09 | 1.0 | registry-defined alias |
 | geo_ring_cloud | 09b | stage_09b | 1.0 | registry-defined alias |
 | geo_ring_cloud | 09c | stage_09c | 1.0 | registry-defined alias |
+| geo_ring_cloud | 09d | stage_09d | 1.0 | registry-defined alias |
+| geo_ring_cloud | 10 | stage_10 | 1.0 | registry-defined alias |
 | geo_ring_cloud | Stage00 | stage_00 | 1.0 | registry-defined alias |
 | geo_ring_cloud | Stage00b | stage_00b | 1.0 | registry-defined alias |
 | geo_ring_cloud | Stage00c | stage_00c | 1.0 | registry-defined alias |
@@ -226,6 +228,7 @@
 | geo_ring_cloud | stage_00b | stage_00b | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_00c | stage_00c | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_00d | stage_00d | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_00d_claas3_integration_readiness.py | stage_00d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_00e | stage_00e | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_00f | stage_00f | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_01 | stage_01 | 1.0 | registry-defined alias |
@@ -238,12 +241,14 @@
 | geo_ring_cloud | stage_06 | stage_06 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_06_5 | stage_06_5 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_06c | stage_06c | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_06c_claas3_geometry_angle_lineage.py | stage_06c | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_06d | stage_06d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_06e | stage_06e | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_06f | stage_06f | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_07 | stage_07 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_07p | stage_07p | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_07p_b | stage_07p_b | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_07p_claas3_profile_pair_evaluation.py | stage_07p | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_07v2 | stage_07v2 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_08 | stage_08 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_08b | stage_08b | 1.0 | registry-defined alias |
@@ -260,6 +265,7 @@
 | geo_ring_cloud | stage_09b | stage_09b | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09c | stage_09c | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09d | stage_09d | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_09d_claas3_epic_profile_pair_evaluation.py | stage_09d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09d_diagnostic_common.py | stage_09d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09d_geo_visible_control/stage_09d_vis_postprocess.py | stage_09d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09d_geo_visible_control/stage_09d_vis_run.py | stage_09d | 1.0 | registry-defined alias |
@@ -269,6 +275,7 @@
 | geo_ring_cloud | stage_09e | stage_09e | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09e_psf_sel_qc/stage_09e_run_psf_sel_qc.py | stage_09e | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_10 | stage_10 | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_10_claas3_epic_relative_height_evaluation.py | stage_10 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_10_cth_validation/stage_10_qc_audit.py | stage_10 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_10_cth_validation/stage_10_rewrite_cth_report.py | stage_10 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_10_cth_validation/stage_10_run_cth_validation.py | stage_10 | 1.0 | registry-defined alias |

@@ -3,11 +3,14 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import netCDF4
 import numpy as np
+
+from geo_ring_cloud_run_discovery import resolve_run_dir
 
 
 RUNS_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs")
@@ -21,11 +24,13 @@ SOURCE_PRODUCT = {
     "Himawari-9": "CMSK",
     "Meteosat-0deg": "CLM",
     "Meteosat-IODC": "CLM",
+    "CLAAS3-0deg": "CMA",
 }
 
 PAIR_LIST = [
     ("Meteosat-0deg", "GOES-16", "Meteosat-0deg western overlap with GOES-16"),
     ("Meteosat-0deg", "Meteosat-IODC", "MSG 0deg/IODC internal overlap"),
+    ("CLAAS3-0deg", "Meteosat-0deg", "CM SAF CLAAS-3 versus operational Meteosat 0deg"),
     ("Meteosat-IODC", "FY4B", "Meteosat-IODC eastern overlap with FY4B"),
     ("FY4B", "Meteosat-IODC", "FY4B western overlap with Meteosat-IODC"),
     ("FY4B", "Himawari-9", "FY4B/Himawari East Asia overlap"),
@@ -196,7 +201,7 @@ def find_source_file(run_root: Path, source: str, tag: str) -> Path | None:
 
 def analyze_sample(row: dict[str, str]) -> dict[str, list[dict[str, Any]]]:
     tag = row["time_tag"]
-    run_root = RUNS_ROOT / tag
+    run_root = resolve_run_dir(RUNS_ROOT, tag, os.environ.get("GEO_RING_SOURCE_PROFILE", "operational_baseline")) or (RUNS_ROOT / tag)
     grid = load_grid(run_root)
     epic = read_epic(Path(row["epic_file"]))
     epic_lat, epic_lon, epic_cm = epic["lat"], epic["lon"], epic["cloud_mask"]

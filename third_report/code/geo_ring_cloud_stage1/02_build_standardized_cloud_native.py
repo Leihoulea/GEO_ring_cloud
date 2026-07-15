@@ -9,6 +9,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import path_config
+from geo_ring_cloud_claas3_adapter import read_product as read_claas3_product
+from geo_ring_cloud_lineage import write_manifest
+from geo_ring_cloud_source_registry import REGISTRY_VERSION, validate_profile
 from stage1_common import (
     CONFIG_DIR,
     CORE_PRODUCTS,
@@ -214,6 +218,68 @@ def build_one_product(
     return inventory_row, stats_rows
 
 
+def build_one_claas3_product(
+    nominal_time: str,
+    product: str,
+    file_path: Path,
+    source_profile: str,
+    run_id: str,
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    result = read_claas3_product(file_path)
+    arrays = dict(result.arrays)
+    availability = add_missing_standard_vars(arrays)
+    metadata = {
+        **result.metadata,
+        "generated_utc": utc_now(),
+        "run_id": run_id,
+        "source_profile": source_profile,
+        "notes": [
+            "Native CLAAS-3 grid; no reprojection or cross-resolution merge performed.",
+            "NetCDF auto scaling was disabled and scale_factor/add_offset were applied exactly once by the CLAAS-3 adapter.",
+            "Physical, fusion, and diagnostic validity are stored independently for each science variable.",
+        ],
+    }
+    out_name = f"CLAAS3-0deg_{product}_{nominal_time[0:10].replace('-', '')}_{nominal_time[11:13]}00_native_cloud_v0.npz"
+    out_path = NATIVE_DIR / out_name
+    write_json_npz(out_path, arrays, metadata, availability)
+    quick_var = next((name for name in [
+        "cloud_mask", "cloud_top_height_km", "cloud_phase", "cloud_optical_thickness",
+    ] if availability.get(f"has_{name}", False)), None)
+    if quick_var:
+        make_quicklook(arrays[quick_var], QUICKLOOK_DIR / f"{out_path.stem}_{quick_var}.png", f"CLAAS3-0deg {product} {quick_var} {nominal_time}", quick_var)
+    inventory_row = {
+        "nominal_time": nominal_time,
+        "satellite_group": "CLAAS3-0deg",
+        "satellite_family": "CLAAS3",
+        "source_key": "CLAAS3-0deg",
+        "processing_stream": result.metadata["processing_stream"],
+        "product_version": result.metadata["product_version"],
+        "profile_eligibility": "claas3_candidate",
+        "product": product,
+        "source_file": str(file_path),
+        "npz_file": str(out_path),
+        "quicklook_variable": quick_var or "",
+        "status": "OK" if result.arrays else "WARN_EMPTY",
+        "warnings": "|".join(result.warnings),
+        **availability,
+    }
+    stats_rows: list[dict[str, object]] = []
+    for name, arr in arrays.items():
+        if name in {"metadata_json", "variable_availability_json", "variable_availability", "geostationary_projection"}:
+            continue
+        stats = finite_stats(np.asarray(arr))
+        stats.update({
+            "nominal_time": nominal_time,
+            "satellite_group": "CLAAS3-0deg",
+            "product": product,
+            "variable": name,
+            "npz_file": str(out_path),
+            "available": availability.get(f"has_{name}", name.startswith(("physical_valid_mask_", "fusion_valid_mask_", "diagnostic_valid_mask_", "claas3_"))),
+        })
+        stats_rows.append(stats)
+    return inventory_row, stats_rows
+
+
 def write_report(nominal_time: str, inventory: pd.DataFrame) -> None:
     lines = [
         "# Standardized Native Build Report",
@@ -238,13 +304,19 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", default="prototype", choices=["prototype"])
     parser.add_argument("--target-time", default=os.environ.get("GEO_RING_TARGET_TIME", ""))
+    parser.add_argument("--source-profile", default=os.environ.get("GEO_RING_SOURCE_PROFILE", "operational_baseline"), choices=["operational_baseline", "claas3_candidate"])
+    parser.add_argument("--claas3-root", type=Path, default=path_config.CLAAS3_ROOT)
+    parser.add_argument("--run-id", default=os.environ.get("GEO_RING_RUN_ID", ""))
     args = parser.parse_args()
+    source_profile = validate_profile(args.source_profile)
     ensure_dirs()
     shutil.copy2(__file__, SCRIPT_DIR / Path(__file__).name)
     shutil.copy2(Path(__file__).with_name("stage1_common.py"), SCRIPT_DIR / "stage1_common.py")
     mapping = read_mapping()
     nominal_time = args.target_time.strip() or load_selected_time(args.mode)
     rows = file_map_for_time(nominal_time)
+    if source_profile == "operational_baseline":
+        rows = rows[rows["satellite_group"] != "CLAAS3-0deg"]
     fy4b_geo_arrays = load_fy4b_geo(rows, mapping)
     inventory_rows: list[dict[str, object]] = []
     stats_rows: list[dict[str, object]] = []
@@ -252,20 +324,24 @@ def main() -> int:
         satellite_group = str(row["satellite_group"])
         family = str(row["satellite_family"])
         files = json.loads(str(row["product_files_json"]))
-        for product in CORE_PRODUCTS[satellite_group]["core"]:
+        products = list(CORE_PRODUCTS[satellite_group]["core"]) if satellite_group in CORE_PRODUCTS else ["CMA", "CTX", "CPP"]
+        for product in products:
             item = files.get(product)
             if not item:
                 continue
             try:
-                inv, stats = build_one_product(
-                    nominal_time,
-                    satellite_group,
-                    family,
-                    product,
-                    Path(item["file_path"]),
-                    mapping,
-                    fy4b_geo_arrays,
-                )
+                if satellite_group == "CLAAS3-0deg":
+                    inv, stats = build_one_claas3_product(nominal_time, product, Path(item["file_path"]), source_profile, args.run_id)
+                else:
+                    inv, stats = build_one_product(
+                        nominal_time,
+                        satellite_group,
+                        family,
+                        product,
+                        Path(item["file_path"]),
+                        mapping,
+                        fy4b_geo_arrays,
+                    )
                 inventory_rows.append(inv)
                 stats_rows.extend(stats)
             except Exception as exc:  # noqa: BLE001 - keep the time run alive and report the bad product.
@@ -289,6 +365,18 @@ def main() -> int:
     inventory.to_csv(NATIVE_DIR / "standardized_native_inventory.csv", index=False, encoding="utf-8-sig")
     stats.to_csv(NATIVE_DIR / "standardized_native_variable_stats.csv", index=False, encoding="utf-8-sig")
     write_report(nominal_time, inventory)
+    write_manifest(
+        NATIVE_DIR / "stage_02_claas3_native_manifest.json",
+        canonical_stage_id="stage_02",
+        run_id=args.run_id,
+        source_profile=source_profile,
+        generating_script=Path(__file__),
+        input_paths=inventory["source_file"].dropna().astype(str).tolist() if not inventory.empty else [],
+        output_paths=inventory["npz_file"].dropna().astype(str).tolist() if not inventory.empty else [],
+        parameters={"nominal_time": nominal_time, "claas3_root": str(args.claas3_root)},
+        project_root=path_config.PROJECT_ROOT,
+        extra={"registry_version": REGISTRY_VERSION, "product_versions": {"CLAAS3": "405"} if source_profile == "claas3_candidate" else {}},
+    )
     next_stage = REPORT_DIR / "geo_ring_cloud_next_stage_report.md"
     with next_stage.open("a", encoding="utf-8") as f:
         f.write(f"\n- Stage status update UTC {utc_now()}: 02 completed for `{nominal_time}`; products={len(inventory)}.\n")

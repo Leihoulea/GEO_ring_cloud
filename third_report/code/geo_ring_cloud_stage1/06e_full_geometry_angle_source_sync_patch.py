@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import math
+import os
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,8 @@ import netCDF4
 import numpy as np
 import pandas as pd
 import yaml
+
+from geo_ring_cloud_source_registry import SOURCE_BY_KEY, tie_order, validate_profile
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -42,15 +45,8 @@ TIME_TAG = "20240305_0000"
 TARGET_TIME = "2024-03-05T00:00:00Z"
 TARGET_TS = pd.Timestamp(TARGET_TIME)
 TARGET_SHAPE = (3600, 7200)
-TIE_ORDER = ["GOES-16", "GOES-18", "FY4B", "Himawari-9", "Meteosat-0deg", "Meteosat-IODC"]
-SAT_SUBPOINT = {
-    "FY4B": 133.0,
-    "GOES-16": -75.0,
-    "GOES-18": -137.0,
-    "Himawari-9": 140.7,
-    "Meteosat-0deg": 0.0,
-    "Meteosat-IODC": 45.5,
-}
+TIE_ORDER = tie_order(validate_profile(os.environ.get("GEO_RING_SOURCE_PROFILE", "operational_baseline")))
+SAT_SUBPOINT = {source: SOURCE_BY_KEY[source].service_longitude_deg for source in TIE_ORDER}
 ANGLE_NAMES = [
     "sensor_zenith_angle",
     "sensor_azimuth_angle",

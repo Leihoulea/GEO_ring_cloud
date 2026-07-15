@@ -8,6 +8,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import path_config
+from geo_ring_cloud_lineage import write_manifest
+from geo_ring_cloud_source_registry import REGISTRY_VERSION, validate_profile
 from stage1_common import (
     NATIVE_DIR,
     QUICKLOOK_DIR,
@@ -67,6 +70,11 @@ REQUIRED_BY_GROUP = {
     ],
     "Meteosat-0deg": ["cloud_mask", "cloud_top_height_km"],
     "Meteosat-IODC": ["cloud_mask", "cloud_top_height_km"],
+    "CLAAS3-0deg": [
+        "cloud_mask", "cloud_probability", "cloud_top_height_km", "cloud_top_temperature_K",
+        "cloud_top_pressure_hPa", "cloud_phase", "cloud_optical_thickness",
+        "cloud_effective_radius_um", "cloud_water_path_g_m2", "projection_x", "projection_y",
+    ],
 }
 
 
@@ -93,12 +101,13 @@ def read_availability(path: Path) -> tuple[dict[str, bool], dict[str, object], l
     return availability, metadata, stats_rows
 
 
-def validate(mode: str) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
+def validate(mode: str, source_profile: str) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
     inv = load_npz_inventory()
     rows: list[dict[str, object]] = []
     stats_rows: list[dict[str, object]] = []
     group_available: dict[str, set[str]] = {}
     group_warnings: dict[str, list[str]] = {}
+    semantic_failures: dict[str, list[str]] = {}
     for _, item in inv.iterrows():
         npz_path = Path(str(item["npz_file"]))
         satellite_group = str(item["satellite_group"])
@@ -119,6 +128,16 @@ def validate(mode: str) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
                 }
                 for row in stats
             )
+            if satellite_group == "CLAAS3-0deg":
+                with np.load(npz_path, allow_pickle=False) as npz:
+                    science = [name for name in npz.files if availability.get(f"has_{name}", False) and np.asarray(npz[name]).ndim == 2]
+                    for variable in science:
+                        for prefix in ("physical_valid_mask_", "fusion_valid_mask_", "diagnostic_valid_mask_"):
+                            mask_name = f"{prefix}{variable}"
+                            if mask_name not in npz.files or np.asarray(npz[mask_name]).shape != np.asarray(npz[variable]).shape:
+                                semantic_failures.setdefault(satellite_group, []).append(f"{product}:{mask_name} missing or shape mismatch")
+                    if metadata.get("scale_offset_policy", "").count("exactly once") != 1:
+                        semantic_failures.setdefault(satellite_group, []).append(f"{product}: scaling-once provenance missing")
         except Exception as exc:
             status = "FAILED_OPEN"
             reason = str(exc)
@@ -136,9 +155,11 @@ def validate(mode: str) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
     any_fail = False
     any_warn = False
     for group, required in REQUIRED_BY_GROUP.items():
+        if group == "CLAAS3-0deg" and source_profile != "claas3_candidate":
+            continue
         have = group_available.get(group, set())
         missing = [name for name in required if name not in have]
-        if missing:
+        if missing or semantic_failures.get(group):
             any_fail = True
             status = "FAIL"
         elif group_warnings.get(group):
@@ -151,9 +172,10 @@ def validate(mode: str) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
             "available_variables": sorted(have),
             "missing_required": missing,
             "warnings": group_warnings.get(group, []),
+            "semantic_failures": semantic_failures.get(group, []),
         }
     overall = "FAIL" if any_fail else ("PASS_WITH_WARNINGS" if any_warn else "PASS")
-    summary = {"mode": mode, "overall_status": overall, "group_status": group_status}
+    summary = {"mode": mode, "source_profile": source_profile, "overall_status": overall, "group_status": group_status}
     return pd.DataFrame(rows), pd.DataFrame(stats_rows), summary
 
 
@@ -249,13 +271,28 @@ def write_report(validate_rows: pd.DataFrame, stats: pd.DataFrame, summary: dict
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", default="prototype", choices=["prototype"])
+    parser.add_argument("--source-profile", default="operational_baseline", choices=["operational_baseline", "claas3_candidate"])
+    parser.add_argument("--run-id", default="")
     args = parser.parse_args()
+    source_profile = validate_profile(args.source_profile)
     ensure_dirs()
     shutil.copy2(__file__, SCRIPT_DIR / Path(__file__).name)
-    validate_rows, stats, summary = validate(args.mode)
+    validate_rows, stats, summary = validate(args.mode, source_profile)
     validate_rows.to_csv(NATIVE_DIR / "standardized_native_file_validation.csv", index=False, encoding="utf-8-sig")
     stats.to_csv(NATIVE_DIR / "standardized_native_variable_stats_validated.csv", index=False, encoding="utf-8-sig")
     write_report(validate_rows, stats, summary)
+    write_manifest(
+        NATIVE_DIR / "stage_03_claas3_validation_manifest.json",
+        canonical_stage_id="stage_03",
+        run_id=args.run_id,
+        source_profile=source_profile,
+        generating_script=Path(__file__),
+        input_paths=validate_rows["npz_file"].astype(str).tolist(),
+        output_paths=[NATIVE_DIR / "standardized_native_file_validation.csv", NATIVE_DIR / "standardized_native_variable_stats_validated.csv", REPORT_DIR / "standardized_native_validate_report.md"],
+        parameters={"mode": args.mode},
+        project_root=path_config.PROJECT_ROOT,
+        extra={"registry_version": REGISTRY_VERSION, "product_versions": {"CLAAS3": "405"} if source_profile == "claas3_candidate" else {}, "status": summary["overall_status"]},
+    )
     print(f"03 {summary['overall_status']}: files={len(validate_rows)}")
     print(f"report={REPORT_DIR / 'standardized_native_validate_report.md'}")
     return 0 if summary["overall_status"] != "FAIL" else 2
