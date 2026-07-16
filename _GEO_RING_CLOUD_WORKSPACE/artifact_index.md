@@ -18,7 +18,7 @@
 | geo_ring_cloud |  | time_run_pruning | directory_summary | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\geo_ring_cloud_time_run_pruning_202403_claas3_epic |  | directory_summary | 3 | .json:2, .md:1 | geo_ring_cloud_time_run_pruning_202403_claas3_epic |
 | geo_ring_cloud |  | time_run_pruning | directory_summary | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\geo_ring_cloud_time_run_pruning_failed_20240330_1700 |  | directory_summary | 107 | .png:75, .csv:14, .md:7, .json:4, .py:4, .log:3 | geo_ring_cloud_time_run_pruning_failed_20240330_1700 |
 | geo_ring_cloud |  | data_product_audit | directory_summary | D:\AAAresearch_paper\third_report\code\geo_data_audit | data_product_audit | directory_summary | 17 | .py:16, .yaml:1 | geo_data_audit |
-| geo_ring_cloud |  | support | directory_summary | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 |  | directory_summary | 91 | .py:77, .json:4, .csv:4, .ps1:3, .md:2, (无扩展名):1 | geo_ring_cloud_stage1 |
+| geo_ring_cloud |  | support | directory_summary | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 |  | directory_summary | 92 | .py:78, .json:4, .csv:4, .ps1:3, .md:2, (无扩展名):1 | geo_ring_cloud_stage1 |
 | geo_ring_cloud |  | support | report | D:\AAAresearch_paper\geo_ring_cloud_stage1\reports\fy4b_quality_mapping_note.md |  | stage_report |  |  | fy4b_quality_mapping_note.md |
 | geo_ring_cloud |  | support | report | D:\AAAresearch_paper\geo_ring_cloud_stage1\reports\geo_ring_cloud_next_stage_report.md |  | stage_report |  |  | geo_ring_cloud_next_stage_report.md |
 | geo_ring_cloud |  | support | report | D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack\latest\README.md |  | evidence |  |  | README.md |
@@ -74,6 +74,7 @@
 | geo_ring_cloud |  | support | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage_09d_geo_visible_control\stage_09d_vis_postprocess.py |  | source_code |  |  | stage_09d_vis_postprocess.py |
 | geo_ring_cloud |  | support | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage_09d_geo_visible_control\stage_09d_vis_run.py |  | source_code |  |  | stage_09d_vis_run.py |
 | geo_ring_cloud |  | support | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage_09d_vis_sel_joint\stage_09d_vis_sel_joint_report.py |  | source_code |  |  | stage_09d_vis_sel_joint_report.py |
+| geo_ring_cloud | stage_09f |  | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage_09f_spatial_story_maps\stage_09f_make_spatial_story_maps.py | stage_09f | source_code |  |  | stage_09f_make_spatial_story_maps.py |
 | geo_ring_cloud |  | support | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\summarize_time_run_20240319_1500.py |  | source_code |  |  | summarize_time_run_20240319_1500.py |
 | geo_ring_cloud |  | support | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\tests\_tmp\baseline_regression.py |  | source_code |  |  | baseline_regression.py |
 | geo_ring_cloud |  | support | script | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\tests\geo_ring_cloud_test_claas3.py |  | source_code |  |  | geo_ring_cloud_test_claas3.py |

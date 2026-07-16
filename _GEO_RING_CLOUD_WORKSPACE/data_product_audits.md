@@ -21,3 +21,4 @@
 | geo_ring_cloud | stage_10p_epic_composite_psf_inventory | data_product_audit | stage_10p | stage_10,stage_10p | DSCOVR EPIC | EPIC L2 COMPOSITE_02 / PSF-aware benchmark evidence | Composite file, variable, global-attribute, keyword, and cloud-property candidate inventory | active | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage_10p_composite_inventory.py | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\stage_10p_psf_inventory_202401 | Primary role is data_product_audit; related to Stage 10 validation but not a production pipeline transform |
 
 <!-- stage_09e index refresh 2026-07-15: nature meeting figure generation is plotting-only and adds no new data-product audit row. -->
+<!-- stage_09f index refresh 2026-07-16: spatial story map generation is plotting-only and adds no new data-product audit row. -->
