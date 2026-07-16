@@ -22,3 +22,4 @@
 
 <!-- stage_09e index refresh 2026-07-15: nature meeting figure generation is plotting-only and adds no new data-product audit row. -->
 <!-- stage_09f index refresh 2026-07-16: spatial story map generation is plotting-only and adds no new data-product audit row. -->
+<!-- stage_09f figure split refresh 2026-07-16: PPT-ready spatial atlas generation is plotting-only and adds no new data-product audit row. -->

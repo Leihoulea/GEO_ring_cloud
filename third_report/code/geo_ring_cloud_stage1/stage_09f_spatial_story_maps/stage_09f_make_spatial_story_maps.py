@@ -78,6 +78,76 @@ BOOL_NORM = BoundaryNorm([-0.5, 0.5, 1.5, 2.5], BOOL_CMAP.N)
 PAIR_CMAP = ListedColormap(["#D0D0D0", "#E8E8E8", "#3B6FB6", "#2AA198", "#D95F5F", "#F2B84B"])
 PAIR_NORM = BoundaryNorm([-0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5], PAIR_CMAP.N)
 
+LEGENDS = {
+    "class": [
+        (0, "invalid / not compared", "#D0D0D0", "//"),
+        (1, "clear", "#F2E8C9", ""),
+        (2, "cloud", "#4E79A7", ""),
+    ],
+    "mismatch": [
+        (0, "invalid / not compared", "#D0D0D0", "//"),
+        (1, "agree clear", "#E8E8E8", ""),
+        (2, "agree cloud", "#6BAED6", ""),
+        (3, "EPIC cloud, GEO clear", "#F2B84B", ".."),
+        (4, "EPIC clear, GEO cloud", "#D95F5F", "xx"),
+    ],
+    "family": [
+        (0, "missing / not selected", "#D0D0D0", "//"),
+        (1, "GOES selected", "#3B6FB6", ""),
+        (2, "EastAsia selected", "#2AA198", ""),
+        (3, "Meteosat selected", "#B65A5A", ""),
+    ],
+    "valid_count": [
+        (0, "invalid / not compared", "#D0D0D0", "//"),
+        (1, "1 valid source", "#E8F1FA", ""),
+        (2, "2 valid sources", "#A7C7E7", ""),
+        (3, "3 valid sources", "#4E79A7", ""),
+        (4, ">=4 valid sources", "#1F4E79", "xx"),
+    ],
+    "scene": [
+        (0, "invalid / not compared", "#D0D0D0", "//"),
+        (1, "non-boundary clear core", "#E8E8E8", ""),
+        (2, "non-boundary cloud core", "#8EC07C", ""),
+        (3, "near local cloud boundary", "#C95F5F", ".."),
+        (4, "broken-cloud scene", "#9E77B5", "xx"),
+    ],
+    "pair": [
+        (0, "not common valid", "#D0D0D0", "//"),
+        (2, "both match EPIC", "#3B6FB6", ""),
+        (3, "A only matches EPIC", "#2AA198", ".."),
+        (4, "B only matches EPIC", "#D95F5F", "xx"),
+        (5, "neither matches EPIC", "#F2B84B", "\\\\"),
+    ],
+}
+
+REASON_EXPLANATIONS = [
+    {
+        "reason_label": "low Met agreement",
+        "definition": "Among Meteosat-related samples, this time has one of the lowest Policy A GEO-ring vs EPIC agreements.",
+        "interpretation": "Use it to show where the Meteosat-dominated gap is spatially located; it does not mean EPIC is absolute truth.",
+    },
+    {
+        "reason_label": "high boundary",
+        "definition": "This time has a high fraction of local 3x3 mixed cloud/clear pixels in the fused mask.",
+        "interpretation": "Use it to explain representativeness and cloud-edge sensitivity; boundary here is local cloud-mask boundary, not satellite service-area boundary.",
+    },
+    {
+        "reason_label": "source-pair disagreement",
+        "definition": "This time contains a source pair with high disagreement on common-valid pixels.",
+        "interpretation": "Use it to show that upstream GEO sources can disagree before any new fusion-v2 idea is introduced.",
+    },
+    {
+        "reason_label": "valid_count>=4 focus",
+        "definition": "This time highlights pixels where Stage 06 reports four or more valid candidate sources.",
+        "interpretation": "Use it to show that multi-source overlap is a complex conflict region, not automatically a higher-confidence region.",
+    },
+    {
+        "reason_label": "high-agreement control",
+        "definition": "This time has high Policy A GEO-ring vs EPIC agreement.",
+        "interpretation": "Use it as a contrast case so the presentation is not built only from failure examples.",
+    },
+]
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -237,6 +307,57 @@ def add_legend(ax: plt.Axes, labels: list[tuple[int, str, str]], ncol: int = 1) 
     ax.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, -0.02), ncol=ncol, frameon=False)
 
 
+def legend_handles(kind: str) -> list[Patch]:
+    handles = []
+    for _, label, color, hatch in LEGENDS[kind]:
+        handles.append(Patch(facecolor=color, edgecolor="#555555", linewidth=0.4, hatch=hatch, label=label))
+    return handles
+
+
+def add_categorical_legend(ax: plt.Axes, kind: str, title: str, ncol: int = 1, loc: str = "lower center") -> None:
+    leg = ax.legend(
+        handles=legend_handles(kind),
+        title=title,
+        loc=loc,
+        bbox_to_anchor=(0.5, -0.01) if loc == "lower center" else None,
+        ncol=ncol,
+        frameon=True,
+        facecolor="white",
+        framealpha=0.82,
+        edgecolor="#BBBBBB",
+        fontsize=5.7,
+        handlelength=1.8,
+        handleheight=1.2,
+        labelspacing=0.25,
+        columnspacing=0.8,
+        borderaxespad=0.2,
+    )
+    if leg.get_title():
+        leg.get_title().set_fontsize(6.3)
+
+
+def counts_for_codes(sample_id: str, variable: str, arr: np.ndarray, valid_mask: np.ndarray | None = None) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    values, counts = np.unique(arr[np.isfinite(arr)], return_counts=True)
+    total = int(arr.size if valid_mask is None else np.count_nonzero(valid_mask))
+    for value, count in zip(values, counts):
+        rows.append(
+            {
+                "sample_id": sample_id,
+                "variable": variable,
+                "code": int(value),
+                "count": int(count),
+                "denominator_pixels": total,
+                "fraction_of_display_or_valid_pixels": int(count) / max(total, 1),
+            }
+        )
+    return rows
+
+
+def reason_for_sample(row: dict[str, Any]) -> str:
+    return str(row.get("stage_09f_selection_reason", ""))
+
+
 def context_cache_get(cache: dict[str, dict[str, Any]], row: dict[str, Any]) -> dict[str, Any]:
     sid = row["sample_id"]
     if sid not in cache:
@@ -355,6 +476,50 @@ def flatten_sample_source(sample_id: str, lat: np.ndarray, lon: np.ndarray, arra
     return pd.DataFrame(rows)
 
 
+def sample_disk_arrays_and_summary(ctx: dict[str, Any], row: dict[str, Any]) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray, dict[str, Any]]:
+    m = sample_metrics_for_context(ctx)
+    lat = orient(ctx["epic"]["lat"], ctx["epic"]["lat"])
+    lon = orient(ctx["epic"]["lon"], ctx["epic"]["lat"])
+    arrays = {
+        "epic_policy_a_class_code": orient(m["epic_code"], ctx["epic"]["lat"]),
+        "georing_policy_a_class_code": orient(m["geo_code"], ctx["epic"]["lat"]),
+        "mismatch_category_code": orient(m["mismatch_code"], ctx["epic"]["lat"]),
+        "selected_family_code": orient(m["family_code"], ctx["epic"]["lat"]),
+        "valid_source_count_code": orient(m["count_code"], ctx["epic"]["lat"]),
+        "boundary_scene_code": orient(m["scene_code"], ctx["epic"]["lat"]),
+    }
+    total = int(np.count_nonzero(m["base"]))
+    disagree = int(np.count_nonzero(m["base"] & (m["epic_cls"] != m["geo_cls"])))
+    summary = {
+        "sample_id": row["sample_id"],
+        "selection_reason": reason_for_sample(row),
+        "short_reason": short_reason(reason_for_sample(row)),
+        "n_valid_policy_a": total,
+        "n_disagreement_policy_a": disagree,
+        "agreement_policy_a": 1.0 - disagree / total if total else math.nan,
+        "boundary_fraction": float(np.mean(m["scene"]["boundary_bool"][m["base"]])) if total else math.nan,
+        "broken_cloud_fraction": float(np.mean((m["scene"]["scene_type"] == "broken_cloud")[m["base"]])) if total else math.nan,
+        "meteosat_selected_fraction": float(np.mean(m["family_code"][m["base"]] == 3)) if total else math.nan,
+        "valid_source_count_ge4_fraction": float(np.mean(ctx["valid_count"][m["base"]] >= 4)) if total else math.nan,
+    }
+    return arrays, lat, lon, summary
+
+
+def sample_count_rows(sample_id: str, arrays: dict[str, np.ndarray]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for variable in [
+        "epic_policy_a_class_code",
+        "georing_policy_a_class_code",
+        "mismatch_category_code",
+        "selected_family_code",
+        "valid_source_count_code",
+        "boundary_scene_code",
+    ]:
+        if variable in arrays:
+            rows.extend(counts_for_codes(sample_id, variable, arrays[variable]))
+    return rows
+
+
 def figure1_representative_disk(
     dirs: dict[str, Path],
     samples: list[dict[str, Any]],
@@ -372,33 +537,9 @@ def figure1_representative_disk(
     for i, row in enumerate(samples):
         try:
             ctx = context_cache_get(cache, row)
-            m = sample_metrics_for_context(ctx)
-            lat = orient(ctx["epic"]["lat"], ctx["epic"]["lat"])
-            lon = orient(ctx["epic"]["lon"], ctx["epic"]["lat"])
-            arrays = {
-                "epic_policy_a_class_code": orient(m["epic_code"], ctx["epic"]["lat"]),
-                "georing_policy_a_class_code": orient(m["geo_code"], ctx["epic"]["lat"]),
-                "mismatch_category_code": orient(m["mismatch_code"], ctx["epic"]["lat"]),
-                "selected_family_code": orient(m["family_code"], ctx["epic"]["lat"]),
-                "valid_source_count_code": orient(m["count_code"], ctx["epic"]["lat"]),
-                "boundary_scene_code": orient(m["scene_code"], ctx["epic"]["lat"]),
-            }
+            arrays, lat, lon, summary = sample_disk_arrays_and_summary(ctx, row)
             source_frames.append(flatten_sample_source(row["sample_id"], lat, lon, arrays, stride))
-            total = int(np.count_nonzero(m["base"]))
-            disagree = int(np.count_nonzero(m["base"] & (m["epic_cls"] != m["geo_cls"])))
-            summary_rows.append(
-                {
-                    "sample_id": row["sample_id"],
-                    "selection_reason": row.get("stage_09f_selection_reason", ""),
-                    "n_valid_policy_a": total,
-                    "n_disagreement_policy_a": disagree,
-                    "agreement_policy_a": 1.0 - disagree / total if total else math.nan,
-                    "boundary_fraction": float(np.mean(m["scene"]["boundary_bool"][m["base"]])) if total else math.nan,
-                    "broken_cloud_fraction": float(np.mean((m["scene"]["scene_type"] == "broken_cloud")[m["base"]])) if total else math.nan,
-                    "meteosat_selected_fraction": float(np.mean(m["family_code"][m["base"]] == 3)) if total else math.nan,
-                    "valid_source_count_ge4_fraction": float(np.mean(ctx["valid_count"][m["base"]] >= 4)) if total else math.nan,
-                }
-            )
+            summary_rows.append(summary)
             plot_arrays = [
                 ("EPIC", arrays["epic_policy_a_class_code"], CLASS_CMAP, CLASS_NORM),
                 ("GEO-ring", arrays["georing_policy_a_class_code"], CLASS_CMAP, CLASS_NORM),
@@ -438,6 +579,198 @@ def figure1_representative_disk(
     pd.DataFrame(summary_rows).to_csv(dirs["source_data"] / f"{RUN_ID}_figure1_representative_sample_summary.csv", index=False, encoding="utf-8-sig")
     paths = save_figure(fig, dirs, "figure1_representative_disk_diagnostic")
     return paths, src, summary_rows
+
+
+def figure1_legend_guide(
+    dirs: dict[str, Path],
+    representative_summary: list[dict[str, Any]],
+    warnings: list[dict[str, Any]],
+) -> tuple[dict[str, str], Path]:
+    rows = []
+    for section, items in LEGENDS.items():
+        for code, label, color, hatch in items:
+            rows.append({"legend_section": section, "code": code, "label": label, "color": color, "hatch_pattern": hatch})
+    for item in REASON_EXPLANATIONS:
+        rows.append(
+            {
+                "legend_section": "row_reason",
+                "code": "",
+                "label": item["reason_label"],
+                "color": "",
+                "hatch_pattern": "",
+                "definition": item["definition"],
+                "interpretation": item["interpretation"],
+            }
+        )
+    src = source_path(dirs, "figure1_legend_and_row_meanings")
+    write_source(pd.DataFrame(rows), src, warnings)
+
+    fig = plt.figure(figsize=(9.0, 6.4), constrained_layout=True)
+    gs = fig.add_gridspec(3, 3, height_ratios=[1.0, 1.0, 1.65])
+    legend_specs = [
+        ("class", "EPIC / GEO-ring class", 0, 0),
+        ("mismatch", "Mismatch category", 0, 1),
+        ("family", "Selected source family", 0, 2),
+        ("valid_count", "Stage06 valid source count", 1, 0),
+        ("scene", "Boundary / scene", 1, 1),
+        ("pair", "Source-pair relative to EPIC", 1, 2),
+    ]
+    for kind, title, r, c in legend_specs:
+        ax = fig.add_subplot(gs[r, c])
+        ax.set_axis_off()
+        ax.text(0, 1.0, title, fontsize=8.2, fontweight="bold", va="top")
+        for i, handle in enumerate(legend_handles(kind)):
+            y = 0.78 - i * 0.16
+            rect = plt.Rectangle((0.00, y - 0.045), 0.095, 0.085, facecolor=handle.get_facecolor(), edgecolor="#555555", hatch=handle.get_hatch(), linewidth=0.4)
+            ax.add_patch(rect)
+            ax.text(0.12, y, handle.get_label(), fontsize=6.5, va="center")
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+
+    ax = fig.add_subplot(gs[2, :])
+    ax.set_axis_off()
+    ax.text(0.0, 0.98, "Why these rows were selected", fontsize=8.5, fontweight="bold", va="top")
+    y = 0.86
+    for item in REASON_EXPLANATIONS:
+        ax.text(0.00, y, item["reason_label"], fontsize=7.0, fontweight="bold", va="top")
+        ax.text(0.22, y, item["definition"], fontsize=6.5, va="top")
+        ax.text(0.22, y - 0.12, item["interpretation"], fontsize=6.2, va="top", color="#555555")
+        y -= 0.17
+    fig.suptitle("Figure 1 legend guide | category codes and row meanings", fontsize=10)
+    paths = save_figure(fig, dirs, "figure1_legend_and_row_meanings")
+    return paths, src
+
+
+def figure1_individual_cases(
+    dirs: dict[str, Path],
+    samples: list[dict[str, Any]],
+    cache: dict[str, dict[str, Any]],
+    stride: int,
+    warnings: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], Path, list[dict[str, Any]]]:
+    source_rows: list[dict[str, Any]] = []
+    figures: list[dict[str, Any]] = []
+    summaries: list[dict[str, Any]] = []
+    for row in samples:
+        sample_id = row["sample_id"]
+        try:
+            ctx = context_cache_get(cache, row)
+            arrays, lat, lon, summary = sample_disk_arrays_and_summary(ctx, row)
+            summaries.append(summary)
+            source_rows.extend(sample_count_rows(sample_id, arrays))
+
+            fig, axes = plt.subplots(2, 3, figsize=(10.4, 7.4), constrained_layout=True)
+            panels = [
+                ("EPIC cloud mask", "epic_policy_a_class_code", CLASS_CMAP, CLASS_NORM, "class"),
+                ("GEO-ring current mask", "georing_policy_a_class_code", CLASS_CMAP, CLASS_NORM, "class"),
+                ("Mismatch direction", "mismatch_category_code", MISMATCH_CMAP, MISMATCH_NORM, "mismatch"),
+                ("Selected source family", "selected_family_code", FAMILY_CMAP, FAMILY_NORM, "family"),
+                ("Stage06 valid source count", "valid_source_count_code", COUNT_CMAP, COUNT_NORM, "valid_count"),
+                ("Boundary / scene", "boundary_scene_code", SCENE_CMAP, SCENE_NORM, "scene"),
+            ]
+            for ax, (title, key, cmap, norm, legend_kind) in zip(axes.ravel(), panels):
+                image_panel(ax, ds(arrays[key], stride), title, cmap, norm)
+                ncol = {"class": 2, "mismatch": 2, "family": 1, "valid_count": 2, "scene": 2}.get(legend_kind, 1)
+                add_categorical_legend(ax, legend_kind, "", ncol=ncol, loc="lower left")
+            fig.suptitle(
+                f"Figure 1 case | {short_sample(sample_id)} | {short_reason(reason_for_sample(row)).replace(chr(10), ' ')} | agreement={summary['agreement_policy_a']:.3f}",
+                fontsize=10,
+            )
+            figure_id = f"figure1_case_{sample_id}"
+            paths = save_figure(fig, dirs, figure_id)
+            figures.append(
+                {
+                    "figure_id": figure_id,
+                    "title": f"Figure 1 case | {sample_id}",
+                    "source_csv": "",
+                    **paths,
+                    "created_utc": utc_now(),
+                }
+            )
+        except Exception as exc:
+            warnings.append({"level": "warning", "source": "figure1_individual_cases", "sample_id": sample_id, "message": str(exc), "traceback": traceback.format_exc()})
+
+    src = source_path(dirs, "figure1_individual_cases")
+    write_source(pd.DataFrame(source_rows), src, warnings)
+    for fig_row in figures:
+        fig_row["source_csv"] = str(src)
+    pd.DataFrame(summaries).to_csv(dirs["source_data"] / f"{RUN_ID}_figure1_individual_case_summary.csv", index=False, encoding="utf-8-sig")
+    return figures, src, summaries
+
+
+def figure1_all_time_atlases(
+    dirs: dict[str, Path],
+    manifest: list[dict[str, Any]],
+    cache: dict[str, dict[str, Any]],
+    stride: int,
+    warnings: list[dict[str, Any]],
+    samples_per_page: int = 12,
+) -> tuple[list[dict[str, Any]], Path, list[dict[str, Any]]]:
+    figures: list[dict[str, Any]] = []
+    source_rows: list[dict[str, Any]] = []
+    summary_rows: list[dict[str, Any]] = []
+    atlas_specs = [
+        ("mismatch", "mismatch_category_code", MISMATCH_CMAP, MISMATCH_NORM, "Mismatch direction", "mismatch"),
+        ("selected_family", "selected_family_code", FAMILY_CMAP, FAMILY_NORM, "Selected source family", "family"),
+        ("drivers", "driver_pair", None, None, "Drivers: valid count and boundary/scene", None),
+    ]
+
+    prepared: list[dict[str, Any]] = []
+    for row in manifest:
+        try:
+            ctx = context_cache_get(cache, row)
+            arrays, _, _, summary = sample_disk_arrays_and_summary(ctx, row)
+            prepared.append({"row": row, "arrays": arrays, "summary": summary})
+            summary_rows.append(summary)
+            for key in ["mismatch_category_code", "selected_family_code", "valid_source_count_code", "boundary_scene_code"]:
+                source_rows.extend(sample_count_rows(row["sample_id"], {key: arrays[key]}))
+        except Exception as exc:
+            warnings.append({"level": "warning", "source": "figure1_all_time_atlases", "sample_id": row.get("sample_id", ""), "message": str(exc), "traceback": traceback.format_exc()})
+
+    for atlas_name, key, cmap, norm, title, legend_kind in atlas_specs:
+        pages = [prepared[i : i + samples_per_page] for i in range(0, len(prepared), samples_per_page)]
+        for page_idx, page in enumerate(pages, 1):
+            if atlas_name == "drivers":
+                fig, axes = plt.subplots(len(page), 2, figsize=(5.8, max(1.0 * len(page), 4.8)), constrained_layout=True)
+                if len(page) == 1:
+                    axes = np.asarray([axes])
+                for i, item in enumerate(page):
+                    row = item["row"]
+                    arrays = item["arrays"]
+                    image_panel(axes[i, 0], ds(arrays["valid_source_count_code"], stride), "valid count" if i == 0 else "", COUNT_CMAP, COUNT_NORM)
+                    image_panel(axes[i, 1], ds(arrays["boundary_scene_code"], stride), "boundary/scene" if i == 0 else "", SCENE_CMAP, SCENE_NORM)
+                    axes[i, 0].text(-0.08, 0.5, short_sample(row["sample_id"]), transform=axes[i, 0].transAxes, ha="right", va="center", fontsize=5.8)
+                fig.suptitle(f"Figure 1 atlas drivers | all times | page {page_idx}/{len(pages)}", fontsize=9.5)
+            else:
+                cols = 4
+                rows_n = int(math.ceil(len(page) / cols))
+                fig, axes = plt.subplots(rows_n, cols, figsize=(8.2, max(1.75 * rows_n, 3.5)), constrained_layout=True)
+                axes_flat = np.asarray(axes).ravel()
+                for ax in axes_flat[len(page) :]:
+                    ax.set_axis_off()
+                for ax, item in zip(axes_flat, page):
+                    row = item["row"]
+                    summary = item["summary"]
+                    image_panel(ax, ds(item["arrays"][key], stride), f"{short_sample(row['sample_id'])}\nagree={summary['agreement_policy_a']:.3f}", cmap, norm)
+                fig.suptitle(f"Figure 1 atlas {title} | all times | page {page_idx}/{len(pages)}", fontsize=9.5)
+            figure_id = f"figure1_atlas_{atlas_name}_page{page_idx:02d}"
+            paths = save_figure(fig, dirs, figure_id)
+            figures.append(
+                {
+                    "figure_id": figure_id,
+                    "title": f"Figure 1 atlas | {title} | page {page_idx}",
+                    "source_csv": "",
+                    **paths,
+                    "created_utc": utc_now(),
+                }
+            )
+
+    src = source_path(dirs, "figure1_all_time_atlases")
+    write_source(pd.DataFrame(source_rows), src, warnings)
+    for fig_row in figures:
+        fig_row["source_csv"] = str(src)
+    pd.DataFrame(summary_rows).to_csv(dirs["source_data"] / f"{RUN_ID}_figure1_all_time_atlas_summary.csv", index=False, encoding="utf-8-sig")
+    return figures, src, summary_rows
 
 
 def figure2_source_coverage(
@@ -767,21 +1100,40 @@ def write_report(
         "- 范围：只使用 2024-03 已有 Stage 09D/09E 结果和本地产品；未联网下载；未修改 fused cloud mask 生产逻辑。",
         "- 参照关系：EPIC 只作为 independent diagnostic reference，不作为绝对真值。",
         "- 覆盖范围解释：source coverage 图使用 `source valid mask` / `selected source family` 作为可视化代理，不等同于严格物理 FOV 边界。",
-        "- 单位：经纬度为 degree；agreement、fraction、frequency 为无量纲比例。",
+        "- 单位：经纬度为 degree；agreement、fraction、frequency 均为无量纲比例。",
         "",
         "## 主要读图逻辑",
         "",
-        "1. Figure 1 把代表样本拆成 EPIC、当前 GEO-ring、差异方向、当前选择的 source family、valid_source_count 和 boundary/scene。它回答“不一致具体长在哪里、对应的当前 source 是谁”。",
-        "2. Figure 2 显示同一 EPIC 盘面上的单源有效覆盖代理和当前 selected family。它帮助区分“看不到/无效”与“看得到但选择了某一类 source”。",
-        "3. Figure 3 只比较两个 GEO source 在共同有效像元上的空间差异，同时给出二者相对 EPIC 的 correct/wrong 关系。它不是融合结果，也不是用 EPIC 当真值训练 source selection。",
-        "4. Figure 4 把 53 个样本按 5° 经纬度 bin 累计，用于讲清楚 disagreement、Meteosat-selected、valid_count>=4 和 boundary/broken-cloud 是否在空间上同位出现。该图不是气候统计。",
+        "1. Figure 1 已拆成三类 PPT 友好产品：一张原始代表样本总览、五张典型个例大图、三组全时次分页 atlas。",
+        "2. 典型个例回答“这个时次不一致在哪里、当前选中的 source family 是谁、valid_source_count 与局地云边界在哪里”。",
+        "3. 全时次 atlas 回答“这些空间模式是不是只出现在少数例子，还是在 2024-03 的多个时次反复出现”。",
+        "4. Figure 2 展示 source valid coverage 和 selected family，用于区分“看不到/无效”和“看得到但当前选择了某类 source”。",
+        "5. Figure 3 只比较两个 GEO source 在共同有效像元上的空间分歧，同时给出二者相对 EPIC 的 correct/wrong 关系；它不是融合结果，也不是用 EPIC 训练 source selection。",
+        "6. Figure 4 将 53 个样本按 5 degree 经纬度 bin 累计，用于检查 disagreement、Meteosat-selected、valid_count>=4 和 boundary/broken-cloud 是否空间同位出现；它不是气候统计。",
         "",
         "## Representative Samples",
     ]
-    if representative_summary:
-        lines.append(markdown_table(pd.DataFrame(representative_summary)))
-    else:
-        lines.append("_No representative samples._")
+    lines.append(markdown_table(pd.DataFrame(representative_summary)) if representative_summary else "_No representative samples._")
+
+    lines.extend(["", "## Figure 1 行含义", ""])
+    lines.append(
+        "Figure 1 的每一行不是固定地理区域，而是一个被选出的代表性 EPIC 时次。"
+        "筛选目标是覆盖不同诊断机制：Meteosat 相关低一致性、局地云边界/碎云比例高、source-pair 分歧高、valid_source_count>=4 问题明显，以及一个较好对照样本。"
+    )
+    for item in REASON_EXPLANATIONS:
+        lines.append(f"- `{item['reason_label']}`: {item['definition']} {item['interpretation']}")
+    lines.append(
+        "- `boundary/scene`: 这里的 boundary 是云掩膜局地边界，由 3x3 fused cloud fraction 的混合程度定义；它不是静止卫星服务区边界，也不是 GEO 物理视场边界。"
+    )
+    lines.append(
+        "- `all-time atlas`: 将全部可运行的 2024-03 时次分页画出，用于检查这些机制是否只出现在少数个例，还是在多个时次反复出现。"
+    )
+
+    lines.extend(["", "## Figure 1 拆分产品", ""])
+    fig1_rows = figure_index[figure_index["figure_id"].astype(str).str.startswith("figure1_")].copy()
+    keep_cols = ["figure_id", "title", "source_csv", "png", "svg", "pdf"]
+    lines.append(markdown_table(fig1_rows[keep_cols]) if not fig1_rows.empty else "_No Figure 1 products._")
+
     lines.extend(["", "## Source Coverage Summary", ""])
     lines.append(markdown_table(pd.DataFrame([coverage_summary])) if coverage_summary else "_No source coverage summary._")
     lines.extend(["", "## Source-pair Summary", ""])
@@ -860,6 +1212,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--plot-stride", type=int, default=6, help="EPIC disk stride used for displayed map source CSVs.")
     ap.add_argument("--representative-samples", type=int, default=5)
     ap.add_argument("--max-aggregate-samples", type=int, default=0, help="0 means all runnable March 2024 samples.")
+    ap.add_argument("--atlas-samples-per-page", type=int, default=12, help="Number of March 2024 samples shown per atlas page.")
     return ap.parse_args()
 
 
@@ -888,6 +1241,23 @@ def main() -> int:
     print(f"[stage_09f] representative samples: {[r['sample_id'] for r in selected]}", flush=True)
     paths, src, representative_summary = figure1_representative_disk(dirs, selected, cache, args.plot_stride, warnings)
     figures.append({"figure_id": "figure1_representative_disk_diagnostic", "title": "Figure 1 | Representative disk diagnostic", "source_csv": str(src), **paths, "created_utc": utc_now()})
+
+    paths, src = figure1_legend_guide(dirs, representative_summary, warnings)
+    figures.append({"figure_id": "figure1_legend_and_row_meanings", "title": "Figure 1 guide | Legends and row meanings", "source_csv": str(src), **paths, "created_utc": utc_now()})
+
+    case_figures, _, individual_case_summary = figure1_individual_cases(dirs, selected, cache, args.plot_stride, warnings)
+    figures.extend(case_figures)
+
+    atlas_manifest = manifest[: args.max_aggregate_samples] if args.max_aggregate_samples else manifest
+    atlas_figures, _, all_time_atlas_summary = figure1_all_time_atlases(
+        dirs,
+        atlas_manifest,
+        cache,
+        args.plot_stride,
+        warnings,
+        samples_per_page=max(1, args.atlas_samples_per_page),
+    )
+    figures.extend(atlas_figures)
 
     coverage_sample = selected[0] if selected else manifest[0]
     paths, src, coverage_summary = figure2_source_coverage(dirs, coverage_sample, cache, args.plot_stride, warnings)
@@ -933,11 +1303,17 @@ def main() -> int:
             "plot_stride": args.plot_stride,
             "representative_samples": args.representative_samples,
             "max_aggregate_samples": args.max_aggregate_samples,
+            "atlas_samples_per_page": args.atlas_samples_per_page,
             "lat_lon_bin_deg": 5,
         },
         "row_counts": {
             "manifest_all": len(manifest_all),
             "manifest_runnable": len(manifest),
+            "individual_case_figures": len(case_figures),
+            "all_time_atlas_figures": len(atlas_figures),
+            "all_time_atlas_samples": len(atlas_manifest),
+            "individual_case_summary_rows": len(individual_case_summary),
+            "all_time_atlas_summary_rows": len(all_time_atlas_summary),
             "figures": len(figures),
             "warnings": len(warnings),
         },
