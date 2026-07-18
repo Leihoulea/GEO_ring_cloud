@@ -12,7 +12,9 @@
 - Prefix new stage-owned files with the canonical stage ID, for example `stage_09d_full_pixel_diagnostics_report.md`.
 - New stage-owned directories must also use the canonical stage ID, for example `stage_10p2_approx_fov_aggregation`.
 - Put substep numbers after the stage directory or in report sections, for example `stage_09d/00_sample_manifest`.
-- Shared utilities must use `geo_ring_cloud_<role>_<purpose>.py`, declare `COMPONENT_ROLE`, and avoid fake or combined stages. Roles include `shared_library`, `runner`, `experiment_runner`, `diagnostics_library`, `downloader`, `evidence_pack_builder`, `summary_helper`, and `presentation_builder`.
+- Reusable shared APIs belong in the `geo_ring_cloud` package, use lowercase `snake_case.py`, declare `COMPONENT_ROLE`, and must be registered in `module_registry.md`.
+- Executable non-stage utilities at the code root must use `geo_ring_cloud_<role>_<purpose>.py`, declare `COMPONENT_ROLE`, and avoid fake or combined stages. Roles include `runner`, `experiment_runner`, `downloader`, `evidence_pack_builder`, `summary_helper`, and `presentation_builder`.
+- Top-level compatibility shims may retain historical names only when registered; they must contain imports and metadata, not implementation logic.
 - Generic EO data/product inspections must use `component_role=data_product_audit`; keep legacy `third_report/code/geo_data_audit` paths until references are audited, and index them in `data_product_audits.md`.
 - Do not create new `Step*`, `stage10*`, `Stage10*`, `09_stage*`, or numeric-prefix stage names.
 

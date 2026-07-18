@@ -29,6 +29,7 @@ conda env update -f third_report\code\geo_ring_cloud_stage1\environment.yml --pr
 
 ## 约束
 
+- `pyproject.toml` 定义可安装的标准库共享 package；科学运行环境仍以 `environment.yml` 为准，两者职责不得混淆。
 - MUST 使用 `environment.yml` 作为默认开发环境基线，不提交个人环境的完整 `pip freeze`。
 - MUST 在引入新的必需第三方包时更新本文件和 `environment.yml`，并运行科学测试。
 - MUST 将仅由单个报告、演示或格式适配器需要的包保持为可选能力；缺失时给出明确错误，不得在模块导入阶段无条件破坏 `--help` 或治理检查。

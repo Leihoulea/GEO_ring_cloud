@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from geo_ring_cloud_lineage import write_manifest
-from path_config import PROJECT_ROOT, RUNS_ROOT
+from geo_ring_cloud.lineage import write_manifest
+from geo_ring_cloud.paths import PROJECT_ROOT, RUNS_ROOT
 
 
 COMPONENT_ROLE = "time_run_pruning"

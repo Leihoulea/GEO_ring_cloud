@@ -9,6 +9,7 @@ Step/Stage naming are treated as errors.
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import subprocess
 import sys
@@ -83,6 +84,7 @@ COMPONENT_ROLE_ASSIGNMENT = re.compile(
     r"^\s*COMPONENT_ROLE\s*=\s*['\"]([a-z][a-z0-9_]*)['\"]",
     re.MULTILINE,
 )
+PYTHON_MODULE_FILENAME = re.compile(r"^[a-z][a-z0-9_]*\.py$")
 
 DANGEROUS_PATH_PATTERNS = [
     re.compile(r"_NON_GEO_ARCHIVE", re.IGNORECASE),
@@ -99,6 +101,7 @@ ABSOLUTE_PROJECT_PATH = re.compile(
 ABSOLUTE_PATH_ALLOWLIST = {
     "_GEO_RING_CLOUD_INDEX/build_index.py",
     "_GEO_RING_CLOUD_INDEX/governance_check.py",
+    "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/paths.py",
     "third_report/code/geo_ring_cloud_stage1/path_config.py",
 }
 
@@ -107,19 +110,30 @@ PATH_REFERENCE_ENFORCED_PREFIXES = (
 )
 
 CORE_CODE_PREFIX = "third_report/code/geo_ring_cloud_stage1/"
+CORE_PACKAGE_PREFIX = f"{CORE_CODE_PREFIX}geo_ring_cloud/"
+COMPATIBILITY_SHIM_PATHS = {
+    f"{CORE_CODE_PREFIX}path_config.py": "geo_ring_cloud.paths",
+    f"{CORE_CODE_PREFIX}geo_ring_cloud_source_registry.py": "geo_ring_cloud.sources",
+    f"{CORE_CODE_PREFIX}geo_ring_cloud_lineage.py": "geo_ring_cloud.lineage",
+    f"{CORE_CODE_PREFIX}geo_ring_cloud_run_discovery.py": "geo_ring_cloud.run_discovery",
+}
 WORKSPACE_INDEX_DOCS = {
     "_GEO_RING_CLOUD_WORKSPACE/stage_registry.md",
     "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md",
     "_GEO_RING_CLOUD_WORKSPACE/data_product_audits.md",
 }
+MODULE_REGISTRY_DOC = "_GEO_RING_CLOUD_WORKSPACE/module_registry.md"
 REQUIRED_ENGINEERING_FILES = {
     ".github/workflows/geo-ring-cloud-governance.yml",
     "_GEO_RING_CLOUD_INDEX/ci_check.py",
     "_GEO_RING_CLOUD_WORKSPACE/architecture.md",
     "_GEO_RING_CLOUD_WORKSPACE/engineering_policy.md",
     "_GEO_RING_CLOUD_WORKSPACE/engineering_status.md",
+    MODULE_REGISTRY_DOC,
     "third_report/code/geo_ring_cloud_stage1/DEPENDENCIES.md",
     "third_report/code/geo_ring_cloud_stage1/environment.yml",
+    "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/__init__.py",
+    "third_report/code/geo_ring_cloud_stage1/pyproject.toml",
 }
 COMMIT_MESSAGE_TOKEN = re.compile(
     r"\b(stage_\d{2}(?:_[0-9]+|[a-z0-9]+|_[a-z0-9]+)?|geo_ring_cloud|governance|index|artifact|skill|path_config|data_audit|research_tracker)\b",
@@ -217,6 +231,10 @@ def is_core_code(rel_path: str) -> bool:
     return normalize_path(rel_path).startswith(CORE_CODE_PREFIX)
 
 
+def is_core_package_module(rel_path: str) -> bool:
+    return normalize_path(rel_path).startswith(CORE_PACKAGE_PREFIX)
+
+
 def is_stage_owned_path(rel_path: str) -> bool:
     normalized = normalize_path(rel_path)
     name = Path(normalized).name
@@ -268,6 +286,7 @@ def check_naming(paths: list[str], added_paths: set[str], baseline_mode: bool) -
 def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_docs: bool) -> list[Finding]:
     findings: list[Finding] = []
     changed_stage_scripts = False
+    added_package_modules: list[str] = []
     normalized_paths = {normalize_path(p) for p in paths}
     normalized_added = {normalize_path(p) for p in added_paths}
 
@@ -281,8 +300,32 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
 
         if suffix == ".py" and is_stage_owned_path(normalized):
             changed_stage_scripts = True
+        if suffix == ".py" and is_core_package_module(normalized) and normalized in normalized_added:
+            added_package_modules.append(normalized)
 
         if normalized not in normalized_added or suffix != ".py":
+            continue
+
+        if is_core_package_module(normalized):
+            name = Path(normalized).name
+            if name == "__init__.py":
+                continue
+            if not PYTHON_MODULE_FILENAME.fullmatch(name):
+                findings.append(
+                    Finding(
+                        "ERROR",
+                        rel_path,
+                        "package modules must use lowercase snake_case.py names",
+                    )
+                )
+            elif not component_role_in_script(rel_path):
+                findings.append(
+                    Finding(
+                        "ERROR",
+                        rel_path,
+                        "new geo_ring_cloud package modules must declare COMPONENT_ROLE",
+                    )
+                )
             continue
 
         stage_owned = is_stage_owned_path(normalized)
@@ -342,6 +385,29 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
                     "stage code changed; run build_index.py and stage updated workspace index Markdown",
                 )
             )
+    if added_package_modules:
+        registry_text = read_text(MODULE_REGISTRY_DOC) or ""
+        for module_path in added_package_modules:
+            rel_module = module_path.removeprefix(CORE_PACKAGE_PREFIX).removesuffix(".py")
+            if rel_module == "__init__":
+                continue
+            canonical_module = "geo_ring_cloud." + rel_module.replace("/", ".")
+            if canonical_module not in registry_text:
+                findings.append(
+                    Finding(
+                        "ERROR",
+                        module_path,
+                        f"new package module must be registered in {MODULE_REGISTRY_DOC}: {canonical_module}",
+                    )
+                )
+        if enforce_index_docs and MODULE_REGISTRY_DOC not in normalized_paths:
+            findings.append(
+                Finding(
+                    "ERROR",
+                    MODULE_REGISTRY_DOC,
+                    "new package module added; run build_index.py and stage the module registry",
+                )
+            )
     return findings
 
 
@@ -371,6 +437,44 @@ def check_engineering_contract() -> list[Finding]:
                     "required engineering contract file is missing",
                 )
             )
+    return findings
+
+
+def check_compatibility_shims() -> list[Finding]:
+    findings: list[Finding] = []
+    allowed_node_types = (ast.Expr, ast.ImportFrom, ast.Assign)
+    for rel_path, canonical_module in sorted(COMPATIBILITY_SHIM_PATHS.items()):
+        canonical_path = f"{CORE_CODE_PREFIX}{canonical_module.replace('.', '/')}.py"
+        if not (ROOT / canonical_path).is_file():
+            findings.append(Finding("ERROR", canonical_path, "registered canonical package module is missing"))
+        text = read_text(rel_path)
+        if text is None:
+            findings.append(Finding("ERROR", rel_path, "registered compatibility shim is missing or unreadable"))
+            continue
+        try:
+            tree = ast.parse(text, filename=rel_path)
+        except SyntaxError as exc:
+            findings.append(Finding("ERROR", rel_path, f"compatibility shim is not valid Python: {exc}"))
+            continue
+        if component_role_in_script(rel_path) != "compatibility_shim":
+            findings.append(Finding("ERROR", rel_path, "compatibility shim must declare COMPONENT_ROLE='compatibility_shim'"))
+        imports_canonical = False
+        for node in tree.body:
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                continue
+            if not isinstance(node, allowed_node_types):
+                findings.append(Finding("ERROR", rel_path, "compatibility shim contains implementation logic"))
+                break
+            if isinstance(node, ast.ImportFrom):
+                imports_canonical = imports_canonical or node.module == canonical_module
+                continue
+            if isinstance(node, ast.Assign):
+                targets = [target.id for target in node.targets if isinstance(target, ast.Name)]
+                if targets != ["COMPONENT_ROLE"]:
+                    findings.append(Finding("ERROR", rel_path, "compatibility shim may only assign COMPONENT_ROLE"))
+                    break
+        if not imports_canonical:
+            findings.append(Finding("ERROR", rel_path, f"compatibility shim must import {canonical_module}"))
     return findings
 
 
@@ -429,7 +533,11 @@ def check_commit_message(path: Path) -> list[Finding]:
     ]
 
 
-def print_findings(findings: list[Finding], strict: bool = False) -> int:
+def print_findings(
+    findings: list[Finding],
+    strict: bool = False,
+    quiet_warnings: bool = False,
+) -> int:
     if strict:
         findings = [
             Finding("ERROR" if item.severity == "WARN" else item.severity, item.path, item.message)
@@ -443,10 +551,13 @@ def print_findings(findings: list[Finding], strict: bool = False) -> int:
         return 0
 
     print("Geo Ring Cloud governance check:")
-    for item in findings:
+    visible_findings = errors if quiet_warnings else findings
+    for item in visible_findings:
         print(f"[{item.severity}] {item.path}: {item.message}")
 
     print(f"\nSummary: {len(errors)} error(s), {len(warnings)} warning(s)")
+    if quiet_warnings and warnings and not errors:
+        print("Historical warnings suppressed; run governance_check.py --all for details.")
     return 1 if errors else 0
 
 
@@ -455,11 +566,16 @@ def main() -> int:
     parser.add_argument("--staged", action="store_true", help="check staged files for pre-commit use")
     parser.add_argument("--all", action="store_true", help="check tracked and untracked non-ignored files")
     parser.add_argument("--strict", action="store_true", help="treat historical warnings as errors")
+    parser.add_argument("--quiet-warnings", action="store_true", help="show warning totals without listing each warning")
     parser.add_argument("--commit-msg", type=Path, help="check a Git commit message file")
     args = parser.parse_args()
 
     if args.commit_msg:
-        return print_findings(check_commit_message(args.commit_msg), strict=args.strict)
+        return print_findings(
+            check_commit_message(args.commit_msg),
+            strict=args.strict,
+            quiet_warnings=args.quiet_warnings,
+        )
 
     baseline_mode = not has_head()
     if args.staged:
@@ -471,12 +587,17 @@ def main() -> int:
 
     findings: list[Finding] = []
     findings.extend(check_engineering_contract())
+    findings.extend(check_compatibility_shims())
     findings.extend(check_naming(paths, added, baseline_mode=baseline_mode))
     findings.extend(check_stage_contract(paths, added, enforce_index_docs=args.staged))
     if args.staged:
         findings.extend(check_generated_artifacts(paths))
     findings.extend(check_paths(paths, added, baseline_mode=baseline_mode))
-    return print_findings(findings, strict=args.strict)
+    return print_findings(
+        findings,
+        strict=args.strict,
+        quiet_warnings=args.quiet_warnings,
+    )
 
 
 if __name__ == "__main__":

@@ -17,9 +17,12 @@ REQUIRED_ENGINEERING_FILES = (
     ROOT / ".github" / "workflows" / "geo-ring-cloud-governance.yml",
     CORE / "DEPENDENCIES.md",
     CORE / "environment.yml",
+    CORE / "geo_ring_cloud" / "__init__.py",
+    CORE / "pyproject.toml",
     ROOT / "_GEO_RING_CLOUD_WORKSPACE" / "architecture.md",
     ROOT / "_GEO_RING_CLOUD_WORKSPACE" / "engineering_policy.md",
     ROOT / "_GEO_RING_CLOUD_WORKSPACE" / "engineering_status.md",
+    ROOT / "_GEO_RING_CLOUD_WORKSPACE" / "module_registry.md",
 )
 
 
@@ -58,7 +61,16 @@ def main() -> int:
     )
     run(
         "Repository governance",
-        [sys.executable, "_GEO_RING_CLOUD_INDEX/governance_check.py", "--all"],
+        [
+            sys.executable,
+            "_GEO_RING_CLOUD_INDEX/governance_check.py",
+            "--all",
+            "--quiet-warnings",
+        ],
+    )
+    run(
+        "Governance unit tests",
+        [sys.executable, "_GEO_RING_CLOUD_INDEX/tests/test_governance_check.py"],
     )
 
     if args.scientific_tests or args.integration_tests:

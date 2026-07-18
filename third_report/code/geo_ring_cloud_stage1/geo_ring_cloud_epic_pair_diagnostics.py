@@ -13,7 +13,7 @@ import numpy as np
 from scipy.ndimage import maximum_filter, minimum_filter, uniform_filter
 from scipy.stats import rankdata
 
-from geo_ring_cloud_source_registry import SOURCE_BY_KEY, SOURCE_ID_TO_KEY
+from geo_ring_cloud.sources import SOURCE_BY_KEY, SOURCE_ID_TO_KEY
 
 
 PROJECT_ID = "geo_ring_cloud"

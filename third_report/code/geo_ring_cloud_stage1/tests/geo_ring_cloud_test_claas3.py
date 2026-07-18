@@ -32,8 +32,8 @@ def test_directory(name: str):
         shutil.rmtree(path, ignore_errors=True)
 
 from geo_ring_cloud_claas3_adapter import discover_files, parse_filename, read_product, select_for_time  # noqa: E402
-from geo_ring_cloud_run_discovery import discover_run_dirs, resolve_run_dir  # noqa: E402
-from geo_ring_cloud_source_registry import SOURCE_ID_MAP, tie_order, variable_rules  # noqa: E402
+from geo_ring_cloud.run_discovery import discover_run_dirs, resolve_run_dir  # noqa: E402
+from geo_ring_cloud.sources import SOURCE_ID_MAP, tie_order, variable_rules  # noqa: E402
 from geo_ring_cloud_time_run_matrix import REQUIRED_PROFILE_ARTIFACTS, profile_artifacts_complete  # noqa: E402
 from geo_ring_cloud_experiment_profile_pair import reusable_operational_baseline, write_batch_status  # noqa: E402
 from run_epic_georing_single_sample import runtime_environment  # noqa: E402
@@ -47,6 +47,49 @@ from geo_ring_cloud_epic_pair_diagnostics import (  # noqa: E402
     paired_classification_metrics,
 )
 from stage_09d_claas3_epic_profile_pair_evaluation import box_binary, comparison_domains  # noqa: E402
+
+
+class PackageBoundaryTests(unittest.TestCase):
+    def test_legacy_shims_export_canonical_objects(self) -> None:
+        import geo_ring_cloud_lineage as legacy_lineage
+        import geo_ring_cloud_run_discovery as legacy_runs
+        import geo_ring_cloud_source_registry as legacy_sources
+        import path_config as legacy_paths
+
+        from geo_ring_cloud import lineage, paths, run_discovery, sources
+
+        self.assertIs(legacy_lineage.write_manifest, lineage.write_manifest)
+        self.assertIs(legacy_runs.resolve_run_dir, run_discovery.resolve_run_dir)
+        self.assertIs(legacy_sources.SourceDefinition, sources.SourceDefinition)
+        self.assertEqual(legacy_paths.PROJECT_ROOT, paths.PROJECT_ROOT)
+
+    def test_canonical_lineage_manifest_contract(self) -> None:
+        from geo_ring_cloud.lineage import write_manifest
+        from geo_ring_cloud.sources import REGISTRY_VERSION
+
+        with test_directory("canonical_lineage") as root:
+            manifest_path = root / "stage_09d_contract_manifest.json"
+            write_manifest(
+                manifest_path,
+                canonical_stage_id="stage_09d",
+                component_role="diagnostics_library",
+                related_stage_ids=("stage_09d", "stage_10"),
+                generating_script=CODE_DIR / "geo_ring_cloud_epic_pair_diagnostics.py",
+                input_paths=(root / "input.nc",),
+                output_paths=(root / "output.csv",),
+                parameters={"sample_count": 2},
+                project_root=CODE_DIR.parents[2],
+                run_id="contract-test",
+                source_profile="claas3_candidate",
+            )
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["project_id"], "geo_ring_cloud")
+        self.assertEqual(payload["canonical_stage_id"], "stage_09d")
+        self.assertEqual(payload["component_role"], "diagnostics_library")
+        self.assertEqual(payload["related_stage_ids"], ["stage_09d", "stage_10"])
+        self.assertEqual(payload["parameter_summary"], {"sample_count": 2})
+        self.assertEqual(payload["source_registry_version"], REGISTRY_VERSION)
 
 
 def add_grid(ds: netCDF4.Dataset) -> None:

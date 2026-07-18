@@ -28,6 +28,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+/_GEO_RING_CLOUD_INDEX/tests/_tmp/
 
 # OS/editor metadata
 .DS_Store

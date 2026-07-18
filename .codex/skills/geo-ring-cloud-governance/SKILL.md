@@ -15,11 +15,12 @@ MUST do these steps before writing or moving files:
 1. Read `_GEO_RING_CLOUD_WORKSPACE/README.md`.
 2. Read `_GEO_RING_CLOUD_WORKSPACE/engineering_policy.md`.
 3. Read `_GEO_RING_CLOUD_WORKSPACE/architecture.md` and `_GEO_RING_CLOUD_WORKSPACE/engineering_status.md`.
-4. Check `_GEO_RING_CLOUD_WORKSPACE/stage_registry.md`.
-5. Check `_GEO_RING_CLOUD_WORKSPACE/artifact_index.md`.
-6. Check `_GEO_RING_CLOUD_WORKSPACE/data_product_audits.md` for generic and stage-scoped EO product inspections.
-7. Query `_GEO_RING_CLOUD_INDEX/geo_ring_cloud_index.sqlite` when a precise lookup is cheaper than broad file search.
-8. Search focused code paths with `rg` only after the index/workspace checks.
+4. Check `_GEO_RING_CLOUD_WORKSPACE/module_registry.md` before creating or duplicating shared code.
+5. Check `_GEO_RING_CLOUD_WORKSPACE/stage_registry.md`.
+6. Check `_GEO_RING_CLOUD_WORKSPACE/artifact_index.md`.
+7. Check `_GEO_RING_CLOUD_WORKSPACE/data_product_audits.md` for generic and stage-scoped EO product inspections.
+8. Query `_GEO_RING_CLOUD_INDEX/geo_ring_cloud_index.sqlite` when a precise lookup is cheaper than broad file search.
+9. Search focused code paths with `rg` only after the index/workspace checks.
 
 MUST NOT scan raw data, time-run outputs, evidence packs, or `_NON_GEO_ARCHIVE`
 unless the task explicitly requires those artifacts.
@@ -71,6 +72,12 @@ They MUST declare `COMPONENT_ROLE`. Cross-stage manifests MUST leave
 
 Do not invent fake stages for runners, downloaders, evidence-pack builders,
 summaries, or shared helpers. Use `component_role` for those.
+
+Reusable shared APIs MUST live in the `geo_ring_cloud` package, use lowercase
+`snake_case.py`, declare `COMPONENT_ROLE`, and be registered in
+`module_registry.md`. New code MUST import canonical package modules. Top-level
+legacy modules registered as compatibility shims MUST contain no implementation
+logic.
 
 Generic data/product inspections SHOULD use `component_role=data_product_audit`.
 If an inspection supports a downstream stage, keep the generic audit role and

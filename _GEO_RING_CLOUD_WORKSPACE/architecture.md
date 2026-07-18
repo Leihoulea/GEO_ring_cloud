@@ -11,8 +11,8 @@
 
 | layer | ownership | examples |
 | --- | --- | --- |
-| configuration | 路径、数据源 ID、环境覆盖、依赖契约 | `path_config.py`, `geo_ring_cloud_source_registry.py`, `environment.yml` |
-| lineage | manifest、commit、输入输出追踪 | `geo_ring_cloud_lineage.py` |
+| configuration | 路径、数据源 ID、环境覆盖、依赖契约 | `geo_ring_cloud.paths`, `geo_ring_cloud.sources`, `environment.yml` |
+| lineage | manifest、commit、输入输出追踪 | `geo_ring_cloud.lineage` |
 | adapters | 产品读取、格式适配、变量解码 | `geo_ring_cloud_claas3_adapter.py`, `geo_data_audit/` |
 | stage pipeline | 单一 canonical stage 的科学处理与验证 | `stage_09d_*`, `stage_10_*` |
 | orchestration | 跨阶段实验、批处理、time-run matrix | `geo_ring_cloud_experiment_profile_pair.py`, `geo_ring_cloud_time_run_matrix.py` |
@@ -22,6 +22,6 @@
 
 ## 物理迁移原则
 
-当前代码仍包含较多扁平历史脚本。不得为追求目录美观而一次性移动；先用 `component_role` 和本架构建立语义边界。只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移到 `adapters/`、`orchestration/`、`diagnostics/`、`presentation/` 等包目录。
+`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、数据源注册、lineage 和 run discovery。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
 
 新 stage 若只有一个脚本，可使用 `stage_XX_<purpose>.py`；若有多个脚本，必须放入 `stage_XX_<purpose>/`。跨阶段工具不得伪造组合 stage，必须使用 `geo_ring_cloud_<role>_<purpose>.py`、声明 `COMPONENT_ROLE`，并在 manifest 中记录 `related_stage_ids`。

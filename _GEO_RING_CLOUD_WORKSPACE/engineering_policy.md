@@ -5,7 +5,7 @@ It applies to humans and AI agents.
 
 ## Required workflow
 
-- MUST check `architecture.md`, `engineering_status.md`, `stage_registry.md`, `artifact_index.md`, `data_product_audits.md`, and the SQLite index before creating new code or reports.
+- MUST check `architecture.md`, `engineering_status.md`, `module_registry.md`, `stage_registry.md`, `artifact_index.md`, `data_product_audits.md`, and the SQLite index before creating new code or reports.
 - MUST reuse existing scripts, manifests, reports, and products when they already answer the task.
 - MUST decide the `project_id + canonical_stage_id` before naming files.
 - MUST run `python _GEO_RING_CLOUD_INDEX\build_index.py` after adding or changing stage scripts.
@@ -17,6 +17,8 @@ It applies to humans and AI agents.
 - MUST use canonical stage IDs for new stage-owned files, such as `stage_10p2_approx_fov_report.md`.
 - MUST NOT create new `Step*`, `stage10*`, `Stage10*`, or `10_stage*` names.
 - MUST use `geo_ring_cloud_<role>_<purpose>.py` for new non-stage core utilities.
+- MUST place reusable shared APIs in the `geo_ring_cloud` package and import them through their canonical module names.
+- MUST NOT add implementation logic to top-level compatibility shims recorded in `module_registry.md`.
 - MUST NOT treat `geo_ring_cloud.stage_09` and `epic_ceres.stage_09` as the same stage.
 
 ## Output lineage
@@ -29,7 +31,7 @@ It applies to humans and AI agents.
 
 ## Path and artifact rules
 
-- Core code MUST use `path_config.py` or environment-variable overrides for project paths.
+- Core code MUST use `geo_ring_cloud.paths` or environment-variable overrides for project paths; `path_config.py` is legacy-import compatibility only.
 - New core code MUST NOT hard-code `D:\AAAresearch_paper\...` unless explicitly allowlisted.
 - Core code MUST NOT depend on `_NON_GEO_ARCHIVE`, `second_report`, `forth`, or EPIC-CERES code/output paths.
 - Raw data, time runs, evidence packs, SQLite/XLSX indexes, PPTX, images, NetCDF/HDF/HDF5, NPZ, and other large generated artifacts MUST stay out of Git by default.

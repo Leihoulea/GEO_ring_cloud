@@ -1,6 +1,6 @@
 # GEO-ring Cloud Workspace
 
-Generated: `2026-07-18T17:13:31Z`
+Generated: `2026-07-18T17:30:41Z`
 
 This folder is a lightweight control surface for the GEO-ring Cloud project. It intentionally does not copy large data products.
 
@@ -18,6 +18,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 - `architecture.md`: authoritative module boundaries and target physical structure.
 - `engineering_status.md`: generated engineering-health snapshot and prioritized debt.
 - `script_inventory.md`: current GEO-ring Cloud stage scripts and non-stage components.
+- `module_registry.md`: canonical Python modules, compatibility shims, public APIs, and migration evidence.
 - `pipeline_stages.md`: stage-level inputs, outputs, and evidence directories.
 - `path_mapping.md`: code/data path dependencies and override strategy.
 - `archive_manifest_dry_run.csv`: dry-run archive candidates generated before physical moves.

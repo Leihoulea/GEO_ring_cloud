@@ -11,9 +11,9 @@ from typing import Any
 
 import pandas as pd
 
-from geo_ring_cloud_source_registry import REGISTRY_VERSION, SOURCE_PROFILES
-from geo_ring_cloud_lineage import code_commit, write_manifest
-from path_config import BASE_STAGE_ROOT, CLAAS3_ROOT, PROJECT_ROOT, RUNS_ROOT
+from geo_ring_cloud.lineage import code_commit, write_manifest
+from geo_ring_cloud.paths import BASE_STAGE_ROOT, CLAAS3_ROOT, PROJECT_ROOT, RUNS_ROOT
+from geo_ring_cloud.sources import REGISTRY_VERSION, SOURCE_PROFILES
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent

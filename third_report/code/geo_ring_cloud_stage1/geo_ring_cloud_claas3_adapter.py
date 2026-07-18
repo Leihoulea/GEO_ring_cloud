@@ -10,7 +10,7 @@ from typing import Any, Iterable
 import netCDF4
 import numpy as np
 
-from geo_ring_cloud_source_registry import REGISTRY_VERSION, SOURCE_BY_KEY
+from geo_ring_cloud.sources import REGISTRY_VERSION, SOURCE_BY_KEY
 
 
 FILE_RE = re.compile(r"^(?P<product>CMA|CTX|CPP)in(?P<stamp>\d{14})(?P<version>\d{3})SV(?P<platform>[A-Z0-9]+)\.nc$", re.I)
