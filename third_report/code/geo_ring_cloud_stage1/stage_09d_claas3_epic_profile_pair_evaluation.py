@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import csv
-import importlib.util
 import json
-from datetime import datetime, timezone
+import math
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -12,256 +11,356 @@ import numpy as np
 from scipy.ndimage import uniform_filter
 
 import path_config
+from geo_ring_cloud_epic_pair_diagnostics import (
+    AGGREGATIONS,
+    POLICIES,
+    PRIMARY_PAIRS,
+    SOURCE_STREAM,
+    add_profile_strata,
+    add_visibility_strata,
+    apply_policy,
+    block_bootstrap,
+    build_context,
+    common_metadata,
+    file_sha256,
+    paired_classification_metrics,
+    prefusion_samples,
+    read_csv,
+    sample_fused_aux,
+    sample_fused_profile,
+    selected_geo_vza,
+    source_domains,
+    source_stability_samples,
+    utc_now,
+    write_csv,
+)
 from geo_ring_cloud_lineage import write_manifest
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 STAGE_ID = "stage_09d"
-DOMAINS = ("global_common", "replacement_active", "unchanged_control")
-AGGREGATIONS = ("nearest", "box_7x7")
+FUSED_NAME = "stage_09d_claas3_aligned_per_time_fused.csv"
+PAIR_NAME = "stage_09d_claas3_aligned_per_time_source_pair.csv"
 
 
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+def comparison_domains(common: np.ndarray, base_source: np.ndarray, base_source_valid: np.ndarray, cand_source: np.ndarray, cand_source_valid: np.ndarray) -> dict[str, np.ndarray]:
+    """Backward-compatible name for the shared paired-domain contract."""
+    return source_domains(common, base_source, base_source_valid, cand_source, cand_source_valid)
 
 
-def load_stage08c() -> Any:
-    path = SCRIPT_DIR / "08c_epic_cloud_mask_semantic_sensitivity.py"
-    spec = importlib.util.spec_from_file_location("stage08c_pair_support", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot import {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def box_binary(values: np.ndarray, valid: np.ndarray, window: int = 7, min_support: float = 0.5) -> tuple[np.ndarray, np.ndarray]:
+    """Legacy-compatible rectangular cloud-majority helper used by tests."""
+    support = uniform_filter(valid.astype(np.float32), size=window, mode="constant", cval=0.0)
+    cloud = uniform_filter(((values == 1) & valid).astype(np.float32), size=window, mode="constant", cval=0.0)
+    out_valid = support >= min_support
+    out = np.zeros(values.shape, dtype=np.int8)
+    out[out_valid] = (cloud[out_valid] / support[out_valid] >= 0.5).astype(np.int8)
+    return out, out_valid
 
 
-def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
-    fields = sorted({key for row in rows for key in row})
-    with path.open("w", newline="", encoding="utf-8-sig") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(rows)
-
-
-def profile_root(matrix: dict[str, Any], profile: str) -> Path:
-    return Path(next(row["profile_root"] for row in matrix["profile_runs"] if row["source_profile"] == profile))
-
-
-def box_binary(values: np.ndarray, valid: np.ndarray, radius: int = 3) -> tuple[np.ndarray, np.ndarray]:
-    size = 2 * radius + 1
-    numerator = uniform_filter(np.where(valid, values, 0.0).astype(np.float32), size=size, mode="constant", cval=0.0)
-    denominator = uniform_filter(valid.astype(np.float32), size=size, mode="constant", cval=0.0)
-    out_valid = denominator >= 0.5
-    fraction = np.zeros(values.shape, dtype=np.float32)
-    fraction[out_valid] = numerator[out_valid] / denominator[out_valid]
-    return (fraction >= 0.5).astype(np.int16), out_valid
-
-
-def profile_samples(root: Path, policy: dict[str, Any], epic_lat: np.ndarray, epic_lon: np.ndarray, support: Any) -> dict[str, Any]:
-    grid = json.loads((root / "reprojected_grid" / "target_grid_definition.json").read_text(encoding="utf-8"))
-    mask, mask_valid = support.load_npz_array(root / "fused_best_source" / "fused_cloud_mask.npz")
-    source, source_valid = support.load_npz_array(root / "fused_best_source" / "source_map_cloud_mask.npz")
-    source_sample = support.sample_grid_to_points(source, source_valid, epic_lat, epic_lon, grid)
-    nearest_raw, nearest_valid = support.sample_grid_to_points(mask, mask_valid, epic_lat, epic_lon, grid)
-    nearest_class, nearest_policy_valid = support.apply_policy(nearest_raw, policy["geo"])
-    grid_class, grid_policy_valid = support.apply_policy(mask, policy["geo"])
-    box_class, box_valid = box_binary(grid_class, mask_valid & grid_policy_valid)
-    box_sample = support.sample_grid_to_points(box_class, box_valid, epic_lat, epic_lon, grid)
+def _profile_state(context: dict[str, Any], variable: str) -> dict[str, Any]:
+    base_source, base_source_valid = sample_fused_aux(context, "operational_baseline", f"source_map_{variable}")
+    cand_source, cand_source_valid = sample_fused_aux(context, "claas3_candidate", f"source_map_{variable}")
+    base_count, base_count_valid = sample_fused_aux(context, "operational_baseline", f"valid_count_map_{variable}")
+    cand_count, cand_count_valid = sample_fused_aux(context, "claas3_candidate", f"valid_count_map_{variable}")
+    base_source_valid &= base_count_valid
+    cand_source_valid &= cand_count_valid
+    base_vza = selected_geo_vza(context, "operational_baseline", base_source, base_source_valid)
+    cand_vza = selected_geo_vza(context, "claas3_candidate", cand_source, cand_source_valid)
+    strata = add_profile_strata(context["base_strata"], base_source, cand_source, base_count, cand_count, base_vza, cand_vza)
+    strata = add_visibility_strata(strata, context["epic"], context["morphology"], base_source_valid, cand_source_valid, base_count, cand_count, base_vza, cand_vza)
     return {
-        "nearest": (nearest_class, nearest_valid & nearest_policy_valid),
-        "box_7x7": box_sample,
-        "source": source_sample,
-        "source_grid": (source, source_valid),
-        "grid": grid,
+        "base_source": base_source,
+        "base_source_valid": base_source_valid,
+        "cand_source": cand_source,
+        "cand_source_valid": cand_source_valid,
+        "base_count": base_count,
+        "cand_count": cand_count,
+        "base_vza": base_vza,
+        "cand_vza": cand_vza,
+        "strata": strata,
     }
 
 
-def comparison_domains(common: np.ndarray, base_source: np.ndarray, base_source_valid: np.ndarray, cand_source: np.ndarray, cand_source_valid: np.ndarray, stable_control: np.ndarray | None = None) -> dict[str, np.ndarray]:
-    source_common = base_source_valid & cand_source_valid & np.isfinite(base_source) & np.isfinite(cand_source)
-    base_id = np.zeros(base_source.shape, dtype=np.int16)
-    cand_id = np.zeros(cand_source.shape, dtype=np.int16)
-    base_id[source_common] = np.rint(base_source[source_common]).astype(np.int16)
-    cand_id[source_common] = np.rint(cand_source[source_common]).astype(np.int16)
-    unchanged = common & source_common & (base_id == cand_id) & ~np.isin(base_id, [0, 5, 7])
-    if stable_control is not None:
-        unchanged &= stable_control
-    return {
-        "global_common": common,
-        "replacement_active": common & source_common & (base_id == 5) & (cand_id == 7),
-        "unchanged_control": unchanged,
-    }
+def _coverage(valid: np.ndarray, universe: np.ndarray) -> float:
+    denominator = int(np.count_nonzero(universe))
+    return float(np.count_nonzero(valid & universe) / denominator) if denominator else math.nan
 
 
-def stable_source_neighborhood(sampled: dict[str, dict[str, Any]], lat: np.ndarray, lon: np.ndarray, support: Any, radius: int = 3) -> np.ndarray:
-    base_source, base_valid = sampled["operational_baseline"]["source_grid"]
-    cand_source, cand_valid = sampled["claas3_candidate"]["source_grid"]
-    source_common = base_valid & cand_valid & np.isfinite(base_source) & np.isfinite(cand_source)
-    base_id = np.zeros(base_source.shape, dtype=np.int16)
-    cand_id = np.zeros(cand_source.shape, dtype=np.int16)
-    base_id[source_common] = np.rint(base_source[source_common]).astype(np.int16)
-    cand_id[source_common] = np.rint(cand_source[source_common]).astype(np.int16)
-    source_changed = ~source_common | (base_id != cand_id)
-    changed_fraction = uniform_filter(source_changed.astype(np.float32), size=2 * radius + 1, mode="constant", cval=1.0)
-    stable_grid = changed_fraction <= 1e-8
-    stable_sample, stable_valid = support.sample_grid_to_points(stable_grid.astype(np.int16), np.ones(stable_grid.shape, dtype=bool), lat, lon, sampled["operational_baseline"]["grid"])
-    return stable_valid & (stable_sample == 1)
+def _cache_samples(cache: dict[str, np.ndarray], prefix: str, samples: dict[str, tuple[np.ndarray, np.ndarray]]) -> None:
+    for aggregation, (values, valid) in samples.items():
+        cache[f"{prefix}__{aggregation}__values"] = values
+        cache[f"{prefix}__{aggregation}__valid"] = valid
 
 
-def sample_metrics(matrix_path: Path, support: Any) -> list[dict[str, Any]]:
-    matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
-    common = matrix["common_inputs"]
-    tag = common["time_tag"]
-    epic, lat, lon, _ = support.read_epic_l2(Path(common["epic_l2"]), None, None, None)
-    earth = np.isfinite(epic) & np.isfinite(lat) & np.isfinite(lon)
+def _fused_rows(context: dict[str, Any], state: dict[str, Any], cache: dict[str, np.ndarray]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for policy_name in ("A_inclusive_binary", "B_high_confidence_only"):
-        policy = support.EPIC_POLICIES[policy_name]
-        epic_class, epic_policy_valid = support.apply_policy(epic, policy["epic"])
-        sampled = {
-            profile: profile_samples(profile_root(matrix, profile), policy, lat, lon, support)
-            for profile in ("operational_baseline", "claas3_candidate")
-        }
-        base_source, base_source_valid = sampled["operational_baseline"]["source"]
-        cand_source, cand_source_valid = sampled["claas3_candidate"]["source"]
-        stable_box_control = stable_source_neighborhood(sampled, lat, lon, support)
+    stable_base = source_stability_samples(context, "operational_baseline", "cloud_mask")
+    stable_cand = source_stability_samples(context, "claas3_candidate", "cloud_mask")
+    for policy_name, policy in POLICIES.items():
+        reference, reference_valid = apply_policy(context["epic"]["cloud_mask"], policy["epic"])
+        baseline = sample_fused_profile(context, "operational_baseline", "cloud_mask", policy_name)
+        candidate = sample_fused_profile(context, "claas3_candidate", "cloud_mask", policy_name)
+        if policy_name in {"A_inclusive_binary", "B_high_confidence_only"}:
+            _cache_samples(cache, f"fused__operational_baseline__{policy_name}", baseline)
+            _cache_samples(cache, f"fused__claas3_candidate__{policy_name}", candidate)
         for aggregation in AGGREGATIONS:
-            base_class, base_valid = sampled["operational_baseline"][aggregation]
-            cand_class, cand_valid = sampled["claas3_candidate"][aggregation]
-            common_domain = earth & epic_policy_valid & base_valid & cand_valid
-            domains = comparison_domains(common_domain, base_source, base_source_valid, cand_source, cand_source_valid, stable_box_control if aggregation == "box_7x7" else None)
-            for domain_name in DOMAINS:
-                domain = domains[domain_name]
-                base = support.binary_metrics(epic_class, base_class, domain)
-                cand = support.binary_metrics(epic_class, cand_class, domain)
-                rows.append({
-                    "run_id": matrix["run_id"],
-                    "time_tag": tag,
-                    "target_time": common["target_time"],
-                    "epic_l2": common["epic_l2"],
-                    "policy": policy_name,
-                    "aggregation": aggregation,
-                    "domain": domain_name,
-                    "common_n": int(np.count_nonzero(domain)),
-                    "baseline_f1": base.get("f1", float("nan")),
-                    "candidate_f1": cand.get("f1", float("nan")),
-                    "f1_delta_candidate_minus_baseline": cand.get("f1", float("nan")) - base.get("f1", float("nan")),
-                    "baseline_precision": base.get("precision", float("nan")),
-                    "candidate_precision": cand.get("precision", float("nan")),
-                    "precision_delta_candidate_minus_baseline": cand.get("precision", float("nan")) - base.get("precision", float("nan")),
-                    "baseline_recall": base.get("recall", float("nan")),
-                    "candidate_recall": cand.get("recall", float("nan")),
-                    "recall_delta_candidate_minus_baseline": cand.get("recall", float("nan")) - base.get("recall", float("nan")),
-                    "baseline_agreement": base.get("agreement", float("nan")),
-                    "candidate_agreement": cand.get("agreement", float("nan")),
-                    "agreement_delta_candidate_minus_baseline": cand.get("agreement", float("nan")) - base.get("agreement", float("nan")),
-                    "baseline_coverage": float(np.count_nonzero(earth & base_valid) / max(np.count_nonzero(earth), 1)),
-                    "candidate_coverage": float(np.count_nonzero(earth & cand_valid) / max(np.count_nonzero(earth), 1)),
-                    "coverage_delta_candidate_minus_baseline": float((np.count_nonzero(earth & cand_valid) - np.count_nonzero(earth & base_valid)) / max(np.count_nonzero(earth), 1)),
-                    "baseline_only_pixel_count": int(np.count_nonzero(earth & base_valid & ~cand_valid)),
-                    "candidate_only_pixel_count": int(np.count_nonzero(earth & cand_valid & ~base_valid)),
-                })
+            base_values, base_valid = baseline[aggregation]
+            cand_values, cand_valid = candidate[aggregation]
+            common = reference_valid & base_valid & cand_valid
+            domains = source_domains(common, state["base_source"], state["base_source_valid"], state["cand_source"], state["cand_source_valid"])
+            domains["replacement_active"] &= stable_base[aggregation] & stable_cand[aggregation]
+            domains["unchanged_control"] &= stable_base[aggregation] & stable_cand[aggregation]
+            universe = reference_valid
+            for domain_name, domain in domains.items():
+                for stratum_name, stratum in state["strata"].items():
+                    use = domain & stratum
+                    metrics = paired_classification_metrics(reference, base_values, cand_values, use, policy["classes"], policy["cloud_class"])
+                    if int(metrics.get("common_n", 0)) == 0 and stratum_name != "all":
+                        continue
+                    row = common_metadata(
+                        context,
+                        diagnostic_type="fused_profile",
+                        source_A="operational_baseline",
+                        source_B="claas3_candidate",
+                        source_A_stream="operational_meteosat_fusion_profile",
+                        source_B_stream="claas3_candidate_fusion_profile",
+                        policy=policy_name,
+                        aggregation=aggregation,
+                        aggregation_description="approximate rectangular FOV aggregation" if aggregation.startswith("box_") else "nearest grid-cell sampling",
+                        domain=domain_name,
+                        stratum=stratum_name,
+                    )
+                    row.update(metrics)
+                    row["status"] = "eligible_per_time" if int(metrics.get("common_n", 0)) > 0 else "unresolved_sparse"
+                    stratum_universe = universe & stratum
+                    row["A_coverage"] = _coverage(base_valid, stratum_universe)
+                    row["B_coverage"] = _coverage(cand_valid, stratum_universe)
+                    row["B_minus_A_coverage"] = row["B_coverage"] - row["A_coverage"]
+                    rows.append(row)
     return rows
 
 
-def bootstrap_ci(values: np.ndarray, seed: int = 73, draws: int = 4000) -> tuple[float, float]:
-    if values.size < 2:
-        return float("nan"), float("nan")
-    rng = np.random.default_rng(seed)
-    means = np.mean(values[rng.integers(0, values.size, size=(draws, values.size))], axis=1)
-    return float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
+def _pair_rows(context: dict[str, Any], strata: dict[str, np.ndarray], cache: dict[str, np.ndarray]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for policy_name, policy in POLICIES.items():
+        reference, reference_valid = apply_policy(context["epic"]["cloud_mask"], policy["epic"])
+        samples = prefusion_samples(context, "cloud_mask", policy_name)
+        if policy_name in {"A_inclusive_binary", "B_high_confidence_only"}:
+            for source, source_samples in samples.items():
+                _cache_samples(cache, f"prefusion__{source}__{policy_name}", source_samples)
+        for source_a, source_b in PRIMARY_PAIRS:
+            for aggregation in AGGREGATIONS:
+                a_values, a_valid = samples[source_a][aggregation]
+                b_values, b_valid = samples[source_b][aggregation]
+                common = reference_valid & a_valid & b_valid
+                for stratum_name, stratum in strata.items():
+                    metrics = paired_classification_metrics(reference, a_values, b_values, common & stratum, policy["classes"], policy["cloud_class"])
+                    if int(metrics.get("common_n", 0)) == 0 and stratum_name != "all":
+                        continue
+                    row = common_metadata(
+                        context,
+                        diagnostic_type="prefusion_source_pair",
+                        source_A=source_a,
+                        source_B=source_b,
+                        source_A_stream=SOURCE_STREAM[source_a],
+                        source_B_stream=SOURCE_STREAM[source_b],
+                        policy=policy_name,
+                        aggregation=aggregation,
+                        aggregation_description="approximate rectangular FOV aggregation" if aggregation.startswith("box_") else "nearest grid-cell sampling",
+                        domain="prefusion_common",
+                        stratum=stratum_name,
+                    )
+                    row.update(metrics)
+                    row["status"] = "eligible_per_time" if int(metrics.get("common_n", 0)) > 0 else "unresolved_sparse"
+                    rows.append(row)
+    return rows
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Stage 09d common-domain EPIC cloud-mask A/B evaluation")
-    parser.add_argument("--matrix-manifest", type=Path, action="append", required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
-    args = parser.parse_args()
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    support = load_stage08c()
-    rows = [row for manifest in args.matrix_manifest for row in sample_metrics(manifest, support)]
-    summary_rows: list[dict[str, Any]] = []
-    for policy in ("A_inclusive_binary", "B_high_confidence_only"):
-        for aggregation in AGGREGATIONS:
-            for domain in DOMAINS:
-                policy_rows = [row for row in rows if row["policy"] == policy and row["aggregation"] == aggregation and row["domain"] == domain]
-                values = np.asarray([row["f1_delta_candidate_minus_baseline"] for row in policy_rows], dtype=float)
-                values = values[np.isfinite(values)]
-                lo, hi = bootstrap_ci(values)
-                coverage_delta = float(np.mean([row["coverage_delta_candidate_minus_baseline"] for row in policy_rows])) if policy_rows else float("nan")
-                if len(values) < 5:
-                    decision = "unresolved"
-                elif domain == "unchanged_control":
-                    decision = "control_pass" if float(np.max(np.abs(values))) <= 1e-12 else "control_mismatch"
-                elif lo >= -0.01 and coverage_delta >= -0.01 and float(np.min(values)) >= -0.03:
-                    decision = "prefer_claas3" if float(np.mean(values)) > 0 else "conditional"
-                elif float(np.max(values)) <= -0.03 or coverage_delta < -0.01:
-                    decision = "prefer_operational"
-                else:
-                    decision = "conditional"
-                summary_rows.append({
-                    "policy": policy,
-                    "aggregation": aggregation,
-                    "domain": domain,
-                    "sample_block_count": len(values),
-                    "macro_mean_f1_delta": float(np.mean(values)) if values.size else float("nan"),
-                    "bootstrap_95ci_lower": lo,
-                    "bootstrap_95ci_upper": hi,
-                    "mean_coverage_delta": coverage_delta,
-                    "worst_sample_f1_delta": float(np.min(values)) if values.size else float("nan"),
-                    "decision": decision,
-                })
-    sample_path = args.output_dir / "stage_09d_claas3_epic_common_domain_samples.csv"
-    summary_path = args.output_dir / "stage_09d_claas3_epic_profile_pair_summary.csv"
-    write_csv(sample_path, rows)
-    write_csv(summary_path, summary_rows)
-    def summary_row(policy: str, domain: str) -> dict[str, Any]:
-        return next(
-            row for row in summary_rows
-            if row["policy"] == policy and row["aggregation"] == "box_7x7" and row["domain"] == domain
-        )
-
-    mask_report_rows = [
-        ("Policy A", summary_row("A_inclusive_binary", "replacement_active")),
-        ("Policy B", summary_row("B_high_confidence_only", "replacement_active")),
+def evaluate_matrix(matrix_path: Path, output_dir: Path, diagnostic_cache: Path | None = None) -> tuple[Path, Path, Path]:
+    context = build_context(matrix_path)
+    state = _profile_state(context, "cloud_mask")
+    cache_arrays: dict[str, np.ndarray] = {}
+    fused_rows = _fused_rows(context, state, cache_arrays)
+    pair_rows = _pair_rows(context, state["strata"], cache_arrays)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fused_path = output_dir / FUSED_NAME
+    pair_path = output_dir / PAIR_NAME
+    write_csv(fused_path, fused_rows)
+    write_csv(pair_path, pair_rows)
+    if diagnostic_cache:
+        diagnostic_cache.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(diagnostic_cache, **cache_arrays)
+    key_inputs = [
+        context["epic_path"],
+        context["profiles"]["operational_baseline"] / "fused_best_source" / "fused_cloud_mask.npz",
+        context["profiles"]["claas3_candidate"] / "fused_best_source" / "fused_cloud_mask.npz",
+        context["profiles"]["operational_baseline"] / "reprojected_grid" / "reprojected_variable_inventory.csv",
+        context["profiles"]["claas3_candidate"] / "reprojected_grid" / "reprojected_variable_inventory.csv",
     ]
-    control_rows = [
-        summary_row("A_inclusive_binary", "unchanged_control"),
-        summary_row("B_high_confidence_only", "unchanged_control"),
-    ]
-    report = args.output_dir / "stage_09d_claas3_epic_profile_pair_report.md"
-    report.write_text(
-        "\n".join([
-            "# Stage 09d CLAAS-3 与 EPIC 云掩膜双轨评估",
-            "",
-            f"- 生成时间（UTC）：{utc_now()}",
-            "- 主要证据域：`replacement_active`，即 baseline source ID 5 且 candidate source ID 7。",
-            "- 两轨使用相同 EPIC 像元、共同有效域与 `box_7x7` 近似 FOV 聚合。",
-            *[
-                f"- {label}：CLAAS3-candidate 减 baseline 的宏平均 F1 为 {row['macro_mean_f1_delta']:+.4f}，"
-                f"时次块 bootstrap 95% CI [{row['bootstrap_95ci_lower']:+.4f}, {row['bootstrap_95ci_upper']:+.4f}]，"
-                f"五时次最差差值 {row['worst_sample_f1_delta']:+.4f}，判定 `{row['decision']}`。"
-                for label, row in mask_report_rows
-            ],
-            f"- 未替换控制域：Policy A/B 判定分别为 `{control_rows[0]['decision']}` / `{control_rows[1]['decision']}`，F1 差值均为 {control_rows[0]['macro_mean_f1_delta']:+.1f}。",
-            "- nearest 结果保留在 CSV 中作为聚合敏感性分析；正文判断以 `box_7x7` 为主。",
-            "- EPIC 仅作云掩膜相对诊断，不裁决 CTP/CTT/CPH/COT/CER/CWP，也不构成生产切换依据。",
-            "- 这是五时次 preliminary pilot；门槛为 F1 差值 95% CI 下界不低于 -0.01、单时次稳定退化不超过 0.03、覆盖率下降不超过 1 个百分点。",
-        ]),
+    compact = output_dir / "stage_09d_claas3_aligned_compact_diagnostic_manifest.json"
+    compact.write_text(json.dumps({
+        "generated_utc": utc_now(),
+        "run_id": context["run_id"],
+        "time_tag": context["time_tag"],
+        "fixed_scene_reference": "EPIC Policy-A morphology",
+        "fused_rows": len(fused_rows),
+        "source_pair_rows": len(pair_rows),
+        "inputs": [{"path": str(path), "size_bytes": path.stat().st_size, "sha256": file_sha256(path)} for path in key_inputs],
+        "outputs": [{"path": str(path), "size_bytes": path.stat().st_size, "sha256": file_sha256(path)} for path in (fused_path, pair_path)],
+        "diagnostic_cache": {"path": str(diagnostic_cache), "size_bytes": diagnostic_cache.stat().st_size, "sha256": file_sha256(diagnostic_cache)} if diagnostic_cache else None,
+        "status": "PASS" if fused_rows and pair_rows else "FAIL",
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    return fused_path, pair_path, compact
+
+
+def _number(row: dict[str, str], key: str) -> float:
+    try:
+        return float(row.get(key, "nan"))
+    except (TypeError, ValueError):
+        return math.nan
+
+
+def _finite_mean(values: list[float] | np.ndarray) -> float:
+    array = np.asarray(values, dtype=np.float64)
+    finite = array[np.isfinite(array)]
+    return float(np.mean(finite)) if finite.size else math.nan
+
+
+def _pooled_binary(group: list[dict[str, str]], prefix: str) -> dict[str, float]:
+    tp = sum(_number(row, f"{prefix}_cloud_tp") for row in group)
+    fp = sum(_number(row, f"{prefix}_cloud_fp") for row in group)
+    fn = sum(_number(row, f"{prefix}_cloud_fn") for row in group)
+    precision = tp / (tp + fp) if tp + fp else math.nan
+    recall = tp / (tp + fn) if tp + fn else math.nan
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else math.nan
+    return {"precision": precision, "recall": recall, "f1": f1}
+
+
+def summarize(input_root: Path, output_dir: Path, phase: str, max_delta: float, draws: int, seed: int) -> list[Path]:
+    all_rows: list[dict[str, str]] = []
+    for path in sorted(input_root.rglob(FUSED_NAME)) + sorted(input_root.rglob(PAIR_NAME)):
+        for row in read_csv(path):
+            row["input_table"] = path.name
+            all_rows.append(row)
+    if not all_rows:
+        raise RuntimeError(f"no Stage 09d aligned per-time tables under {input_root}")
+    for row in all_rows:
+        row["primary_time_domain"] = str(_number(row, "time_delta_min") <= max_delta)
+    key_fields = ("diagnostic_type", "source_A", "source_B", "source_A_stream", "source_B_stream", "policy", "aggregation", "domain", "stratum")
+    groups: dict[tuple[str, ...], list[dict[str, str]]] = defaultdict(list)
+    sensitivity: list[dict[str, str]] = []
+    for row in all_rows:
+        if row["primary_time_domain"] == "True":
+            groups[tuple(row.get(key, "") for key in key_fields)].append(row)
+        else:
+            sensitivity.append(row)
+    minimum_blocks = 5 if phase == "pilot" else 10
+    summaries: list[dict[str, Any]] = []
+    decisions: list[dict[str, Any]] = []
+    for index, (key, rows) in enumerate(sorted(groups.items())):
+        eligible = [row for row in rows if _number(row, "common_n") >= 1000]
+        total_n = int(sum(_number(row, "common_n") for row in eligible))
+        policy = key[5]
+        metric = "macro_f1" if policy == "C_uncertainty_aware_3class" else "f1"
+        delta_key = f"B_minus_A_{metric}"
+        deltas = np.array([_number(row, delta_key) for row in eligible], dtype=np.float64)
+        ci_low, ci_high = block_bootstrap(deltas, seed + index, draws)
+        coverage_delta = _finite_mean([_number(row, "B_minus_A_coverage") for row in eligible]) if eligible and key[0] == "fused_profile" else math.nan
+        status = "eligible" if len(eligible) >= minimum_blocks and total_n >= 50000 else "unresolved_sparse"
+        summary = {field: value for field, value in zip(key_fields, key)}
+        summary.update({
+            "phase": phase,
+            "n_time_blocks": len(eligible),
+            "common_n": total_n,
+            "status": status,
+            "decision_metric": metric,
+            "equal_time_macro_A": _finite_mean([_number(row, f"A_{metric}") for row in eligible]),
+            "equal_time_macro_B": _finite_mean([_number(row, f"B_{metric}") for row in eligible]),
+            "equal_time_macro_B_minus_A": _finite_mean(deltas),
+            "bootstrap_ci95_low": ci_low,
+            "bootstrap_ci95_high": ci_high,
+            "mean_coverage_B_minus_A": coverage_delta,
+        })
+        if policy != "C_uncertainty_aware_3class":
+            pooled_a = _pooled_binary(eligible, "A")
+            pooled_b = _pooled_binary(eligible, "B")
+            summary.update({f"pooled_A_{name}": value for name, value in pooled_a.items()})
+            summary.update({f"pooled_B_{name}": value for name, value in pooled_b.items()})
+        summaries.append(summary)
+        decision = "unresolved_sparse"
+        if status == "eligible":
+            if ci_low > 0 and (math.isnan(coverage_delta) or coverage_delta >= -0.01):
+                decision = "prefer_claas3" if key[1] in {"operational_baseline", "Meteosat-0deg"} and key[2] in {"claas3_candidate", "CLAAS3-0deg"} else "prefer_source_B"
+            elif ci_high < 0:
+                decision = "prefer_operational" if key[1] in {"operational_baseline", "Meteosat-0deg"} else "prefer_source_A"
+            elif ci_low >= -0.01:
+                decision = "conditional"
+            else:
+                decision = "unresolved"
+        decisions.append({**{field: value for field, value in zip(key_fields, key)}, "n_time_blocks": len(eligible), "common_n": total_n, "ci95_low": ci_low, "ci95_high": ci_high, "decision": decision})
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = output_dir / "stage_09d_claas3_aligned_bootstrap_summary.csv"
+    decision_path = output_dir / "stage_09d_claas3_aligned_state_decision.csv"
+    sensitivity_path = output_dir / "stage_09d_claas3_aligned_time_offset_sensitivity.csv"
+    write_csv(summary_path, summaries)
+    write_csv(decision_path, decisions)
+    write_csv(sensitivity_path, sensitivity)
+    report_path = output_dir / "stage_09d_claas3_aligned_report_zh.md"
+    eligible_count = sum(row["status"] == "eligible" for row in summaries)
+    report_path.write_text(
+        "# Stage 09d CLAAS-3 对齐测评\n\n"
+        f"- 阶段：{phase}\n- 主时间门限：≤{max_delta:g} min\n- bootstrap：{draws} 次，以整时次为块\n"
+        f"- 可裁决状态：{eligible_count}/{len(summaries)}；其余保留为 unresolved_sparse。\n"
+        "- 主场景分类固定来自 EPIC Policy-A morphology；box-7×7 仅是 approximate rectangular FOV aggregation，不是官方 EPIC PSF。\n"
+        "- 结果表示 EPIC-relative 一致性及产品间差异，不代表绝对物理准确性。\n",
         encoding="utf-8",
     )
     write_manifest(
-        args.output_dir / "stage_09d_claas3_epic_profile_pair_manifest.json",
-        canonical_stage_id="stage_09d",
-        run_id="profile_pair_batch",
-        source_profile="profile_pair",
+        output_dir / "stage_09d_claas3_aligned_lineage_manifest.json",
+        canonical_stage_id=STAGE_ID,
         generating_script=Path(__file__),
-        input_paths=args.matrix_manifest,
-        output_paths=[sample_path, summary_path, report],
-        parameters={"bootstrap_draws": 4000, "sample_block_bootstrap": True, "common_domain": True, "domains": DOMAINS, "aggregations": AGGREGATIONS},
+        input_paths=[input_root],
+        output_paths=[summary_path, decision_path, sensitivity_path, report_path],
+        parameters={"phase": phase, "max_primary_time_delta_min": max_delta, "bootstrap_draws": draws, "seed": seed, "scene_reference": "epic"},
         project_root=path_config.PROJECT_ROOT,
-        extra={"product_versions": {"CLAAS3": "405"}},
+        run_id=output_dir.name,
+        source_profile="profile_pair",
     )
-    print(f"stage_09d OK: {report}")
+    return [summary_path, decision_path, sensitivity_path, report_path]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Stage 09d processing-stream-aware CLAAS-3 cloud-mask evaluation")
+    parser.add_argument("--matrix-manifest", type=Path, action="append")
+    parser.add_argument("--input-root", type=Path)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--phase", choices=("pilot", "march"), default="pilot")
+    parser.add_argument("--max-primary-time-delta-min", type=float, default=10.0)
+    parser.add_argument("--bootstrap-draws", type=int, default=10000)
+    parser.add_argument("--seed", type=int, default=20240309)
+    parser.add_argument("--diagnostic-cache", type=Path)
+    args = parser.parse_args()
+    if args.matrix_manifest:
+        outputs: list[Path] = []
+        for matrix in args.matrix_manifest:
+            sample_dir = args.output_dir / matrix.parent.name if len(args.matrix_manifest) > 1 else args.output_dir
+            outputs.extend(evaluate_matrix(matrix, sample_dir, args.diagnostic_cache))
+        write_manifest(
+            args.output_dir / "stage_09d_claas3_aligned_lineage_manifest.json",
+            canonical_stage_id=STAGE_ID,
+            generating_script=Path(__file__),
+            input_paths=args.matrix_manifest,
+            output_paths=outputs,
+            parameters={"phase": args.phase, "max_primary_time_delta_min": args.max_primary_time_delta_min, "scene_reference": "epic", "policies": list(POLICIES), "aggregations": list(AGGREGATIONS)},
+            project_root=path_config.PROJECT_ROOT,
+            run_id=args.output_dir.name,
+            source_profile="profile_pair",
+        )
+    elif args.input_root:
+        summarize(args.input_root, args.output_dir, args.phase, args.max_primary_time_delta_min, args.bootstrap_draws, args.seed)
+    else:
+        parser.error("one of --matrix-manifest or --input-root is required")
     return 0
 
 

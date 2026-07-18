@@ -96,6 +96,18 @@ def parse_output_filename(path: Path) -> tuple[str, str, str] | None:
 
 def load_catalog() -> dict[tuple[str, str, str], Path]:
     catalog: dict[tuple[str, str, str], Path] = {}
+    inventory_path = REPROJECT_DIR / "reprojected_variable_inventory.csv"
+    if inventory_path.exists():
+        inventory = pd.read_csv(inventory_path)
+        for row in inventory.itertuples(index=False):
+            if str(getattr(row, "status", "")) != "OK":
+                continue
+            path = Path(str(getattr(row, "output_file", "")))
+            key = (str(getattr(row, "satellite", "")), str(getattr(row, "product", "")), str(getattr(row, "variable", "")))
+            if path.exists() and key[0] in TIE_ORDER:
+                catalog[key] = path
+        if catalog:
+            return catalog
     for path in REPROJECT_DIR.rglob(f"*_{TIME_TAG}.npz"):
         parsed = parse_output_filename(path)
         if parsed is None:
@@ -181,21 +193,21 @@ def infer_subpoint_longitude(satellite: str, catalog: dict[tuple[str, str, str],
         native = NATIVE_DIR / f"{satellite}_CMSK_{TIME_TAG}_native_cloud_v0.npz"
         if not native.exists():
             native = NATIVE_DIR / f"{satellite}_CHGT_{TIME_TAG}_native_cloud_v0.npz"
-        if not native.exists():
-            raise RuntimeError(f"Himawari native file missing for {satellite}")
         aux_path, aux_info = find_himawari_r21_geometry_file(TARGET_TIME)
         if aux_path is not None:
             aux = read_himawari_r21_geometry(aux_path, read_mapping())
             gp = np.asarray(aux.attrs.get("r21_geometry_parameters", []), dtype=np.float64)
             if gp.size >= 1 and np.isfinite(gp[0]):
                 return float(normalize_lon(float(gp[0]))), f"read_from_himawari_r21_geometry_parameters selected_time={aux_info.get('selected_time')}"
-        return infer_subpoint_from_native_latlon(native), "estimated_from_native_latlon_center_pixel"
+        if native.exists():
+            return infer_subpoint_from_native_latlon(native), "estimated_from_native_latlon_center_pixel"
+        return SOURCE_BY_KEY[satellite].service_longitude_deg, "source_registry_service_longitude_reused_asset"
 
     if satellite.startswith("Meteosat"):
         native = NATIVE_DIR / f"{satellite}_CLM_{TIME_TAG}_native_cloud_v0.npz"
-        if not native.exists():
-            raise RuntimeError(f"Meteosat CLM native file missing for {satellite}")
-        return infer_subpoint_from_native_latlon(native), "estimated_from_native_latlon_center_pixel"
+        if native.exists():
+            return infer_subpoint_from_native_latlon(native), "estimated_from_native_latlon_center_pixel"
+        return SOURCE_BY_KEY[satellite].service_longitude_deg, "source_registry_service_longitude_reused_asset"
 
     raise RuntimeError(f"unsupported satellite {satellite}")
 
@@ -463,7 +475,24 @@ def fuse_variable(
         if candidate is not None and candidate["product_level_weight"] > 0.0:
             participants.append(candidate)
     if not participants:
-        raise RuntimeError(f"no participants available for {variable}")
+        if variable in {"cloud_mask", "cloud_top_height_km"}:
+            raise RuntimeError(f"no participants available for required variable {variable}")
+        arrays_out = {
+            f"fused_{variable}": np.full(TARGET_SHAPE, np.nan, dtype=np.float32),
+            f"source_map_{variable}": np.zeros(TARGET_SHAPE, dtype=np.int16),
+            f"rating_map_{variable}": np.zeros(TARGET_SHAPE, dtype=np.float32),
+            f"valid_count_map_{variable}": np.zeros(TARGET_SHAPE, dtype=np.int16),
+            f"coverage_state_map_{variable}": np.zeros(TARGET_SHAPE, dtype=np.uint8),
+        }
+        summary = {
+            "variable": variable,
+            "participants": [],
+            "coverage_ratio": 0.0,
+            "status": "NO_PARTICIPANTS_OPTIONAL",
+            "fusion_mode": "no_data",
+            "warnings": ["NO_PARTICIPANTS_OPTIONAL; emitted NaN/source_id=0/valid_count=0"],
+        }
+        return summary, [], [], arrays_out
 
     fused = np.full(TARGET_SHAPE, np.nan, dtype=np.float32)
     fused_raw = np.full(TARGET_SHAPE, -9999, dtype=np.int16) if variable == "cloud_mask" else None

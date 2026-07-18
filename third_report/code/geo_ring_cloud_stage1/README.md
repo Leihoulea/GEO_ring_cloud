@@ -1,0 +1,19 @@
+# GEO-ring Cloud Core Code
+
+本目录是 Geo Ring Cloud 主代码的唯一权威入口。开始新任务前，先读：
+
+1. `D:\AAAresearch_paper\_GEO_RING_CLOUD_WORKSPACE\architecture.md`
+2. `D:\AAAresearch_paper\_GEO_RING_CLOUD_WORKSPACE\engineering_status.md`
+3. `D:\AAAresearch_paper\_GEO_RING_CLOUD_WORKSPACE\stage_registry.md`
+4. `D:\AAAresearch_paper\_GEO_RING_CLOUD_WORKSPACE\artifact_index.md`
+
+阶段代码使用 `stage_XX...`；跨阶段编排、共享诊断、下载和证据工具使用 `geo_ring_cloud_<role>_<purpose>.py` 并声明 `COMPONENT_ROLE`。不要根据 `Step9`、`Stage9` 或组合标签猜阶段。
+
+所有项目路径通过 `path_config.py` 或环境变量覆盖。运行产物写入 `geo_ring_cloud_stage1`、`geo_ring_cloud_stage1_time_runs` 或明确的数据审计目录，不写入源码目录；测试临时产物只允许位于 `tests/_tmp`，且不会进入 Git 或正式 artifact index。
+
+修改 stage 脚本后执行：
+
+```powershell
+python _GEO_RING_CLOUD_INDEX\build_index.py
+python _GEO_RING_CLOUD_INDEX\governance_check.py --staged
+```

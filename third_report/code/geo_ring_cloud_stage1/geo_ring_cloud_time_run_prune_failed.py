@@ -12,6 +12,7 @@ from geo_ring_cloud_lineage import write_manifest
 from path_config import PROJECT_ROOT, RUNS_ROOT
 
 
+COMPONENT_ROLE = "time_run_pruning"
 RUN_ID_PATTERN = re.compile(r"^\d{8}_\d{4}$")
 
 
@@ -156,6 +157,7 @@ def main() -> int:
     write_manifest(
         final_manifest_path,
         canonical_stage_id="",
+        component_role=COMPONENT_ROLE,
         generating_script=Path(__file__),
         input_paths=[manifest_path],
         output_paths=[archive_root, journal_path, report_path],
@@ -164,7 +166,6 @@ def main() -> int:
         run_id=args.run_id,
         source_profile="legacy_operational",
         extra={
-            "component_role": "time_run_pruning",
             "status": "COMPLETE" if args.execute else "DRY_RUN",
             "artifact_state": "FAILED_RUN_PRUNED" if args.execute else "PLANNED",
             **report_payload,

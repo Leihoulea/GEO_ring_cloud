@@ -1,6 +1,6 @@
 # GEO-ring Cloud Workspace
 
-Generated: `2026-07-15T02:02:58Z`
+Generated: `2026-07-18T17:01:36Z`
 
 This folder is a lightweight control surface for the GEO-ring Cloud project. It intentionally does not copy large data products.
 
@@ -15,12 +15,14 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 ## Files Here
 
 - `directory_classification.md`: relevance, existence, path risk, and archive candidacy.
-- `script_inventory.md`: current GEO-ring Cloud scripts, including newly discovered Stage09d files.
+- `architecture.md`: authoritative module boundaries and target physical structure.
+- `engineering_status.md`: generated engineering-health snapshot and prioritized debt.
+- `script_inventory.md`: current GEO-ring Cloud stage scripts and non-stage components.
 - `pipeline_stages.md`: stage-level inputs, outputs, and evidence directories.
 - `path_mapping.md`: code/data path dependencies and override strategy.
 - `archive_manifest_dry_run.csv`: dry-run archive candidates generated before physical moves.
 - `stage_registry.md`: canonical stage taxonomy and collision guards.
-- `artifact_index.md`: project memory index for key reports, tables, configs, workbooks, scripts, and directory summaries.
+- `artifact_index.md`: compact project-memory view of directory summaries and high-value reports/manifests; query SQLite/XLSX for complete artifact rows.
 - `data_product_audits.md`: horizontal index of generic and stage-scoped EO product inspections.
 - `legacy_aliases.md`: legacy labels mapped to canonical stage IDs.
 - `naming_policy.md`: naming rules for new work and known non-canonical labels.

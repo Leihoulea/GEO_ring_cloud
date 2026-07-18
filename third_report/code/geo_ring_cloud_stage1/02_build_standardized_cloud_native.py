@@ -35,7 +35,7 @@ from stage1_common import (
 )
 
 
-BASE_STAGE_ROOT = Path(os.environ.get("GEO_RING_BASE_STAGE_ROOT", r"D:\AAAresearch_paper\geo_ring_cloud_stage1"))
+BASE_STAGE_ROOT = Path(os.environ.get("GEO_RING_BASE_STAGE_ROOT", str(path_config.BASE_STAGE_ROOT)))
 BASE_TIME_INDEX_DIR = BASE_STAGE_ROOT / "time_index"
 
 
@@ -307,6 +307,7 @@ def main() -> int:
     parser.add_argument("--source-profile", default=os.environ.get("GEO_RING_SOURCE_PROFILE", "operational_baseline"), choices=["operational_baseline", "claas3_candidate"])
     parser.add_argument("--claas3-root", type=Path, default=path_config.CLAAS3_ROOT)
     parser.add_argument("--run-id", default=os.environ.get("GEO_RING_RUN_ID", ""))
+    parser.add_argument("--reuse-operational-native-root", type=Path)
     args = parser.parse_args()
     source_profile = validate_profile(args.source_profile)
     ensure_dirs()
@@ -317,9 +318,20 @@ def main() -> int:
     rows = file_map_for_time(nominal_time)
     if source_profile == "operational_baseline":
         rows = rows[rows["satellite_group"] != "CLAAS3-0deg"]
+    elif args.reuse_operational_native_root:
+        rows = rows[rows["satellite_group"] == "CLAAS3-0deg"]
     fy4b_geo_arrays = load_fy4b_geo(rows, mapping)
     inventory_rows: list[dict[str, object]] = []
     stats_rows: list[dict[str, object]] = []
+    reused_input_paths: list[str] = []
+    if args.reuse_operational_native_root:
+        base_inventory_path = args.reuse_operational_native_root / "standardized_native_inventory.csv"
+        base_stats_path = args.reuse_operational_native_root / "standardized_native_variable_stats.csv"
+        base_inventory = pd.read_csv(base_inventory_path)
+        base_stats = pd.read_csv(base_stats_path)
+        inventory_rows.extend(base_inventory.to_dict("records"))
+        stats_rows.extend(base_stats.to_dict("records"))
+        reused_input_paths.extend([str(base_inventory_path), str(base_stats_path)])
     for _, row in rows.iterrows():
         satellite_group = str(row["satellite_group"])
         family = str(row["satellite_family"])
@@ -371,9 +383,9 @@ def main() -> int:
         run_id=args.run_id,
         source_profile=source_profile,
         generating_script=Path(__file__),
-        input_paths=inventory["source_file"].dropna().astype(str).tolist() if not inventory.empty else [],
+        input_paths=[*reused_input_paths, *(inventory["source_file"].dropna().astype(str).tolist() if not inventory.empty else [])],
         output_paths=inventory["npz_file"].dropna().astype(str).tolist() if not inventory.empty else [],
-        parameters={"nominal_time": nominal_time, "claas3_root": str(args.claas3_root)},
+        parameters={"nominal_time": nominal_time, "claas3_root": str(args.claas3_root), "reuse_operational_native_root": str(args.reuse_operational_native_root or "")},
         project_root=path_config.PROJECT_ROOT,
         extra={"registry_version": REGISTRY_VERSION, "product_versions": {"CLAAS3": "405"} if source_profile == "claas3_candidate" else {}},
     )

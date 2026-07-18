@@ -12,7 +12,7 @@
 - Prefix new stage-owned files with the canonical stage ID, for example `stage_09d_full_pixel_diagnostics_report.md`.
 - New stage-owned directories must also use the canonical stage ID, for example `stage_10p2_approx_fov_aggregation`.
 - Put substep numbers after the stage directory or in report sections, for example `stage_09d/00_sample_manifest`.
-- Shared utilities must use `geo_ring_cloud_<role>_<purpose>.py` and `component_role`, not a fake stage: `shared_library`, `runner`, `downloader`, `evidence_pack_builder`, `summary_helper`.
+- Shared utilities must use `geo_ring_cloud_<role>_<purpose>.py`, declare `COMPONENT_ROLE`, and avoid fake or combined stages. Roles include `shared_library`, `runner`, `experiment_runner`, `diagnostics_library`, `downloader`, `evidence_pack_builder`, `summary_helper`, and `presentation_builder`.
 - Generic EO data/product inspections must use `component_role=data_product_audit`; keep legacy `third_report/code/geo_data_audit` paths until references are audited, and index them in `data_product_audits.md`.
 - Do not create new `Step*`, `stage10*`, `Stage10*`, `09_stage*`, or numeric-prefix stage names.
 

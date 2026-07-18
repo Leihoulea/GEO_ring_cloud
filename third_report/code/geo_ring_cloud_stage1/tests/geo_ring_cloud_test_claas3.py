@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import subprocess
 import sys
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import netCDF4
 import numpy as np
+from scipy.ndimage import uniform_filter
 
 
 CODE_DIR = Path(__file__).resolve().parents[1]
@@ -31,6 +35,17 @@ from geo_ring_cloud_claas3_adapter import discover_files, parse_filename, read_p
 from geo_ring_cloud_run_discovery import discover_run_dirs, resolve_run_dir  # noqa: E402
 from geo_ring_cloud_source_registry import SOURCE_ID_MAP, tie_order, variable_rules  # noqa: E402
 from geo_ring_cloud_time_run_matrix import REQUIRED_PROFILE_ARTIFACTS, profile_artifacts_complete  # noqa: E402
+from geo_ring_cloud_experiment_profile_pair import reusable_operational_baseline, write_batch_status  # noqa: E402
+from run_epic_georing_single_sample import runtime_environment  # noqa: E402
+from geo_ring_cloud_epic_pair_diagnostics import (  # noqa: E402
+    POLICIES,
+    aggregate_height_samples,
+    apply_policy,
+    block_bootstrap,
+    epic_morphology,
+    numeric_bin_masks,
+    paired_classification_metrics,
+)
 from stage_09d_claas3_epic_profile_pair_evaluation import box_binary, comparison_domains  # noqa: E402
 
 
@@ -195,7 +210,128 @@ class RunDiscoveryTests(unittest.TestCase):
             self.assertFalse(profile_artifacts_complete(root, manifest))
 
 
+class ExperimentReuseTests(unittest.TestCase):
+    def test_batch_status_never_labels_failures_as_pass(self) -> None:
+        with test_directory("batch_status") as root:
+            checkpoint_root = root / "checkpoints"
+            checkpoint_root.mkdir()
+            (checkpoint_root / "a.json").write_text(json.dumps({"time_tag": "a", "status": "PASS"}), encoding="utf-8")
+            (checkpoint_root / "b.json").write_text(
+                json.dumps({"time_tag": "b", "status": "FAIL", "error": "expected test failure"}),
+                encoding="utf-8",
+            )
+            args = SimpleNamespace(experiment_root=root, experiment_id="test_experiment")
+            status = write_batch_status(args, [{"sample_id": "a"}, {"sample_id": "b"}])
+            self.assertEqual(status["overall_status"], "COMPLETE_WITH_FAILURES")
+            self.assertEqual(status["failed_time_tags"], ["b"])
+            self.assertIn("b", (root / "geo_ring_cloud_profile_pair_failure_summary.csv").read_text(encoding="utf-8-sig"))
+
+    def test_runtime_environment_exposes_conda_dll_directory(self) -> None:
+        env = runtime_environment()
+        expected = Path(sys.executable).resolve().parent / "Library" / "bin"
+        if expected.is_dir():
+            self.assertEqual(Path(env["PATH"].split(os.pathsep)[0]), expected)
+            completed = subprocess.run(
+                [sys.executable, "-c", "import cfgrib; print(cfgrib.__version__)"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_missing_manifest_falls_back_to_fresh_baseline(self) -> None:
+        with test_directory("missing_legacy_manifest") as root:
+            row = {
+                "stage_run_dir": str(root),
+                "nearest_georing_time_utc": "2024-03-15T04:00:00Z",
+                "sample_id": "20240315_0400",
+            }
+            self.assertIsNone(reusable_operational_baseline(row))
+
+    def test_complete_matching_manifest_is_reusable(self) -> None:
+        with test_directory("complete_legacy_manifest") as root:
+            row = {
+                "stage_run_dir": str(root),
+                "nearest_georing_time_utc": "2024-03-15T04:00:00Z",
+                "sample_id": "20240315_0400",
+            }
+            for relative in REQUIRED_PROFILE_ARTIFACTS:
+                path = root / relative
+                if path.suffix:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.touch()
+                else:
+                    path.mkdir(parents=True, exist_ok=True)
+            (root / "epic_l2_cloud_mask_semantic_sensitivity_20240315_0400").mkdir()
+            (root / "single_sample_run_manifest.json").write_text(
+                json.dumps({"target_time": row["nearest_georing_time_utc"], "time_tag": row["sample_id"]}),
+                encoding="utf-8",
+            )
+            self.assertEqual(reusable_operational_baseline(row), root)
+
+
 class ProfilePairDiagnosticTests(unittest.TestCase):
+    def test_policy_a_b_c_contracts(self) -> None:
+        epic = np.asarray([1, 2, 3, 4, 9], dtype=np.float32)
+        a, a_valid = apply_policy(epic, POLICIES["A_inclusive_binary"]["epic"])
+        b, b_valid = apply_policy(epic, POLICIES["B_high_confidence_only"]["epic"])
+        c, c_valid = apply_policy(epic, POLICIES["C_uncertainty_aware_3class"]["epic"])
+        np.testing.assert_array_equal(a, [0, 0, 1, 1, -1])
+        np.testing.assert_array_equal(b, [0, -1, -1, 1, -1])
+        np.testing.assert_array_equal(c, [0, 1, 1, 2, -1])
+        self.assertEqual(int(a_valid.sum()), 4)
+        self.assertEqual(int(b_valid.sum()), 2)
+        self.assertEqual(int(c_valid.sum()), 4)
+
+    def test_epic_morphology_is_fixed_and_boundary_aware(self) -> None:
+        epic = np.ones((5, 5), dtype=np.float32)
+        epic[2, 2] = 4
+        result = epic_morphology(epic)
+        self.assertEqual(int(result["scene"][2, 2]), 1)
+        self.assertTrue(result["boundary"][2, 2])
+        self.assertEqual(int(result["scene"][0, 0]), 0)
+
+    def test_latitude_bins_include_high_latitude(self) -> None:
+        values = np.asarray([10, 30, 50, 65, 75, 85], dtype=np.float32)
+        bins = numeric_bin_masks(values, (("0-20", 0, 20), ("70-80", 70, 80), (">=80", 80, 91)), "lat")
+        np.testing.assert_array_equal(bins["lat:70-80"], [False, False, False, False, True, False])
+        np.testing.assert_array_equal(bins["lat:>=80"], [False, False, False, False, False, True])
+
+    def test_pair_direction_is_source_b_minus_source_a(self) -> None:
+        reference = np.asarray([0, 0, 1, 1], dtype=np.int8)
+        source_a = np.asarray([0, 1, 0, 1], dtype=np.int8)
+        source_b = reference.copy()
+        metrics = paired_classification_metrics(reference, source_a, source_b, np.ones(4, dtype=bool), (0, 1), 1)
+        self.assertGreater(metrics["B_minus_A_f1"], 0)
+        self.assertEqual(metrics["B_only_correct_fraction"], 0.5)
+
+    def test_block_bootstrap_is_deterministic(self) -> None:
+        values = np.asarray([-0.2, 0.0, 0.1, 0.3, 0.4], dtype=np.float64)
+        first = block_bootstrap(values, seed=20240309, draws=1000)
+        second = block_bootstrap(values, seed=20240309, draws=1000)
+        self.assertEqual(first, second)
+
+    def test_height_windows_match_uniform_filter_contract(self) -> None:
+        data = np.arange(81, dtype=np.float32).reshape(9, 9) / 5.0
+        valid = np.ones((9, 9), dtype=bool)
+        valid[2:4, 3:6] = False
+        lat_axis = np.arange(-4, 5, dtype=np.float32)
+        lon_axis = np.arange(-4, 5, dtype=np.float32)
+        lon, lat = np.meshgrid(lon_axis, lat_axis)
+        grid = {"resolution_degree": 1.0, "lat_centers_first_last": [-4.0, 4.0], "lon_centers_first_last": [-4.0, 4.0]}
+        result = aggregate_height_samples(data, valid, lat, lon, grid)
+        physical = valid & np.isfinite(data) & (data >= 0) & (data <= 25)
+        for window in (3, 5, 7):
+            support = uniform_filter(physical.astype(np.float32), size=window, mode="constant", cval=0.0)
+            numerator = uniform_filter(np.where(physical, data, 0.0), size=window, mode="constant", cval=0.0)
+            expected_valid = support > 0.25
+            expected = np.full(data.shape, np.nan, dtype=np.float32)
+            expected[expected_valid] = numerator[expected_valid] / support[expected_valid]
+            actual, actual_valid = result[f"box_{window}x{window}"]
+            np.testing.assert_array_equal(actual_valid, expected_valid)
+            np.testing.assert_allclose(actual[actual_valid], expected[expected_valid], rtol=1e-6, atol=1e-6)
+
     def test_source_domains_isolate_replacement_and_control(self) -> None:
         common = np.ones((2, 3), dtype=bool)
         base = np.asarray([[5, 1, 7], [2, 5, 3]], dtype=np.float32)

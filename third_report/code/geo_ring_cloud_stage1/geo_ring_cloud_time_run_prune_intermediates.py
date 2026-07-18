@@ -11,6 +11,8 @@ from geo_ring_cloud_lineage import write_manifest
 from path_config import PROJECT_ROOT, RUNS_ROOT
 
 
+COMPONENT_ROLE = "time_run_pruning"
+RELATED_STAGE_IDS = ("stage_07p", "stage_09d", "stage_10")
 PROFILES = ("operational_baseline", "claas3_candidate")
 PRUNABLE_SECTIONS = ("standardized_native", "reprojected_grid")
 REQUIRED_FUSED = (
@@ -58,12 +60,15 @@ def validate_run(runs_root: Path, run_id: str) -> tuple[Path, dict[str, Any]]:
     if set(profiles) != set(PROFILES) or any(profiles[name].get("status") != "PASS" for name in PROFILES):
         raise RuntimeError(f"profile matrix is incomplete: {matrix_path}")
     for profile in PROFILES:
-        profile_root = runs_root / run_id / profile
+        profile_root = Path(profiles[profile]["profile_root"])
         profile_manifest = profile_root / "single_sample_run_manifest.json"
         payload = json.loads(profile_manifest.read_text(encoding="utf-8"))
-        if payload.get("source_profile") != profile:
+        reused_legacy = bool(profiles[profile].get("reused_legacy_baseline"))
+        identity_ok = payload.get("time_tag") == matrix.get("common_inputs", {}).get("time_tag") if reused_legacy else payload.get("source_profile") == profile
+        if not identity_ok:
             raise RuntimeError(f"profile manifest mismatch: {profile_manifest}")
-        for name in REQUIRED_FUSED:
+        required_names = REQUIRED_FUSED if profile == "claas3_candidate" else REQUIRED_FUSED[:-1]
+        for name in required_names:
             required = profile_root / "fused_best_source" / name
             if not required.exists():
                 raise RuntimeError(f"required fused evidence is missing: {required}")
@@ -73,8 +78,10 @@ def validate_run(runs_root: Path, run_id: str) -> tuple[Path, dict[str, Any]]:
 def update_run_lineage(matrix_path: Path, matrix: dict[str, Any], rows: list[dict[str, Any]], pruning_manifest: Path) -> None:
     timestamp = utc_now()
     run_rows = [row for row in rows if row["run_id"] == matrix["run_id"]]
-    for profile in PROFILES:
-        profile_root = matrix_path.parent / profile
+    profile_roots = {row["source_profile"]: Path(row["profile_root"]) for row in matrix.get("profile_runs", [])}
+    pruned_profiles = sorted({row["profile"] for row in run_rows})
+    for profile in pruned_profiles:
+        profile_root = profile_roots[profile]
         profile_manifest_path = profile_root / "single_sample_run_manifest.json"
         profile_manifest = json.loads(profile_manifest_path.read_text(encoding="utf-8"))
         profile_manifest.update({
@@ -86,6 +93,7 @@ def update_run_lineage(matrix_path: Path, matrix: dict[str, Any], rows: list[dic
         write_json(profile_manifest_path, profile_manifest)
     matrix.update({
         "artifact_state": "PRUNED_AFTER_ACCEPTANCE",
+        "pruned_profiles": pruned_profiles,
         "pruned_utc": timestamp,
         "pruning_manifest_path": str(pruning_manifest),
         "pruned_paths": [row["path"] for row in run_rows],
@@ -127,6 +135,7 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--require-path", type=Path, action="append", default=[])
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--profile", action="append", choices=PROFILES, default=[])
     args = parser.parse_args()
     args.runs_root = args.runs_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -134,11 +143,12 @@ def main() -> int:
         if not required.exists():
             raise RuntimeError(f"acceptance evidence missing: {required}")
 
+    selected_profiles = tuple(args.profile) if args.profile else PROFILES
     matrices: list[tuple[Path, dict[str, Any]]] = []
     rows: list[dict[str, Any]] = []
     for run_id in args.run_id:
         matrices.append(validate_run(args.runs_root, run_id))
-        for profile in PROFILES:
+        for profile in selected_profiles:
             for section in PRUNABLE_SECTIONS:
                 target = assert_safe_target(args.runs_root, run_id, profile, section)
                 if not target.is_dir():
@@ -179,7 +189,9 @@ def main() -> int:
     build_report(report, rows, args.execute, free_before, free_after)
     write_manifest(
         manifest,
-        canonical_stage_id="time_run_matrix",
+        canonical_stage_id="",
+        component_role=COMPONENT_ROLE,
+        related_stage_ids=RELATED_STAGE_IDS,
         generating_script=Path(__file__),
         input_paths=[path for path, _ in matrices] + list(args.require_path),
         output_paths=[journal, report],
@@ -188,7 +200,6 @@ def main() -> int:
         run_id="claas3_epic_202403_five_sample_pruning",
         source_profile="profile_matrix",
         extra={
-            "component_role": "time_run_pruning",
             "status": "COMPLETE" if args.execute else "DRY_RUN",
             "artifact_state": "PRUNED_AFTER_ACCEPTANCE" if args.execute else "PLANNED",
             "planned_bytes": sum(int(row["bytes_before"]) for row in rows),

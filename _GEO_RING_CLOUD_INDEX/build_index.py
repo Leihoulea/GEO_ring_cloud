@@ -17,6 +17,7 @@ import sqlite3
 import sys
 import csv
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -43,7 +44,7 @@ def dir_stats(p: Path):
     for dirpath, dirnames, filenames in os.walk(p):
         # 剪枝：跳过缓存/依赖目录，不计入统计
         dirnames[:] = [d for d in dirnames if d not in
-                       ("__pycache__", "node_modules", ".git", ".claude", "dist", "venv")]
+                       ("__pycache__", "node_modules", ".git", ".claude", "dist", "venv", "_tmp")]
         for f in filenames:
             fp = Path(dirpath) / f
             try:
@@ -143,9 +144,9 @@ def summarize_script(rel_name: str) -> str:
 TOP_DIRS = [
     # (相对路径, 相关性, 角色, 体积说明, 被代码引用, 备注)
     ("geo_ring_cloud_stage1", "强相关", "Stage1 主产物根目录（STAGE_ROOT）", "约 6.4 GB", "是", "standardized_native/reprojected_grid/fused_best_source/overlap_validation/reports 等产物 + scripts 副本"),
-    ("geo_ring_cloud_stage1_time_runs", "强相关", "多时次运行目录（48 批次 + 5 EPIC 专题）", "较大", "是", "08e/08f/08g/08h/08i/08j/09 等脚本以 RUNS_ROOT 引用"),
+    ("geo_ring_cloud_stage1_time_runs", "强相关", "多时次运行、跨阶段实验与阶段诊断产物根目录", "较大", "是", "运行器与 stage_08 以后诊断脚本通过 RUNS_ROOT 引用；大产物保留原位"),
     ("geo_ring_cloud_stage1_evidence_pack", "强相关", "Stage1 证据包（latest + 10 snapshots）", "约 1.2 MB", "是", "rebuild_stage1_evidence_pack.py:EVIDENCE_ROOT 产出"),
-    ("third_report/code/geo_ring_cloud_stage1", "强相关", "Stage1 主代码（41 个 .py，01-09 全流水线）", "代码目录", "是", "ring cloud 真正的代码源；产物写到根 geo_ring_cloud_stage1/"),
+    ("third_report/code/geo_ring_cloud_stage1", "强相关", "GEO-ring Cloud 主代码、阶段脚本、共享组件与测试", "代码目录", "是", "权威代码源；产物写入配置化的 stage/time-runs 根目录"),
     ("data_check_report", "强相关", "前序数据审计报告（REPORT_ROOT，00-00f 阶段证据源）", "约 872 MB / 185 文件", "是", "stage1_common.py:25 REPORT_ROOT；PARSED_METADATA/MAPPING_YAML 等"),
     ("geo_geometry_check", "强相关", "几何校验样本（download_geo_geometry_samples.py 产物 + 06c/06d 审计）", "约 1.34 GB / 50 文件", "是", "download_geo_geometry_samples.py:22 OUT_ROOT；06c/06d/06e 引用"),
     ("data", "强相关", "原始卫星数据（FY4A/FY4B L1 + FY4B 云产品 CLM/CLP/CLT/CTH/CTP/CTT/GEO + H09_Data）", "约 100+ GB", "是", "stage1_common.py:27 HIMAWARI_R21_DIR=data/H09_Data；06f 扫描 data/"),
@@ -370,6 +371,34 @@ COMPONENT_ROLES = {
     "data_product_audit": "data_product_audit",
     "": "support",
 }
+INDEX_EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", "_tmp"}
+COMPONENT_ROLE_ASSIGNMENT = re.compile(
+    r"^\s*COMPONENT_ROLE\s*=\s*['\"]([a-z][a-z0-9_]*)['\"]",
+    re.MULTILINE,
+)
+TIME_RUN_STAGE_ROOT = re.compile(r"^stage_?\d{2}[a-z0-9_]*", re.IGNORECASE)
+LEGACY_STAGE_FILENAME = re.compile(r"(?:^|[_-])(?:step|stage)\d{1,2}[a-z0-9]*(?:[_-]|$)", re.IGNORECASE)
+CANONICAL_STAGE_FILENAME = re.compile(r"(?:^|[_-])stage_\d{2}(?:_[0-9]+|[a-z0-9]+|_[a-z0-9]+)?(?:[_-]|$)", re.IGNORECASE)
+TIME_RUN_KEYWORDS = (
+    "audit",
+    "decision",
+    "index",
+    "inventory",
+    "manifest",
+    "metrics",
+    "readme",
+    "report",
+    "status",
+    "summary",
+    "warning",
+)
+TIME_RUN_ARTIFACT_ROLES = {
+    "experiment_runner",
+    "presentation_builder",
+    "profile_matrix_run",
+    "stage_run_artifact",
+    "time_run_pruning",
+}
 ARTIFACT_STAGE_HINTS = {
     "stage_00d_claas3": "stage_00d",
     "stage_06c_claas3": "stage_06c",
@@ -534,6 +563,8 @@ def infer_canonical_from_path(path: Path) -> tuple[str, str, str]:
         if "stage9" in text or "run_stage_6_9" in text:
             return "epic_ceres", "stage_09", "epic_ceres_stage9"
         return "epic_ceres", "", ""
+    if "claas3_stage0910" in text or "geo_ring_cloud_profile_pair" in text or "/experiments/" in text:
+        return PROJECT_ID, "", "experiment_runner"
     if "geo_ring_cloud_stage1_time_runs/stage09d" in text or "stage09d" in name:
         return PROJECT_ID, "stage_09d", "stage09d"
     if "geo_ring_cloud_stage1_time_runs/stage09c" in text or "stage09c" in name:
@@ -572,6 +603,12 @@ def component_role_for_path(path: Path, canonical: str, legacy: str) -> str:
     name = path.name.lower()
     if "geo_ring_cloud_time_run_pruning_" in text:
         return "time_run_pruning"
+    if "claas3_stage0910" in text or "geo_ring_cloud_profile_pair" in text or "/experiments/" in text:
+        return "experiment_runner"
+    if "/presentations/" in text or text.endswith("/presentations"):
+        return "presentation_builder"
+    if "claas3_epic_" in text and "time_runs" in text:
+        return "profile_matrix_run"
     if "/third_report/code/geo_data_audit/" in text or text.endswith("/third_report/code/geo_data_audit"):
         return "data_product_audit"
     if name == "stage_10p_composite_inventory.py" or "stage_10p_psf_inventory" in text:
@@ -579,11 +616,48 @@ def component_role_for_path(path: Path, canonical: str, legacy: str) -> str:
     return "" if canonical else COMPONENT_ROLES.get(legacy, "")
 
 
-def component_role_for_script(rel_name: str, canonical: str) -> str:
+def declared_component_role(path: Path) -> str:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+    match = COMPONENT_ROLE_ASSIGNMENT.search(text)
+    return match.group(1) if match else ""
+
+
+def component_role_for_script(path: Path, rel_name: str, canonical: str) -> str:
     normalized = rel_name.replace("\\", "/").lower()
     if normalized == "stage_10p_composite_inventory.py":
         return "data_product_audit"
-    return "" if canonical else "support"
+    declared = declared_component_role(path)
+    return declared or ("" if canonical else "support")
+
+
+def is_index_excluded(path: Path) -> bool:
+    return any(part.lower() in INDEX_EXCLUDED_PARTS for part in path.parts)
+
+
+def time_run_root_role(path: Path) -> str:
+    name = path.name.lower()
+    if name.startswith("geo_ring_cloud_time_run_pruning_"):
+        return "time_run_pruning"
+    if name == "experiments" or name.startswith("geo_ring_cloud_profile_pair_"):
+        return "experiment_runner"
+    if name == "presentations":
+        return "presentation_builder"
+    if TIME_RUN_STAGE_ROOT.match(name):
+        return "stage_run_artifact"
+    return ""
+
+
+def should_index_time_run_artifact(path: Path, root: Path) -> bool:
+    if is_index_excluded(path) or path.suffix.lower() not in KEY_ARTIFACT_EXTS:
+        return False
+    rel = path.relative_to(root)
+    lowered_parts = {part.lower() for part in rel.parts}
+    if lowered_parts & {"checkpoints", "diagnostic_cache", "pruning", "samples"}:
+        return False
+    return len(rel.parts) <= 3 or any(token in path.name.lower() for token in TIME_RUN_KEYWORDS)
 
 # ---------------------------------------------------------------------------
 # 7. 主流程：扫描 → 建 sqlite → 导出 xlsx
@@ -872,7 +946,7 @@ def insert_stage_registry(conn: sqlite3.Connection) -> None:
     code_root = ROOT / "third_report/code/geo_ring_cloud_stage1"
     if code_root.exists():
         for fp in sorted(code_root.rglob("*.py")):
-            if "__pycache__" in fp.parts:
+            if is_index_excluded(fp):
                 continue
             rel_name = fp.relative_to(code_root).as_posix()
             stage = infer_stage_from_name(rel_name)
@@ -933,6 +1007,8 @@ def insert_artifact(conn: sqlite3.Connection, path: Path, role: str, trace_sourc
     cur = conn.cursor()
     project_id, canonical, legacy = infer_canonical_from_path(path)
     component_role = component_role_for_path(path, canonical, legacy)
+    if path.is_file() and path.suffix.lower() == ".py":
+        component_role = declared_component_role(path) or component_role
     try:
         stat = path.stat()
         size = stat.st_size if path.is_file() else None
@@ -977,15 +1053,11 @@ def insert_artifacts(conn: sqlite3.Connection) -> None:
     time_runs = ROOT / "geo_ring_cloud_stage1_time_runs"
     if time_runs.exists():
         for d in sorted(time_runs.iterdir()):
-            if d.is_dir() and d.name.lower().startswith("geo_ring_cloud_time_run_pruning_"):
-                roots.append((d, "time_run_pruning", "time-run accepted-artifact pruning record"))
-            if d.is_dir() and d.name.lower().startswith("stage09"):
-                roots.append((d, "stage09_artifact_root", "time_runs stage09 extension"))
-                for sub in sorted(d.rglob("*")):
-                    if sub.is_dir() and sub.name != "_tmp":
-                        insert_artifact(conn, sub, "directory_summary", "directory aggregate")
-                    elif sub.is_dir() and sub.name == "_tmp":
-                        insert_artifact(conn, sub, "temporary_directory_aggregate", "large tmp aggregate")
+            if not d.is_dir():
+                continue
+            run_role = time_run_root_role(d)
+            if run_role:
+                roots.append((d, run_role, f"time-runs {run_role}"))
 
     for root, role, trace in roots:
         if not root.exists():
@@ -993,12 +1065,20 @@ def insert_artifacts(conn: sqlite3.Connection) -> None:
         insert_artifact(conn, root, "directory_summary" if root.is_dir() else role, trace)
         if root.is_file():
             continue
+        if role in TIME_RUN_ARTIFACT_ROLES:
+            for child in sorted(root.iterdir()):
+                if child.is_dir() and not is_index_excluded(child):
+                    insert_artifact(conn, child, "directory_summary", f"{trace} section")
         for fp in sorted(root.rglob("*")):
             if not fp.is_file():
                 continue
-            if "__pycache__" in fp.parts:
+            if is_index_excluded(fp):
                 continue
-            if fp.suffix.lower() in KEY_ARTIFACT_EXTS:
+            if role in TIME_RUN_ARTIFACT_ROLES:
+                include = should_index_time_run_artifact(fp, root)
+            else:
+                include = fp.suffix.lower() in KEY_ARTIFACT_EXTS
+            if include:
                 insert_artifact(conn, fp, role, trace)
     conn.commit()
 
@@ -1071,6 +1151,31 @@ def insert_naming_violations(conn: sqlite3.Connection) -> None:
             "INSERT INTO naming_violations(project_id,path,legacy_label,issue_type,severity,suggested_canonical_stage_id,suggested_new_path,reason) VALUES(?,?,?,?,?,?,?,?)",
             (project_id, path, legacy, issue, severity, suggested, new_path, reason),
         )
+
+    code_root = ROOT / "third_report/code/geo_ring_cloud_stage1"
+    if code_root.exists():
+        for fp in sorted(code_root.rglob("*")):
+            if not fp.is_file() or is_index_excluded(fp):
+                continue
+            if fp.suffix.lower() not in {".py", ".ps1", ".json", ".yaml", ".yml"}:
+                continue
+            if not LEGACY_STAGE_FILENAME.search(fp.name) or CANONICAL_STAGE_FILENAME.search(fp.name):
+                continue
+            rel_name = fp.relative_to(code_root).as_posix()
+            inferred = canonical_stage_id(infer_stage_from_name(rel_name))
+            cur.execute(
+                "INSERT INTO naming_violations(project_id,path,legacy_label,issue_type,severity,suggested_canonical_stage_id,suggested_new_path,reason) VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    PROJECT_ID,
+                    str(fp),
+                    fp.name,
+                    "legacy_source_filename",
+                    "warning",
+                    inferred,
+                    "",
+                    "Historical source name is not canonical; retain until imports, runners, evidence references, and rollback manifest are audited",
+                ),
+            )
 
     tracker_db = ROOT / "research_tracker" / "research_tracker.db"
     if tracker_db.exists():
@@ -1196,14 +1301,14 @@ def build_sqlite():
     known_script_names = {fname.replace("\\", "/") for fname, _, _ in SCRIPTS}
     if code_root.exists():
         for fp in sorted(code_root.rglob("*.py")):
-            if "__pycache__" in fp.parts:
+            if is_index_excluded(fp):
                 continue
             rel_name = fp.relative_to(code_root).as_posix()
             if rel_name in known_script_names:
                 continue
             stage = infer_stage_from_name(rel_name)
             canonical = canonical_stage_id(stage)
-            component_role = component_role_for_script(rel_name, canonical)
+            component_role = component_role_for_script(fp, rel_name, canonical)
             cur.execute(
                 "INSERT INTO scripts(path,filename,stage,project_id,canonical_stage_id,component_role,legacy_stage,responsibility,refs_external_paths) "
                 "VALUES(?,?,?,?,?,?,?,?,?)",
@@ -1405,6 +1510,16 @@ def export_workspace_reports(db_path: Path = DB_PATH) -> None:
     )
     conn.close()
 
+    compact_artifacts = [
+        row for row in artifacts
+        if row.get("artifact_type") == "directory_summary"
+        or row.get("role") in {"config", "evidence", "presentation_builder", "stage_report", "table"}
+        or (
+            row.get("role") in TIME_RUN_ARTIFACT_ROLES
+            and row.get("artifact_type") in {"config_or_manifest", "report", "workbook"}
+        )
+    ]
+
     readme = f"""# GEO-ring Cloud Workspace
 
 Generated: `{GENERATED_AT}`
@@ -1422,18 +1537,93 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 ## Files Here
 
 - `directory_classification.md`: relevance, existence, path risk, and archive candidacy.
-- `script_inventory.md`: current GEO-ring Cloud scripts, including newly discovered Stage09d files.
+- `architecture.md`: authoritative module boundaries and target physical structure.
+- `engineering_status.md`: generated engineering-health snapshot and prioritized debt.
+- `script_inventory.md`: current GEO-ring Cloud stage scripts and non-stage components.
 - `pipeline_stages.md`: stage-level inputs, outputs, and evidence directories.
 - `path_mapping.md`: code/data path dependencies and override strategy.
 - `archive_manifest_dry_run.csv`: dry-run archive candidates generated before physical moves.
 - `stage_registry.md`: canonical stage taxonomy and collision guards.
-- `artifact_index.md`: project memory index for key reports, tables, configs, workbooks, scripts, and directory summaries.
+- `artifact_index.md`: compact project-memory view of directory summaries and high-value reports/manifests; query SQLite/XLSX for complete artifact rows.
 - `data_product_audits.md`: horizontal index of generic and stage-scoped EO product inspections.
 - `legacy_aliases.md`: legacy labels mapped to canonical stage IDs.
 - `naming_policy.md`: naming rules for new work and known non-canonical labels.
 - `engineering_policy.md`: enforceable engineering contract for humans and AI agents.
 """
     (WORKSPACE_DIR / "README.md").write_text(readme, encoding="utf-8")
+    architecture = """# GEO-ring Cloud Architecture
+
+## 权威边界
+
+- 控制面：`_GEO_RING_CLOUD_WORKSPACE` 与 `_GEO_RING_CLOUD_INDEX`，负责 taxonomy、检索、治理和项目记忆。
+- 代码面：`third_report/code/geo_ring_cloud_stage1`，是 Geo Ring Cloud 主代码唯一权威入口。
+- 数据面：`data`、`geo_ring_cloud_stage1`、`geo_ring_cloud_stage1_time_runs`、`data_check_report`、`geo_geometry_check`，保留原位并通过 `path_config.py` 配置。
+- 证据面：stage manifest、关键 CSV/Markdown 索引和 evidence pack；大体量二进制产物不进入 Git。
+
+## 逻辑模块
+
+| layer | ownership | examples |
+| --- | --- | --- |
+| configuration | 路径、数据源 ID、环境覆盖 | `path_config.py`, `geo_ring_cloud_source_registry.py` |
+| lineage | manifest、commit、输入输出追踪 | `geo_ring_cloud_lineage.py` |
+| adapters | 产品读取、格式适配、变量解码 | `geo_ring_cloud_claas3_adapter.py`, `geo_data_audit/` |
+| stage pipeline | 单一 canonical stage 的科学处理与验证 | `stage_09d_*`, `stage_10_*` |
+| orchestration | 跨阶段实验、批处理、time-run matrix | `geo_ring_cloud_experiment_profile_pair.py`, `geo_ring_cloud_time_run_matrix.py` |
+| diagnostics | 可复用指标、采样和分层统计 | `geo_ring_cloud_epic_pair_diagnostics.py` |
+| presentation | 代表性图、组会材料生成 | `stage_10/stage_10_make_*` |
+| tests | 轻量单元、smoke 与回归测试；生成物只放 `tests/_tmp` | `tests/` |
+
+## 物理迁移原则
+
+当前代码仍包含较多扁平历史脚本。不得为追求目录美观而一次性移动；先用 `component_role` 和本架构建立语义边界。只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移到 `adapters/`、`orchestration/`、`diagnostics/`、`presentation/` 等包目录。
+
+新 stage 若只有一个脚本，可使用 `stage_XX_<purpose>.py`；若有多个脚本，必须放入 `stage_XX_<purpose>/`。跨阶段工具不得伪造组合 stage，必须使用 `geo_ring_cloud_<role>_<purpose>.py`、声明 `COMPONENT_ROLE`，并在 manifest 中记录 `related_stage_ids`。
+"""
+    (WORKSPACE_DIR / "architecture.md").write_text(architecture, encoding="utf-8")
+
+    warning_count = sum(1 for row in violations if row.get("severity") == "warning")
+    geo_stage_count = sum(1 for row in registry if row.get("project_id") == PROJECT_ID)
+    time_run_root_count = sum(
+        1 for path in (ROOT / "geo_ring_cloud_stage1_time_runs").iterdir()
+        if path.is_dir()
+    ) if (ROOT / "geo_ring_cloud_stage1_time_runs").exists() else 0
+    engineering_status = f"""# GEO-ring Cloud Engineering Status
+
+Generated: `{GENERATED_AT}`
+
+## 当前规模
+
+- 索引脚本：{len(scripts)}
+- canonical stages：{geo_stage_count}
+- SQLite 详细 artifact 记录：{len(artifacts)}
+- Markdown 快查 artifact 记录：{len(compact_artifacts)}
+- data product audits：{len(data_audits)}
+- time-run 顶层目录：{time_run_root_count}
+- 已登记历史命名 warning：{warning_count}
+
+## 已建立的工程能力
+
+- Git 仓库、远端、`.gitignore`、`.gitattributes` 与本地 pre-commit hook。
+- canonical stage taxonomy、artifact index、data product audit index 和跨项目 collision guard。
+- `path_config.py` 环境变量覆盖、统一 lineage manifest helper 与 staged governance check。
+- 大数据、time-run、图片、Office 文件和生成数据库默认不进入 Git。
+
+## 尚未达到的目标
+
+- 代码仍以历史扁平脚本为主，模块边界主要依靠索引和 `component_role`，尚未完成 Python package 化。
+- 仍有历史绝对路径和非 canonical 命名；普通模式保留 warning，新增污染会被 hook 阻断。
+- 依赖环境尚未形成锁定文件，尚无可在轻量环境稳定运行的 CI 门禁。
+- 一部分旧 time-run 使用 `stage0910` 等组合标签；为保障续跑暂保留，只作为 legacy alias，不得用于新组件命名。
+
+## 优先级
+
+1. P0：任何新增 governance error 必须在提交前清零。
+2. P1：为正在演进的共享组件补 `COMPONENT_ROLE`、测试和 manifest lineage。
+3. P1：逐批参数化仍活跃脚本中的绝对路径。
+4. P2：建立可复现依赖锁定与轻量 CI；大数据集成测试继续本地运行。
+5. P2：按依赖审计结果渐进迁移扁平脚本，禁止一次性大搬迁。
+"""
+    (WORKSPACE_DIR / "engineering_status.md").write_text(engineering_status, encoding="utf-8")
     write_markdown_table(
         WORKSPACE_DIR / "directory_classification.md",
         dirs,
@@ -1461,7 +1651,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
     )
     write_markdown_table(
         WORKSPACE_DIR / "artifact_index.md",
-        artifacts,
+        compact_artifacts,
         ["project_id", "canonical_stage_id", "component_role", "artifact_type", "path", "legacy_stage_label", "role", "file_count", "ext_summary", "summary"],
     )
     write_markdown_table(
@@ -1486,7 +1676,7 @@ It applies to humans and AI agents.
 
 ## Required workflow
 
-- MUST check `stage_registry.md`, `artifact_index.md`, `data_product_audits.md`, and the SQLite index before creating new code or reports.
+- MUST check `architecture.md`, `engineering_status.md`, `stage_registry.md`, `artifact_index.md`, `data_product_audits.md`, and the SQLite index before creating new code or reports.
 - MUST reuse existing scripts, manifests, reports, and products when they already answer the task.
 - MUST decide the `project_id + canonical_stage_id` before naming files.
 - MUST run `python _GEO_RING_CLOUD_INDEX\\build_index.py` after adding or changing stage scripts.
@@ -1502,6 +1692,7 @@ It applies to humans and AI agents.
 ## Output lineage
 
 - New stage outputs MUST include a manifest with `project_id`, `canonical_stage_id`, generating script, inputs, outputs, parameters, timestamp, and commit when available.
+- Non-stage run manifests MUST include `component_role` and `related_stage_ids`; they MUST NOT place a component label in `canonical_stage_id`.
 - Reports SHOULD be Chinese-first, with English retained for technical terms and variable names.
 - Key outputs SHOULD include concise CSV/Markdown indexes instead of relying only on directory names.
 - Generic data/product inspections SHOULD be indexed in `data_product_audits.md`; stage-scoped inspections should keep `related_stage_ids`.
@@ -1535,7 +1726,7 @@ It applies to humans and AI agents.
 - Prefix new stage-owned files with the canonical stage ID, for example `stage_09d_full_pixel_diagnostics_report.md`.
 - New stage-owned directories must also use the canonical stage ID, for example `stage_10p2_approx_fov_aggregation`.
 - Put substep numbers after the stage directory or in report sections, for example `stage_09d/00_sample_manifest`.
-- Shared utilities must use `geo_ring_cloud_<role>_<purpose>.py` and `component_role`, not a fake stage: `shared_library`, `runner`, `downloader`, `evidence_pack_builder`, `summary_helper`.
+- Shared utilities must use `geo_ring_cloud_<role>_<purpose>.py`, declare `COMPONENT_ROLE`, and avoid fake or combined stages. Roles include `shared_library`, `runner`, `experiment_runner`, `diagnostics_library`, `downloader`, `evidence_pack_builder`, `summary_helper`, and `presentation_builder`.
 - Generic EO data/product inspections must use `component_role=data_product_audit`; keep legacy `third_report/code/geo_data_audit` paths until references are audited, and index them in `data_product_audits.md`.
 - Do not create new `Step*`, `stage10*`, `Stage10*`, `09_stage*`, or numeric-prefix stage names.
 

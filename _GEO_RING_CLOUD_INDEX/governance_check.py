@@ -79,6 +79,10 @@ STAGE_ID_ASSIGNMENT = re.compile(
     r"^\s*(STAGE_ID|PROJECT_STAGE_ID)\s*=\s*['\"]([^'\"]+)['\"]",
     re.MULTILINE,
 )
+COMPONENT_ROLE_ASSIGNMENT = re.compile(
+    r"^\s*COMPONENT_ROLE\s*=\s*['\"]([a-z][a-z0-9_]*)['\"]",
+    re.MULTILINE,
+)
 
 DANGEROUS_PATH_PATTERNS = [
     re.compile(r"_NON_GEO_ARCHIVE", re.IGNORECASE),
@@ -225,6 +229,12 @@ def stage_ids_in_script(rel_path: str) -> set[str]:
     return values
 
 
+def component_role_in_script(rel_path: str) -> str:
+    text = read_text(rel_path) or ""
+    match = COMPONENT_ROLE_ASSIGNMENT.search(text)
+    return match.group(1) if match else ""
+
+
 def check_naming(paths: list[str], added_paths: set[str], baseline_mode: bool) -> list[Finding]:
     findings: list[Finding] = []
     for rel_path in paths:
@@ -296,14 +306,23 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
                         f"stage identifier mismatch: path implies {canonical}, but script declares {sorted(script_stage_ids)}",
                     )
                 )
-        elif not Path(normalized).name.startswith("geo_ring_cloud_"):
-            findings.append(
-                Finding(
-                    "ERROR",
-                    rel_path,
-                    "new non-stage core utilities must use a geo_ring_cloud_<role> filename",
+        else:
+            if not Path(normalized).name.startswith("geo_ring_cloud_"):
+                findings.append(
+                    Finding(
+                        "ERROR",
+                        rel_path,
+                        "new non-stage core utilities must use a geo_ring_cloud_<role>_<purpose>.py filename",
+                    )
                 )
-            )
+            elif not component_role_in_script(rel_path):
+                findings.append(
+                    Finding(
+                        "ERROR",
+                        rel_path,
+                        "new non-stage core utilities must declare COMPONENT_ROLE",
+                    )
+                )
 
     if changed_stage_scripts and enforce_index_docs:
         for doc in sorted(WORKSPACE_INDEX_DOCS - normalized_paths):

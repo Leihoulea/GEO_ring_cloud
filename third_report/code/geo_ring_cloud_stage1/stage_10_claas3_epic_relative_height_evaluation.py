@@ -1,233 +1,392 @@
 from __future__ import annotations
 
 import argparse
-import csv
-import importlib.util
 import json
-from datetime import datetime, timezone
+import math
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-from scipy.ndimage import uniform_filter
 
 import path_config
+from geo_ring_cloud_epic_pair_diagnostics import (
+    AGGREGATIONS,
+    POLICIES,
+    PRIMARY_PAIRS,
+    SOURCE_STREAM,
+    add_profile_strata,
+    add_visibility_strata,
+    apply_policy,
+    block_bootstrap,
+    build_context,
+    common_metadata,
+    file_sha256,
+    height_class,
+    paired_height_metrics,
+    prefusion_samples,
+    read_csv,
+    sample_fused_aux,
+    sample_fused_profile,
+    selected_geo_vza,
+    utc_now,
+    write_csv,
+)
 from geo_ring_cloud_lineage import write_manifest
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 STAGE_ID = "stage_10"
-PROJECT_STAGE_ID = "stage_10_claas3"
-BANDS = {
-    "A_band": "geophysical_data/A-band_Effective_Cloud_Height",
-    "B_band": "geophysical_data/B-band_Effective_Cloud_Height",
-}
-DOMAINS = ("global_common", "replacement_active", "unchanged_control")
+FUSED_NAME = "stage_10_claas3_aligned_per_time_fused.csv"
+PAIR_NAME = "stage_10_claas3_aligned_per_time_source_pair.csv"
+CTH_POLICIES = ("A_inclusive_binary", "B_high_confidence_only")
+BANDS = ("A_band", "B_band")
 
 
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-
-
-def load_support() -> Any:
-    path = SCRIPT_DIR / "stage_10_cth_validation" / "stage_10_run_cth_validation.py"
-    spec = importlib.util.spec_from_file_location("stage10_pair_support", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot import {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
-    fields = sorted({key for row in rows for key in row})
-    with path.open("w", newline="", encoding="utf-8-sig") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(rows)
-
-
-def psf_mean(data: np.ndarray, valid: np.ndarray, radius: int) -> tuple[np.ndarray, np.ndarray]:
-    size = 2 * radius + 1
-    values = np.where(valid, data, 0.0).astype(np.float32)
-    weight = valid.astype(np.float32)
-    numerator = uniform_filter(values, size=size, mode="constant", cval=0.0)
-    denominator = uniform_filter(weight, size=size, mode="constant", cval=0.0)
-    out = np.full(data.shape, np.nan, dtype=np.float32)
-    ok = denominator > 0.25
-    out[ok] = numerator[ok] / denominator[ok]
-    return out, ok
-
-
-def profile_root(matrix: dict[str, Any], profile: str) -> Path:
-    return Path(next(row["profile_root"] for row in matrix["profile_runs"] if row["source_profile"] == profile))
-
-
-def comparison_domains(common: np.ndarray, base_source: np.ndarray, base_source_valid: np.ndarray, cand_source: np.ndarray, cand_source_valid: np.ndarray, stable_control: np.ndarray | None = None) -> dict[str, np.ndarray]:
-    source_common = base_source_valid & cand_source_valid & np.isfinite(base_source) & np.isfinite(cand_source)
-    base_id = np.zeros(base_source.shape, dtype=np.int16)
-    cand_id = np.zeros(cand_source.shape, dtype=np.int16)
-    base_id[source_common] = np.rint(base_source[source_common]).astype(np.int16)
-    cand_id[source_common] = np.rint(cand_source[source_common]).astype(np.int16)
-    unchanged = common & source_common & (base_id == cand_id) & ~np.isin(base_id, [0, 5, 7])
-    if stable_control is not None:
-        unchanged &= stable_control
+def _profile_state(context: dict[str, Any]) -> dict[str, Any]:
+    variable = "cloud_top_height_km"
+    base_source, base_source_valid = sample_fused_aux(context, "operational_baseline", f"source_map_{variable}")
+    cand_source, cand_source_valid = sample_fused_aux(context, "claas3_candidate", f"source_map_{variable}")
+    base_count, base_count_valid = sample_fused_aux(context, "operational_baseline", f"valid_count_map_{variable}")
+    cand_count, cand_count_valid = sample_fused_aux(context, "claas3_candidate", f"valid_count_map_{variable}")
+    base_source_valid &= base_count_valid
+    cand_source_valid &= cand_count_valid
+    base_vza = selected_geo_vza(context, "operational_baseline", base_source, base_source_valid)
+    cand_vza = selected_geo_vza(context, "claas3_candidate", cand_source, cand_source_valid)
+    strata = add_profile_strata(context["base_strata"], base_source, cand_source, base_count, cand_count, base_vza, cand_vza)
+    strata = add_visibility_strata(strata, context["epic"], context["morphology"], base_source_valid, cand_source_valid, base_count, cand_count, base_vza, cand_vza)
     return {
-        "global_common": common,
-        "replacement_active": common & source_common & (base_id == 5) & (cand_id == 7),
-        "unchanged_control": unchanged,
+        "base_source": base_source,
+        "base_source_valid": base_source_valid,
+        "cand_source": cand_source,
+        "cand_source_valid": cand_source_valid,
+        "base_count": base_count,
+        "cand_count": cand_count,
+        "base_vza": base_vza,
+        "cand_vza": cand_vza,
+        "strata": strata,
     }
 
 
-def evaluate_sample(matrix_path: Path, support: Any, radius: int) -> list[dict[str, Any]]:
-    matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
-    epic_path = Path(matrix["common_inputs"]["epic_l2"])
-    profile_samples: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-    profile_sources: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-    profile_source_grids: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-    epic_by_band = {band: support.read_epic(epic_path, variable) for band, variable in BANDS.items()}
-    reference_epic = epic_by_band["A_band"]
-    for profile in ("operational_baseline", "claas3_candidate"):
-        root = profile_root(matrix, profile)
-        data, valid, _ = support.load_npz_array(root / "fused_best_source" / "fused_cloud_top_height_km.npz")
-        averaged, averaged_valid = psf_mean(data.astype(np.float32), valid.astype(bool), radius)
-        profile_samples[profile] = support.sample_grid(averaged, averaged_valid, reference_epic["lat"], reference_epic["lon"], support.load_grid(root))
-        source, source_valid, _ = support.load_npz_array(root / "fused_best_source" / "source_map_cloud_top_height_km.npz")
-        profile_source_grids[profile] = (source, source_valid)
-        profile_sources[profile] = support.sample_grid(source, source_valid, reference_epic["lat"], reference_epic["lon"], support.load_grid(root), fill=0.0)
-    base_data, base_valid = profile_samples["operational_baseline"]
-    cand_data, cand_valid = profile_samples["claas3_candidate"]
-    base_source, base_source_valid = profile_sources["operational_baseline"]
-    cand_source, cand_source_valid = profile_sources["claas3_candidate"]
-    base_source_grid, base_source_grid_valid = profile_source_grids["operational_baseline"]
-    cand_source_grid, cand_source_grid_valid = profile_source_grids["claas3_candidate"]
-    source_grid_common = base_source_grid_valid & cand_source_grid_valid & np.isfinite(base_source_grid) & np.isfinite(cand_source_grid)
-    base_source_id = np.zeros(base_source_grid.shape, dtype=np.int16)
-    cand_source_id = np.zeros(cand_source_grid.shape, dtype=np.int16)
-    base_source_id[source_grid_common] = np.rint(base_source_grid[source_grid_common]).astype(np.int16)
-    cand_source_id[source_grid_common] = np.rint(cand_source_grid[source_grid_common]).astype(np.int16)
-    changed_fraction = uniform_filter((~source_grid_common | (base_source_id != cand_source_id)).astype(np.float32), size=2 * radius + 1, mode="constant", cval=1.0)
-    stable_grid = changed_fraction <= 1e-8
-    stable_sample, stable_sample_valid = support.sample_grid(stable_grid.astype(np.int16), np.ones(stable_grid.shape, dtype=bool), reference_epic["lat"], reference_epic["lon"], support.load_grid(profile_root(matrix, "operational_baseline")), fill=0.0)
-    stable_control = stable_sample_valid & (stable_sample == 1)
+def _height_strata(base: dict[str, np.ndarray], epic_height: np.ndarray, source_a: np.ndarray, source_b: np.ndarray) -> dict[str, np.ndarray]:
+    result = dict(base)
+    for prefix, values in (("EPIC_height", epic_height), ("source_A_height", source_a), ("source_B_height", source_b)):
+        classes = height_class(values)
+        result[f"{prefix}:low_0-3km"] = classes == 0
+        result[f"{prefix}:mid_3-7km"] = classes == 1
+        result[f"{prefix}:high_ge7km"] = classes == 2
+    return result
+
+
+def _cth_domains(
+    common: np.ndarray,
+    cloud_common: np.ndarray,
+    epic_cloud: np.ndarray,
+    geo_a_cloud: np.ndarray,
+    geo_b_cloud: np.ndarray,
+    epic_height: np.ndarray,
+    source_a: np.ndarray,
+    source_b: np.ndarray,
+    context: dict[str, Any],
+    clean_geometry: np.ndarray,
+) -> dict[str, np.ndarray]:
+    both_geo_cloud = (geo_a_cloud == 1) & (geo_b_cloud == 1)
+    both_geo_clear = (geo_a_cloud == 0) & (geo_b_cloud == 0)
+    epic_is_cloud = epic_cloud == 1
+    epic_is_clear = epic_cloud == 0
+    cloud_domain = common & cloud_common
+    d1 = cloud_domain & epic_is_cloud & both_geo_cloud
+    boundary_or_broken = context["morphology"]["boundary"] | (context["morphology"]["scene"] == 1)
+    clean_scene = (context["morphology"]["scene"] == 2) & ~context["morphology"]["boundary"] & clean_geometry
+    return {
+        "D0_common_valid_cth": common,
+        "D1_both_cloud": d1,
+        "D3_EPIC_cloud_GEO_not_cloud": cloud_domain & epic_is_cloud & both_geo_clear,
+        "D4_GEO_cloud_EPIC_not_cloud": cloud_domain & epic_is_clear & both_geo_cloud,
+        "D5_clean_core_cloud": d1 & clean_scene,
+        "D6_boundary_or_broken_cloud": d1 & boundary_or_broken,
+        "D7_high_cloud": d1 & ((epic_height >= 7) | (source_a >= 7) | (source_b >= 7)),
+    }
+
+
+def _cached_samples(cache: Any, prefix: str) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    return {aggregation: (np.asarray(cache[f"{prefix}__{aggregation}__values"]), np.asarray(cache[f"{prefix}__{aggregation}__valid"], dtype=bool)) for aggregation in AGGREGATIONS}
+
+
+def _mask_samples(context: dict[str, Any], policy_name: str, cache: Any | None = None) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], dict[str, tuple[np.ndarray, np.ndarray]]]:
+    if cache is not None:
+        return (
+            _cached_samples(cache, f"fused__operational_baseline__{policy_name}"),
+            _cached_samples(cache, f"fused__claas3_candidate__{policy_name}"),
+        )
+    return (
+        sample_fused_profile(context, "operational_baseline", "cloud_mask", policy_name),
+        sample_fused_profile(context, "claas3_candidate", "cloud_mask", policy_name),
+    )
+
+
+def _fused_rows(context: dict[str, Any], state: dict[str, Any], cache: Any | None = None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for band, epic in epic_by_band.items():
-        common = epic["cth_valid"] & base_valid & cand_valid & np.isfinite(base_data) & np.isfinite(cand_data)
-        domains = comparison_domains(common, base_source, base_source_valid, cand_source, cand_source_valid, stable_control)
-        for domain_name in DOMAINS:
-            domain = domains[domain_name]
-            base_metrics = support.metrics(epic["cth_km"], base_data, domain)
-            cand_metrics = support.metrics(epic["cth_km"], cand_data, domain)
-            rows.append({
-                "run_id": matrix["run_id"],
-                "time_tag": matrix["common_inputs"]["time_tag"],
-                "target_time": matrix["common_inputs"]["target_time"],
-                "epic_l2": str(epic_path),
-                "domain": domain_name,
-                "epic_band": band,
-                "epic_variable": BANDS[band],
-                "common_n": int(np.count_nonzero(domain)),
-                "baseline_bias_epic_relative_km": base_metrics.get("bias_km", float("nan")),
-                "candidate_bias_epic_relative_km": cand_metrics.get("bias_km", float("nan")),
-                "bias_delta_candidate_minus_baseline_km": cand_metrics.get("bias_km", float("nan")) - base_metrics.get("bias_km", float("nan")),
-                "baseline_mae_epic_relative_km": base_metrics.get("mae_km", float("nan")),
-                "candidate_mae_epic_relative_km": cand_metrics.get("mae_km", float("nan")),
-                "mae_delta_candidate_minus_baseline_km": cand_metrics.get("mae_km", float("nan")) - base_metrics.get("mae_km", float("nan")),
-                "baseline_rmse_epic_relative_km": base_metrics.get("rmse_km", float("nan")),
-                "candidate_rmse_epic_relative_km": cand_metrics.get("rmse_km", float("nan")),
-                "rmse_delta_candidate_minus_baseline_km": cand_metrics.get("rmse_km", float("nan")) - base_metrics.get("rmse_km", float("nan")),
-                "psf_method": f"box_{2 * radius + 1}x{2 * radius + 1}",
-                "psf_radius_target_pixels": radius,
-                "interpretation": "EPIC-relative difference, not absolute CTH error",
-            })
+    baseline_cth = sample_fused_profile(context, "operational_baseline", "cloud_top_height_km")
+    candidate_cth = sample_fused_profile(context, "claas3_candidate", "cloud_top_height_km")
+    for policy_name in CTH_POLICIES:
+        policy = POLICIES[policy_name]
+        epic_cloud, epic_cloud_valid = apply_policy(context["epic"]["cloud_mask"], policy["epic"])
+        base_masks, cand_masks = _mask_samples(context, policy_name, cache)
+        for aggregation in AGGREGATIONS:
+            base_height, base_height_valid = baseline_cth[aggregation]
+            cand_height, cand_height_valid = candidate_cth[aggregation]
+            base_cloud, base_cloud_valid = base_masks[aggregation]
+            cand_cloud, cand_cloud_valid = cand_masks[aggregation]
+            cloud_common = epic_cloud_valid & base_cloud_valid & cand_cloud_valid
+            clean_geometry = state["strata"].get("visibility:clean_geometry", np.zeros(epic_cloud.shape, dtype=bool))
+            for band in BANDS:
+                epic_height = context["epic"][band]
+                epic_height_valid = context["epic"][f"{band}_valid"]
+                common = epic_height_valid & base_height_valid & cand_height_valid
+                domains = _cth_domains(common, cloud_common, epic_cloud, base_cloud, cand_cloud, epic_height, base_height, cand_height, context, clean_geometry)
+                strata = _height_strata(state["strata"], epic_height, base_height, cand_height)
+                for domain_name, domain in domains.items():
+                    for stratum_name, stratum in strata.items():
+                        metrics = paired_height_metrics(epic_height, base_height, cand_height, domain & stratum)
+                        if int(metrics.get("common_n", 0)) == 0 and stratum_name != "all":
+                            continue
+                        row = common_metadata(
+                            context,
+                            diagnostic_type="fused_profile",
+                            source_A="operational_baseline",
+                            source_B="claas3_candidate",
+                            source_A_stream="operational_meteosat_fusion_profile",
+                            source_B_stream="claas3_candidate_fusion_profile",
+                            band=band,
+                            policy=policy_name,
+                            aggregation=aggregation,
+                            aggregation_description="approximate rectangular FOV aggregation" if aggregation.startswith("box_") else "nearest grid-cell sampling",
+                            domain=domain_name,
+                            stratum=stratum_name,
+                        )
+                        row.update(metrics)
+                        row["status"] = "eligible_per_time" if int(metrics.get("common_n", 0)) > 0 else "unresolved_sparse"
+                        rows.append(row)
     return rows
 
 
-def bootstrap(values: np.ndarray, seed: int = 109, draws: int = 4000) -> tuple[float, float]:
-    if values.size < 2:
-        return float("nan"), float("nan")
-    rng = np.random.default_rng(seed)
-    means = np.mean(values[rng.integers(0, values.size, (draws, values.size))], axis=1)
-    return float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
+def _pair_rows(context: dict[str, Any], base_strata: dict[str, np.ndarray], cache: Any | None = None) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    cth_samples = prefusion_samples(context, "cloud_top_height_km")
+    for policy_name in CTH_POLICIES:
+        policy = POLICIES[policy_name]
+        epic_cloud, epic_cloud_valid = apply_policy(context["epic"]["cloud_mask"], policy["epic"])
+        mask_samples = {source: _cached_samples(cache, f"prefusion__{source}__{policy_name}") for source in {item for pair in PRIMARY_PAIRS for item in pair}} if cache is not None else prefusion_samples(context, "cloud_mask", policy_name)
+        for source_a, source_b in PRIMARY_PAIRS:
+            for aggregation in AGGREGATIONS:
+                a_height, a_height_valid = cth_samples[source_a][aggregation]
+                b_height, b_height_valid = cth_samples[source_b][aggregation]
+                a_cloud, a_cloud_valid = mask_samples[source_a][aggregation]
+                b_cloud, b_cloud_valid = mask_samples[source_b][aggregation]
+                clean_geometry = base_strata.get("visibility:clean_geometry", np.zeros(a_cloud.shape, dtype=bool))
+                for band in BANDS:
+                    epic_height = context["epic"][band]
+                    common = context["epic"][f"{band}_valid"] & a_height_valid & b_height_valid
+                    cloud_common = epic_cloud_valid & a_cloud_valid & b_cloud_valid
+                    domains = _cth_domains(common, cloud_common, epic_cloud, a_cloud, b_cloud, epic_height, a_height, b_height, context, clean_geometry)
+                    strata = _height_strata(base_strata, epic_height, a_height, b_height)
+                    for domain_name, domain in domains.items():
+                        for stratum_name, stratum in strata.items():
+                            metrics = paired_height_metrics(epic_height, a_height, b_height, domain & stratum)
+                            if int(metrics.get("common_n", 0)) == 0 and stratum_name != "all":
+                                continue
+                            row = common_metadata(
+                                context,
+                                diagnostic_type="prefusion_source_pair",
+                                source_A=source_a,
+                                source_B=source_b,
+                                source_A_stream=SOURCE_STREAM[source_a],
+                                source_B_stream=SOURCE_STREAM[source_b],
+                                band=band,
+                                policy=policy_name,
+                                aggregation=aggregation,
+                                aggregation_description="approximate rectangular FOV aggregation" if aggregation.startswith("box_") else "nearest grid-cell sampling",
+                                domain=domain_name,
+                                stratum=stratum_name,
+                            )
+                            row.update(metrics)
+                            row["status"] = "eligible_per_time" if int(metrics.get("common_n", 0)) > 0 else "unresolved_sparse"
+                            rows.append(row)
+    return rows
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Stage 10 CLAAS-3 versus operational EPIC-relative effective-height evaluation")
-    parser.add_argument("--matrix-manifest", type=Path, action="append", required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--psf-radius-target-pixels", type=int, default=3)
-    args = parser.parse_args()
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    support = load_support()
-    rows = [row for manifest in args.matrix_manifest for row in evaluate_sample(manifest, support, args.psf_radius_target_pixels)]
-    summary: list[dict[str, Any]] = []
-    band_signs: list[int] = []
-    for domain in DOMAINS:
-        for band in BANDS:
-            values = np.asarray([row["mae_delta_candidate_minus_baseline_km"] for row in rows if row["epic_band"] == band and row["domain"] == domain], dtype=float)
-            values = values[np.isfinite(values)]
-            lo, hi = bootstrap(values)
-            mean = float(np.mean(values)) if values.size else float("nan")
-            if domain == "replacement_active":
-                band_signs.append(int(np.sign(mean)) if np.isfinite(mean) else 0)
-            if domain == "unchanged_control":
-                preference = "control_pass" if values.size >= 5 and float(np.max(np.abs(values))) <= 1e-12 else "control_mismatch"
-            else:
-                preference = "prefer_claas3" if values.size >= 5 and hi < 0 else ("prefer_operational" if values.size >= 5 and lo > 0 else "unresolved")
-            summary.append({
-                "domain": domain,
-                "epic_band": band,
-                "sample_count": int(values.size),
-                "mean_mae_delta_candidate_minus_baseline_km": mean,
-                "bootstrap_95ci_lower_km": lo,
-                "bootstrap_95ci_upper_km": hi,
-                "band_preference": preference,
-            })
-    inconsistent = len({sign for sign in band_signs if sign != 0}) > 1
-    replacement_summary = [row for row in summary if row["domain"] == "replacement_active"]
-    overall = "unresolved" if inconsistent or any(row["sample_count"] < 5 for row in replacement_summary) else (replacement_summary[0]["band_preference"] if len({row["band_preference"] for row in replacement_summary}) == 1 else "conditional")
-    sample_path = args.output_dir / "stage_10_claas3_epic_relative_height_samples.csv"
-    summary_path = args.output_dir / "stage_10_claas3_epic_relative_height_summary.csv"
-    write_csv(sample_path, rows)
-    write_csv(summary_path, summary)
-    replacement_rows = [row for row in summary if row["domain"] == "replacement_active"]
-    control_rows = [row for row in summary if row["domain"] == "unchanged_control"]
-    report = args.output_dir / "stage_10_claas3_epic_relative_height_report.md"
-    report.write_text(
-        "\n".join([
-            "# Stage 10 CLAAS-3 与 EPIC 有效云高双轨评估",
-            "",
-            f"- 生成时间（UTC）：{utc_now()}",
-            f"- 五时次总体判定：**{overall}**。",
-            f"- 两轨在相同 EPIC 像元和共同有效域上使用 `box_{2 * args.psf_radius_target_pixels + 1}x{2 * args.psf_radius_target_pixels + 1}` 近似 PSF 聚合。",
-            *[
-                f"- EPIC {row['epic_band']}：`replacement_active` 域 CLAAS3-candidate 减 baseline 的宏平均 MAE 为 "
-                f"{row['mean_mae_delta_candidate_minus_baseline_km']:+.3f} km，时次块 bootstrap 95% CI "
-                f"[{row['bootstrap_95ci_lower_km']:+.3f}, {row['bootstrap_95ci_upper_km']:+.3f}] km，判定 `{row['band_preference']}`。"
-                for row in replacement_rows
-            ],
-            f"- 未替换控制域：A/B-band 判定分别为 `{control_rows[0]['band_preference']}` / `{control_rows[1]['band_preference']}`，MAE 差值均为 {control_rows[0]['mean_mae_delta_candidate_minus_baseline_km']:+.1f} km。",
-            "- 所有高度统计均为 EPIC-relative difference，不是绝对 CTH 误差；EPIC effective height 与 GEO cloud-top height 的物理定义并不等价。",
-            "- A/B-band 排名冲突时必须判为 `unresolved`；即使两者一致，本五时次 pilot 也不会自动触发生产源切换。",
-        ]),
+def evaluate_matrix(matrix_path: Path, output_dir: Path, diagnostic_cache: Path | None = None) -> tuple[Path, Path, Path]:
+    context = build_context(matrix_path)
+    state = _profile_state(context)
+    cache = np.load(diagnostic_cache, allow_pickle=False) if diagnostic_cache and diagnostic_cache.exists() else None
+    try:
+        fused_rows = _fused_rows(context, state, cache)
+        pair_rows = _pair_rows(context, state["strata"], cache)
+    finally:
+        if cache is not None:
+            cache.close()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fused_path = output_dir / FUSED_NAME
+    pair_path = output_dir / PAIR_NAME
+    write_csv(fused_path, fused_rows)
+    write_csv(pair_path, pair_rows)
+    key_inputs = [
+        context["epic_path"],
+        context["profiles"]["operational_baseline"] / "fused_best_source" / "fused_cloud_top_height_km.npz",
+        context["profiles"]["claas3_candidate"] / "fused_best_source" / "fused_cloud_top_height_km.npz",
+        context["profiles"]["operational_baseline"] / "reprojected_grid" / "reprojected_variable_inventory.csv",
+        context["profiles"]["claas3_candidate"] / "reprojected_grid" / "reprojected_variable_inventory.csv",
+    ]
+    compact = output_dir / "stage_10_claas3_aligned_compact_diagnostic_manifest.json"
+    compact.write_text(json.dumps({
+        "generated_utc": utc_now(),
+        "run_id": context["run_id"],
+        "time_tag": context["time_tag"],
+        "fixed_scene_reference": "EPIC Policy-A morphology",
+        "cloud_mask_diagnostic_cache": str(diagnostic_cache) if diagnostic_cache else "",
+        "height_interpretation": "EPIC-relative difference; EPIC effective height is not CTH truth",
+        "fused_rows": len(fused_rows),
+        "source_pair_rows": len(pair_rows),
+        "inputs": [{"path": str(path), "size_bytes": path.stat().st_size, "sha256": file_sha256(path)} for path in key_inputs],
+        "outputs": [{"path": str(path), "size_bytes": path.stat().st_size, "sha256": file_sha256(path)} for path in (fused_path, pair_path)],
+        "status": "PASS" if fused_rows and pair_rows else "FAIL",
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    return fused_path, pair_path, compact
+
+
+def _number(row: dict[str, str], key: str) -> float:
+    try:
+        return float(row.get(key, "nan"))
+    except (TypeError, ValueError):
+        return math.nan
+
+
+def summarize(input_root: Path, output_dir: Path, phase: str, max_delta: float, draws: int, seed: int) -> list[Path]:
+    all_rows: list[dict[str, str]] = []
+    for path in sorted(input_root.rglob(FUSED_NAME)) + sorted(input_root.rglob(PAIR_NAME)):
+        for row in read_csv(path):
+            row["input_table"] = path.name
+            all_rows.append(row)
+    if not all_rows:
+        raise RuntimeError(f"no Stage 10 aligned per-time tables under {input_root}")
+    key_fields = ("diagnostic_type", "source_A", "source_B", "source_A_stream", "source_B_stream", "band", "policy", "aggregation", "domain", "stratum")
+    groups: dict[tuple[str, ...], list[dict[str, str]]] = defaultdict(list)
+    sensitivity: list[dict[str, str]] = []
+    for row in all_rows:
+        if _number(row, "time_delta_min") <= max_delta:
+            groups[tuple(row.get(key, "") for key in key_fields)].append(row)
+        else:
+            sensitivity.append(row)
+    minimum_blocks = 5 if phase == "pilot" else 10
+    summaries: list[dict[str, Any]] = []
+    for index, (key, rows) in enumerate(sorted(groups.items())):
+        eligible = [row for row in rows if _number(row, "common_n") >= 1000]
+        total_n = int(sum(_number(row, "common_n") for row in eligible))
+        deltas = np.array([_number(row, "B_minus_A_mae_km") for row in eligible], dtype=np.float64)
+        ci_low, ci_high = block_bootstrap(deltas, seed + index, draws)
+        status = "eligible" if len(eligible) >= minimum_blocks and total_n >= 50000 else "unresolved_sparse"
+        sum_n = float(total_n)
+        summary = {field: value for field, value in zip(key_fields, key)}
+        summary.update({
+            "phase": phase,
+            "n_time_blocks": len(eligible),
+            "common_n": total_n,
+            "status": status,
+            "equal_time_macro_A_mae_km": float(np.nanmean([_number(row, "A_mae_km") for row in eligible])) if eligible else math.nan,
+            "equal_time_macro_B_mae_km": float(np.nanmean([_number(row, "B_mae_km") for row in eligible])) if eligible else math.nan,
+            "equal_time_macro_B_minus_A_mae_km": float(np.nanmean(deltas)) if deltas.size else math.nan,
+            "bootstrap_ci95_low_km": ci_low,
+            "bootstrap_ci95_high_km": ci_high,
+            "pooled_A_bias_km": sum(_number(row, "A_sum_error_km") for row in eligible) / sum_n if sum_n else math.nan,
+            "pooled_B_bias_km": sum(_number(row, "B_sum_error_km") for row in eligible) / sum_n if sum_n else math.nan,
+            "pooled_A_mae_km": sum(_number(row, "A_sum_abs_error_km") for row in eligible) / sum_n if sum_n else math.nan,
+            "pooled_B_mae_km": sum(_number(row, "B_sum_abs_error_km") for row in eligible) / sum_n if sum_n else math.nan,
+            "pooled_A_rmse_km": math.sqrt(sum(_number(row, "A_sum_squared_error_km2") for row in eligible) / sum_n) if sum_n else math.nan,
+            "pooled_B_rmse_km": math.sqrt(sum(_number(row, "B_sum_squared_error_km2") for row in eligible) / sum_n) if sum_n else math.nan,
+        })
+        summaries.append(summary)
+    coupled: dict[tuple[str, ...], dict[str, dict[str, Any]]] = defaultdict(dict)
+    coupled_fields = ("diagnostic_type", "source_A", "source_B", "source_A_stream", "source_B_stream", "policy", "aggregation", "domain", "stratum")
+    for row in summaries:
+        coupled[tuple(str(row[field]) for field in coupled_fields)][str(row["band"])] = row
+    decisions: list[dict[str, Any]] = []
+    for key, bands in sorted(coupled.items()):
+        a = bands.get("A_band")
+        b = bands.get("B_band")
+        decision = "unresolved"
+        if not a or not b or a["status"] != "eligible" or b["status"] != "eligible":
+            decision = "unresolved_sparse"
+        elif a["bootstrap_ci95_high_km"] < 0 and b["bootstrap_ci95_high_km"] < 0:
+            decision = "prefer_claas3" if key[1] in {"operational_baseline", "Meteosat-0deg"} and key[2] in {"claas3_candidate", "CLAAS3-0deg"} else "prefer_source_B"
+        elif a["bootstrap_ci95_low_km"] > 0 and b["bootstrap_ci95_low_km"] > 0:
+            decision = "prefer_operational" if key[1] in {"operational_baseline", "Meteosat-0deg"} else "prefer_source_A"
+        else:
+            a_mean = a["equal_time_macro_B_minus_A_mae_km"]
+            b_mean = b["equal_time_macro_B_minus_A_mae_km"]
+            decision = "unresolved_band_conflict" if a_mean * b_mean < 0 else "conditional"
+        decisions.append({**{field: value for field, value in zip(coupled_fields, key)}, "A_band_n_time_blocks": a["n_time_blocks"] if a else 0, "B_band_n_time_blocks": b["n_time_blocks"] if b else 0, "A_band_ci_low_km": a["bootstrap_ci95_low_km"] if a else math.nan, "A_band_ci_high_km": a["bootstrap_ci95_high_km"] if a else math.nan, "B_band_ci_low_km": b["bootstrap_ci95_low_km"] if b else math.nan, "B_band_ci_high_km": b["bootstrap_ci95_high_km"] if b else math.nan, "decision": decision})
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = output_dir / "stage_10_claas3_aligned_bootstrap_summary.csv"
+    decision_path = output_dir / "stage_10_claas3_aligned_state_decision.csv"
+    sensitivity_path = output_dir / "stage_10_claas3_aligned_time_offset_sensitivity.csv"
+    write_csv(summary_path, summaries)
+    write_csv(decision_path, decisions)
+    write_csv(sensitivity_path, sensitivity)
+    report_path = output_dir / "stage_10_claas3_aligned_report_zh.md"
+    report_path.write_text(
+        "# Stage 10 CLAAS-3 对齐测评\n\n"
+        f"- 阶段：{phase}\n- 主时间门限：≤{max_delta:g} min\n- bootstrap：{draws} 次，以整时次为块。\n"
+        "- 主空间判断为 box-7×7 approximate rectangular FOV aggregation；同时保留 nearest、3×3、5×5 敏感性。\n"
+        "- 所有高度量均为 EPIC-relative difference。EPIC A/B effective cloud height 不是云顶高度真值。\n"
+        "- A/B band 方向冲突时固定为 unresolved_band_conflict，不自动切换生产源。\n",
         encoding="utf-8",
     )
     write_manifest(
-        args.output_dir / "stage_10_claas3_epic_relative_height_manifest.json",
-        canonical_stage_id="stage_10",
-        run_id="profile_pair_batch",
-        source_profile="profile_pair",
+        output_dir / "stage_10_claas3_aligned_lineage_manifest.json",
+        canonical_stage_id=STAGE_ID,
         generating_script=Path(__file__),
-        input_paths=args.matrix_manifest,
-        output_paths=[sample_path, summary_path, report],
-        parameters={"psf_radius_target_pixels": args.psf_radius_target_pixels, "psf_method": f"box_{2 * args.psf_radius_target_pixels + 1}x{2 * args.psf_radius_target_pixels + 1}", "domains": DOMAINS, "sample_block_bootstrap": True},
+        input_paths=[input_root],
+        output_paths=[summary_path, decision_path, sensitivity_path, report_path],
+        parameters={"phase": phase, "max_primary_time_delta_min": max_delta, "bootstrap_draws": draws, "seed": seed, "scene_reference": "epic"},
         project_root=path_config.PROJECT_ROOT,
-        extra={
-            "product_versions": {"CLAAS3": "405"},
-            "scientific_boundary": "EPIC effective cloud height is a relative diagnostic and not strict cloud-top truth",
-        },
+        run_id=output_dir.name,
+        source_profile="profile_pair",
     )
-    print(f"stage_10 OK: {report}")
+    return [summary_path, decision_path, sensitivity_path, report_path]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Stage 10 processing-stream-aware CLAAS-3 EPIC-relative height evaluation")
+    parser.add_argument("--matrix-manifest", type=Path, action="append")
+    parser.add_argument("--input-root", type=Path)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--phase", choices=("pilot", "march"), default="pilot")
+    parser.add_argument("--max-primary-time-delta-min", type=float, default=10.0)
+    parser.add_argument("--bootstrap-draws", type=int, default=10000)
+    parser.add_argument("--seed", type=int, default=20240310)
+    parser.add_argument("--diagnostic-cache", type=Path)
+    args = parser.parse_args()
+    if args.matrix_manifest:
+        outputs: list[Path] = []
+        for matrix in args.matrix_manifest:
+            sample_dir = args.output_dir / matrix.parent.name if len(args.matrix_manifest) > 1 else args.output_dir
+            outputs.extend(evaluate_matrix(matrix, sample_dir, args.diagnostic_cache))
+        write_manifest(
+            args.output_dir / "stage_10_claas3_aligned_lineage_manifest.json",
+            canonical_stage_id=STAGE_ID,
+            generating_script=Path(__file__),
+            input_paths=args.matrix_manifest,
+            output_paths=outputs,
+            parameters={"phase": args.phase, "max_primary_time_delta_min": args.max_primary_time_delta_min, "scene_reference": "epic", "policies": list(CTH_POLICIES), "aggregations": list(AGGREGATIONS), "bands": list(BANDS)},
+            project_root=path_config.PROJECT_ROOT,
+            run_id=args.output_dir.name,
+            source_profile="profile_pair",
+        )
+    elif args.input_root:
+        summarize(args.input_root, args.output_dir, args.phase, args.max_primary_time_delta_min, args.bootstrap_draws, args.seed)
+    else:
+        parser.error("one of --matrix-manifest or --input-root is required")
     return 0
 
 

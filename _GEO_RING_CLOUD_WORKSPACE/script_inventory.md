@@ -1,7 +1,9 @@
 | filename | project_id | canonical_stage_id | component_role | legacy_stage | responsibility | refs_external_paths |
 | --- | --- | --- | --- | --- | --- | --- |
+| geo_ring_cloud_epic_pair_diagnostics.py | geo_ring_cloud |  | diagnostics_library |  | 当前文件系统扫描补充脚本 |  |
 | download_geo_geometry_samples.py | geo_ring_cloud |  | downloader | 下载 | 从 AWS S3 下载 GOES-16/18/Himawari-9 几何样本到 geo_geometry_check/ | D:\AAAresearch_paper\geo_geometry_check |
 | rebuild_stage1_evidence_pack.py | geo_ring_cloud |  | evidence_pack_builder | 证据包 | 重建 Stage1 证据包：汇总 data_check_report/geo_geometry_check/stage1 全部证据到 evidence_pack/ | D:\AAAresearch_paper\data_check_report,D:\AAAresearch_paper\geo_geometry_check,D:\AAAresearch_paper\geo_ring_cloud_stage1,D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack,D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 |
+| geo_ring_cloud_experiment_profile_pair.py | geo_ring_cloud |  | experiment_runner |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud_time_run_matrix.py | geo_ring_cloud |  | runner | runner | Matched operational_baseline and claas3_candidate runner with SQLite indexing |  |
 | run_epic_georing_sample_batch.py | geo_ring_cloud |  | runner | 运行器 | EPIC Geo-ring 批量样本运行器（RUNS=time_runs） | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\epic_202403_target_selection\recommended_epic_georing_validation_targets.csv |
 | run_epic_georing_single_sample.py | geo_ring_cloud |  | runner | 运行器 | EPIC Geo-ring 单时次完整运行流水线（BASE=stage1, RUNS=time_runs） |  |
@@ -12,11 +14,10 @@
 | path_config.py | geo_ring_cloud |  | shared_library | common | Central environment-overridable paths including GEO_RING_CLAAS3_ROOT |  |
 | stage1_common.py | geo_ring_cloud |  | shared_library | 公共 | 核心共享库：路径常量(STAGE_ROOT/REPORT_ROOT/HIMAWARI_R21_DIR)、标准变量名、cloud_mask 码表(FY4B/GOES/Himawari/Meteosat)、产品读取器、单位转换、quicklook 绘图 | D:\AAAresearch_paper\data\H09_Data,D:\AAAresearch_paper\data_check_report,D:\AAAresearch_paper\data_check_report\geometry_variable_audit,D:\AAAresearch_paper\data_check_report\geometry_variable_audit\product_variable_inventory_full.csv,D:\AAAresearch_paper\data_check_report\manual_variable_mapping_by_product.yaml,D:\AAAresearch_paper\data_check_report\parsed_file_metadata.csv,D:\AAAresearch_paper\geo_ring_cloud_stage1 |
 | summarize_time_run_20240319_1500.py | geo_ring_cloud |  | summary_helper | 汇总 | 汇总 20240319_1500 时次运行结果 |  |
-| geo_ring_cloud_time_run_prune_failed.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
-| geo_ring_cloud_time_run_prune_intermediates.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
-| tests/_tmp/baseline_regression.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3_integration.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud_time_run_prune_failed.py | geo_ring_cloud |  | time_run_pruning |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud_time_run_prune_intermediates.py | geo_ring_cloud |  | time_run_pruning |  | 当前文件系统扫描补充脚本 |  |
 | stage_00d_claas3_integration_readiness.py | geo_ring_cloud | stage_00d |  | 00d | CLAAS-3 March 2024 cadence, structure, QA, projection, and integration readiness gate |  |
 | 01_build_core_time_index.py | geo_ring_cloud | stage_01 |  | 01 | 从 data_check_report/parsed_file_metadata.csv 构建核心时次索引，按卫星完整度评分，选定原型时次 2024-03-05T00:00Z |  |
 | 02_build_standardized_cloud_native.py | geo_ring_cloud | stage_02 |  | 02 | 读取各卫星原生云产品，按统一变量名映射标准化为 native-grid NPZ，输出到 standardized_native/ |  |
@@ -67,7 +68,11 @@
 | stage_09d_source_selection_sensitivity/stage_09d_sel_postprocess.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | stage_09d_source_selection_sensitivity/stage_09d_sel_run.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | stage_09d_vis_sel_joint/stage_09d_vis_sel_joint_report.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
+| stage_09e_psf_sel_qc/stage_09e_make_nature_meeting_figures.py | geo_ring_cloud | stage_09e |  | 09e | 当前文件系统扫描补充脚本；推断阶段 09e |  |
 | stage_09e_psf_sel_qc/stage_09e_run_psf_sel_qc.py | geo_ring_cloud | stage_09e |  | 09e | 当前文件系统扫描补充脚本；推断阶段 09e |  |
+| stage_09f_spatial_story_maps/stage_09f_make_spatial_story_maps.py | geo_ring_cloud | stage_09f |  | 09f | 当前文件系统扫描补充脚本；推断阶段 09f |  |
+| stage_10/stage_10_make_group_meeting_ppt.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
+| stage_10/stage_10_make_meeting_figures.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
 | stage_10_claas3_epic_relative_height_evaluation.py | geo_ring_cloud | stage_10 |  | 10 | A/B-band EPIC-relative effective-height profile-pair diagnostics with common approximate PSF |  |
 | stage_10_cth_validation/stage_10_qc_audit.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
 | stage_10_cth_validation/stage_10_rewrite_cth_report.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |

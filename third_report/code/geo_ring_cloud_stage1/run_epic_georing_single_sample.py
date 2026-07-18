@@ -33,6 +33,15 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def runtime_environment() -> dict[str, str]:
+    env = os.environ.copy()
+    conda_library_bin = Path(sys.executable).resolve().parent / "Library" / "bin"
+    if conda_library_bin.is_dir():
+        current_path = env.get("PATH", "")
+        env["PATH"] = str(conda_library_bin) + (os.pathsep + current_path if current_path else "")
+    return env
+
+
 def run_step(name: str, command: list[str], env: dict[str, str], cwd: Path, log_dir: Path, continue_on_error: bool = False) -> dict[str, Any]:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{name}.log"
@@ -95,7 +104,7 @@ def run_pipeline(args: argparse.Namespace) -> tuple[str, Path]:
     out_root.mkdir(parents=True, exist_ok=True)
     log_dir = out_root / "logs" / "pipeline"
     status_csv = out_root / "pipeline_run_status.csv"
-    env = os.environ.copy()
+    env = runtime_environment()
     env.update(
         {
             "GEO_RING_STAGE_ROOT": str(out_root),
@@ -138,6 +147,11 @@ def run_pipeline(args: argparse.Namespace) -> tuple[str, Path]:
             False,
         ),
     ]
+    if args.reuse_operational_root:
+        if args.source_profile != "claas3_candidate":
+            raise RuntimeError("--reuse-operational-root is only valid for claas3_candidate")
+        steps[0][1].extend(["--reuse-operational-native-root", str(Path(args.reuse_operational_root) / "standardized_native")])
+        steps[3][1].extend(["--reuse-operational-reprojected-root", str(Path(args.reuse_operational_root) / "reprojected_grid")])
 
     rows: list[dict[str, Any]] = []
     all_step_names = [name for name, _, _ in steps]
@@ -179,7 +193,7 @@ def run_pipeline(args: argparse.Namespace) -> tuple[str, Path]:
         "generating_script": str(Path(__file__)),
         "input_paths": [args.epic_l2, str(Path(args.base_stage_root) / "time_index" / "core_time_index.csv")],
         "output_paths": [str(out_root)],
-        "parameter_summary": {"target_time": args.target_time, "time_tag": args.time_tag, "source_profile": args.source_profile},
+        "parameter_summary": {"target_time": args.target_time, "time_tag": args.time_tag, "source_profile": args.source_profile, "reuse_operational_root": args.reuse_operational_root},
         "code_commit": code_commit(PROJECT_ROOT),
         "target_time": args.target_time,
         "time_tag": args.time_tag,
@@ -206,10 +220,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--parent-run-id", default="")
     p.add_argument("--source-profile", default="operational_baseline", choices=["operational_baseline", "claas3_candidate"])
     p.add_argument("--claas3-root", default=str(CLAAS3_ROOT))
-    p.add_argument("--use-conda", action="store_true", default=True)
+    p.add_argument("--use-conda", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--conda-env", default="pytorch")
     p.add_argument("--python-exe", default=sys.executable)
     p.add_argument("--start-step", default="", help="Resume from a named step after validating all prior manifest steps are OK")
+    p.add_argument("--reuse-operational-root", default="", help="Reuse immutable operational native/reprojected assets and add only CLAAS layers")
     return p
 
 

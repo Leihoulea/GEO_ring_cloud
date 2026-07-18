@@ -399,7 +399,7 @@ def main() -> int:
     write_report(status, issues_df, code_df)
     write_manifest(
         NATIVE_DIR / "stage_03_5_claas3_semantic_manifest.json",
-        canonical_stage_id="stage_03.5",
+        canonical_stage_id="stage_03_5",
         run_id=args.run_id,
         source_profile=source_profile,
         generating_script=Path(__file__),

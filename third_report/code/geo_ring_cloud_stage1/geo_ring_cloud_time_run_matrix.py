@@ -51,7 +51,8 @@ def ensure_claas_catalog(base_stage_root: Path, target_time: str) -> None:
 
 def init_db(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=60.0)
+    conn.execute("PRAGMA busy_timeout=60000")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS time_runs (
@@ -98,6 +99,7 @@ def profile_artifacts_complete(profile_root: Path, manifest: dict[str, Any]) -> 
 def run_profile(args: argparse.Namespace, profile: str, profile_root: Path) -> dict[str, Any]:
     profile_root.mkdir(parents=True, exist_ok=True)
     manifest_path = profile_root / "single_sample_run_manifest.json"
+    resume_start_step = ""
     if args.resume and manifest_path.exists():
         try:
             previous = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -118,6 +120,16 @@ def run_profile(args: argparse.Namespace, profile: str, profile_root: Path) -> d
                     "manifest_path": str(manifest_path),
                     "reused_complete_profile": True,
                 }
+            ordered = list(REQUIRED_PROFILE_STEPS)
+            completed_prefix = 0
+            for name in ordered:
+                if step_status.get(name) != "OK":
+                    break
+                completed_prefix += 1
+            if 0 < completed_prefix < len(ordered):
+                resume_start_step = ordered[completed_prefix]
+                if resume_start_step == "03_validate_standardized_cloud_native":
+                    resume_start_step = "02_build_standardized_cloud_native"
         except (OSError, json.JSONDecodeError, KeyError, TypeError):
             pass
     command = [
@@ -134,7 +146,12 @@ def run_profile(args: argparse.Namespace, profile: str, profile_root: Path) -> d
         "--source-profile", profile,
         "--claas3-root", str(args.claas3_root),
         "--conda-env", args.conda_env,
+        "--no-use-conda",
     ]
+    if profile == "claas3_candidate" and args.reuse_operational_baseline_root:
+        command.extend(["--reuse-operational-root", str(args.reuse_operational_baseline_root.resolve())])
+    if resume_start_step:
+        command.extend(["--start-step", resume_start_step])
     completed = subprocess.run(command, cwd=str(SCRIPT_DIR), check=False)
     status = "PASS" if completed.returncode == 0 and manifest_path.exists() else "FAIL"
     return {
@@ -144,6 +161,26 @@ def run_profile(args: argparse.Namespace, profile: str, profile_root: Path) -> d
         "profile_root": str(profile_root),
         "manifest_path": str(manifest_path),
         "reused_complete_profile": False,
+    }
+
+
+def reuse_operational_baseline(path: Path, args: argparse.Namespace) -> dict[str, Any]:
+    manifest_path = path / "single_sample_run_manifest.json"
+    if not manifest_path.exists():
+        raise RuntimeError(f"legacy operational manifest is missing: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("target_time") != args.target_time or manifest.get("time_tag") != args.time_tag:
+        raise RuntimeError(f"legacy operational baseline time mismatch: {path}")
+    if not profile_artifacts_complete(path, manifest):
+        raise RuntimeError(f"legacy operational baseline is incomplete or pruned: {path}")
+    return {
+        "source_profile": "operational_baseline",
+        "status": "PASS",
+        "returncode": 0,
+        "profile_root": str(path.resolve()),
+        "manifest_path": str(manifest_path.resolve()),
+        "reused_complete_profile": True,
+        "reused_legacy_baseline": True,
     }
 
 
@@ -158,6 +195,7 @@ def main() -> int:
     parser.add_argument("--claas3-root", type=Path, default=CLAAS3_ROOT)
     parser.add_argument("--conda-env", default="pytorch")
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--reuse-operational-baseline-root", type=Path)
     args = parser.parse_args()
     ensure_claas_catalog(args.base_stage_root, args.target_time)
     parent_root = args.runs_root / args.run_id
@@ -166,7 +204,10 @@ def main() -> int:
     results: list[dict[str, Any]] = []
     with init_db(db_path) as conn:
         for profile in SOURCE_PROFILES:
-            profile_root = parent_root / profile
+            if profile == "operational_baseline" and args.reuse_operational_baseline_root:
+                profile_root = args.reuse_operational_baseline_root.resolve()
+            else:
+                profile_root = parent_root / profile
             upsert_run(conn, {
                 "run_id": args.run_id,
                 "parent_run_id": args.run_id,
@@ -176,7 +217,10 @@ def main() -> int:
                 "manifest_path": str(profile_root / "single_sample_run_manifest.json"),
                 "updated_utc": utc_now(),
             })
-            result = run_profile(args, profile, profile_root)
+            if profile == "operational_baseline" and args.reuse_operational_baseline_root:
+                result = reuse_operational_baseline(profile_root, args)
+            else:
+                result = run_profile(args, profile, profile_root)
             results.append(result)
             upsert_run(conn, {
                 "run_id": args.run_id,
@@ -193,6 +237,7 @@ def main() -> int:
         "epic_l2": str(args.epic_l2),
         "base_stage_root": str(args.base_stage_root),
         "non_meteosat_inputs_policy": "identical Stage 01 catalog rows for both profiles",
+        "operational_baseline_policy": "reused legacy baseline after pilot bitwise acceptance" if args.reuse_operational_baseline_root else "fresh same-code rerun",
     }
     payload = {
         "project_id": "geo_ring_cloud",

@@ -664,7 +664,7 @@ def write_report(status: str, inventory: pd.DataFrame, sat_stats: pd.DataFrame, 
         "",
         f"- 生成时间 UTC：{utc_now()}",
         f"- 目标时次：`{TARGET_TIME}`",
-        f"- 目标网格：经度 `-180..180`，纬度 `-60..60`，分辨率 `0.05°`，shape `{target_grid['shape']}`",
+        f"- 目标网格：经度 `-180..180`，纬度 `-90..90`，分辨率 `0.05°`，shape `{target_grid['shape']}`",
         f"- 结论：**{status}**",
         "- 本步骤只做重投影；未做 best-source fusion、source_map_fused、重叠区验证或下载。",
         "",
@@ -806,6 +806,7 @@ def main() -> int:
     parser.add_argument("--source-profile", default=SOURCE_PROFILE, choices=["operational_baseline", "claas3_candidate"])
     parser.add_argument("--claas3-root", type=Path, default=path_config.CLAAS3_ROOT)
     parser.add_argument("--run-id", default=os.environ.get("GEO_RING_RUN_ID", ""))
+    parser.add_argument("--reuse-operational-reprojected-root", type=Path)
     args = parser.parse_args()
     SOURCE_PROFILE = validate_profile(args.source_profile)
     SATELLITES = tie_order(SOURCE_PROFILE)
@@ -820,6 +821,21 @@ def main() -> int:
     inventory_rows: list[dict[str, Any]] = []
     stat_rows: list[dict[str, Any]] = []
     cloud_code_rows: list[dict[str, Any]] = []
+    reused_input_paths: list[Path] = []
+    if args.reuse_operational_reprojected_root:
+        base_inventory_path = args.reuse_operational_reprojected_root / "reprojected_variable_inventory.csv"
+        base_stats_path = args.reuse_operational_reprojected_root / "reprojected_per_satellite_stats.csv"
+        base_grid_path = args.reuse_operational_reprojected_root / "target_grid_definition.json"
+        base_grid = json.loads(base_grid_path.read_text(encoding="utf-8"))
+        if base_grid != target_grid:
+            raise RuntimeError(f"reused operational target grid differs from candidate grid: {base_grid_path}")
+        inventory_rows.extend(pd.read_csv(base_inventory_path).to_dict("records"))
+        stat_rows.extend(pd.read_csv(base_stats_path).to_dict("records"))
+        base_code_path = args.reuse_operational_reprojected_root.parent / "reports" / "cloud_mask_code_table.csv"
+        if base_code_path.exists():
+            cloud_code_rows.extend(pd.read_csv(base_code_path).to_dict("records"))
+        reused_input_paths.extend([base_inventory_path, base_stats_path, base_grid_path])
+        rows = [row for row in rows if row["satellite"] == "CLAAS3-0deg"]
     coverage_by_sat: dict[str, np.ndarray] = {}
     for row in rows:
         inv, stats, code_rows, coverage = reproject_product(row, target_lon, target_lat, target_grid)
@@ -852,9 +868,9 @@ def main() -> int:
         run_id=args.run_id,
         source_profile=SOURCE_PROFILE,
         generating_script=Path(__file__),
-        input_paths=[row["npz_file"] for row in rows],
+        input_paths=[*reused_input_paths, *[row["npz_file"] for row in rows]],
         output_paths=inventory["output_file"].dropna().astype(str).tolist() if not inventory.empty else [],
-        parameters={"target_time": TARGET_TIME, "grid_resolution_degree": GRID_RES, "max_distance_degree": MAX_DISTANCE_DEG, "resampling": "nearest"},
+        parameters={"target_time": TARGET_TIME, "grid_resolution_degree": GRID_RES, "max_distance_degree": MAX_DISTANCE_DEG, "resampling": "nearest", "reuse_operational_reprojected_root": str(args.reuse_operational_reprojected_root or "")},
         project_root=path_config.PROJECT_ROOT,
         extra={"registry_version": REGISTRY_VERSION, "product_versions": {"CLAAS3": "405"} if SOURCE_PROFILE == "claas3_candidate" else {}},
     )

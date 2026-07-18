@@ -14,11 +14,12 @@ MUST do these steps before writing or moving files:
 
 1. Read `_GEO_RING_CLOUD_WORKSPACE/README.md`.
 2. Read `_GEO_RING_CLOUD_WORKSPACE/engineering_policy.md`.
-3. Check `_GEO_RING_CLOUD_WORKSPACE/stage_registry.md`.
-4. Check `_GEO_RING_CLOUD_WORKSPACE/artifact_index.md`.
-5. Check `_GEO_RING_CLOUD_WORKSPACE/data_product_audits.md` for generic and stage-scoped EO product inspections.
-6. Query `_GEO_RING_CLOUD_INDEX/geo_ring_cloud_index.sqlite` when a precise lookup is cheaper than broad file search.
-7. Search focused code paths with `rg` only after the index/workspace checks.
+3. Read `_GEO_RING_CLOUD_WORKSPACE/architecture.md` and `_GEO_RING_CLOUD_WORKSPACE/engineering_status.md`.
+4. Check `_GEO_RING_CLOUD_WORKSPACE/stage_registry.md`.
+5. Check `_GEO_RING_CLOUD_WORKSPACE/artifact_index.md`.
+6. Check `_GEO_RING_CLOUD_WORKSPACE/data_product_audits.md` for generic and stage-scoped EO product inspections.
+7. Query `_GEO_RING_CLOUD_INDEX/geo_ring_cloud_index.sqlite` when a precise lookup is cheaper than broad file search.
+8. Search focused code paths with `rg` only after the index/workspace checks.
 
 MUST NOT scan raw data, time-run outputs, evidence packs, or `_NON_GEO_ARCHIVE`
 unless the task explicitly requires those artifacts.
@@ -63,6 +64,10 @@ New non-stage utilities in Geo Ring Cloud core code MUST use:
 ```text
 geo_ring_cloud_<role>_<purpose>.py
 ```
+
+They MUST declare `COMPONENT_ROLE`. Cross-stage manifests MUST leave
+`canonical_stage_id` empty and record both `component_role` and
+`related_stage_ids`; never invent a combined stage such as `stage0910`.
 
 Do not invent fake stages for runners, downloaders, evidence-pack builders,
 summaries, or shared helpers. Use `component_role` for those.

@@ -5,8 +5,8 @@
 | D:\AAAresearch_paper\geo_geometry_check | 强相关 | 几何校验样本（download_geo_geometry_samples.py 产物 + 06c/06d 审计） | 50 | 1.3 GB | 是 | 是 | 否 | keep_in_place | download_geo_geometry_samples.py:22 OUT_ROOT；06c/06d/06e 引用 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1 | 强相关 | Stage1 主产物根目录（STAGE_ROOT） | 819 | 6.3 GB | 是 | 是 | 否 | keep_in_place | standardized_native/reprojected_grid/fused_best_source/overlap_validation/reports 等产物 + scripts 副本 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack | 强相关 | Stage1 证据包（latest + 10 snapshots） | 264 | 471.2 KB | 是 | 是 | 否 | keep_in_place | rebuild_stage1_evidence_pack.py:EVIDENCE_ROOT 产出 |
-| D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | 强相关 | 多时次运行目录（48 批次 + 5 EPIC 专题） | 34816 | 156.6 GB | 是 | 是 | 否 | keep_in_place | 08e/08f/08g/08h/08i/08j/09 等脚本以 RUNS_ROOT 引用 |
-| D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 | 强相关 | Stage1 主代码（41 个 .py，01-09 全流水线） | 88 | 1.7 MB | 是 | 是 | 否 | keep_in_place | ring cloud 真正的代码源；产物写到根 geo_ring_cloud_stage1/ |
+| D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | 强相关 | 多时次运行、跨阶段实验与阶段诊断产物根目录 | 43209 | 228.2 GB | 是 | 是 | 否 | keep_in_place | 运行器与 stage_08 以后诊断脚本通过 RUNS_ROOT 引用；大产物保留原位 |
+| D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 | 强相关 | GEO-ring Cloud 主代码、阶段脚本、共享组件与测试 | 85 | 2.0 MB | 是 | 是 | 否 | keep_in_place | 权威代码源；产物写入配置化的 stage/time-runs 根目录 |
 | D:\AAAresearch_paper\third_report\Satellite_Data_20240312 | 上游相关 | 2024-03-12 主数据集快照（六星原生 + standardized_L1 样例 + reprojected 旧版） | 8741 | 122.4 GB | 间接 | 是 | 否 | keep_in_place | 含 channel_mapping/standardized_L1_source 等 |
 | D:\AAAresearch_paper\third_report\code\FY4B | 上游相关 | FY4B/AGRI standardized_L1 builder + 探查/预览 | 25 | 25.1 MB | 间接 | 是 | 否 | keep_in_place | 产出 standardized_L1_source 供 stage1 输入 |
 | D:\AAAresearch_paper\third_report\code\GOES | 上游相关 | GOES-16/18/ABI standardized_L1 builder | 18 | 14.2 MB | 间接 | 是 | 否 | keep_in_place | 同上 |
@@ -24,7 +24,7 @@
 | D:\AAAresearch_paper\third_report\code\validate_standardized_l1_source_samples.py | 上游相关 | 标准化样例自动校验 | 1 | 5.0 KB | 间接 | 是 | 否 | keep_in_place |  |
 | D:\AAAresearch_paper\6月第二次汇报邓浩然.pptx | 弱相关 | 6 月组会汇报 PPT |  | 约 52 MB | 否 | 否 | 否 | missing | 项目阶段汇报材料 |
 | D:\AAAresearch_paper\EPIC数据.pptx | 弱相关 | EPIC 数据 PPT | 1 | 36.6 KB | 否 | 是 | 否 | document_only | 偏向 EPIC/CERES 分支 |
-| D:\AAAresearch_paper\cloud | 弱相关 | 云产品参考文献 PDF（Zhao 等 2026 全天全球云物理属性） | 2 | 1.2 MB | 否 | 是 | 否 | document_only | 方法论参考，代码无路径引用 |
+| D:\AAAresearch_paper\cloud | 弱相关 | 云产品参考文献 PDF（Zhao 等 2026 全天全球云物理属性） | 65 | 33.4 MB | 否 | 是 | 否 | document_only | 方法论参考，代码无路径引用 |
 | D:\AAAresearch_paper\research_tracker | 弱相关 | 研究追踪器（项目治理元工具，扫描全项目建知识图谱） | 36 | 88.4 MB | 否 | 是 | 否 | document_only | 元工具，不参与流水线；识别 ring_cloud 为最大子项目 |
 | D:\AAAresearch_paper\third_report\beamer | 弱相关 | LaTeX Beamer 组会幻灯片（讲标准化上游） | 58 | 45.0 MB | 否 | 是 | 否 | document_only | 讲稿明确讲 L1g 前期工作，非 ring cloud 本体 |
 | D:\AAAresearch_paper\data\3-科大蓝（竞赛 科技）.pptx | 无关 | 存于 data/ 下的竞赛演示文稿 | 1 | 43.0 MB | 否 | 是 | 是 | archive_candidate | 与 ring cloud 无关 |

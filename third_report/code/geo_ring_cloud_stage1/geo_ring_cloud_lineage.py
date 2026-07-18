@@ -34,6 +34,8 @@ def write_manifest(
     path: Path,
     *,
     canonical_stage_id: str,
+    component_role: str = "",
+    related_stage_ids: Iterable[str] = (),
     generating_script: Path,
     input_paths: Iterable[str | Path],
     output_paths: Iterable[str | Path],
@@ -46,6 +48,8 @@ def write_manifest(
     payload: dict[str, Any] = {
         "project_id": PROJECT_ID,
         "canonical_stage_id": canonical_stage_id,
+        "component_role": component_role,
+        "related_stage_ids": list(related_stage_ids),
         "run_id": run_id,
         "source_profile": source_profile,
         "generating_script": str(generating_script),
