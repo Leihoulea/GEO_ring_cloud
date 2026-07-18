@@ -112,6 +112,15 @@ WORKSPACE_INDEX_DOCS = {
     "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md",
     "_GEO_RING_CLOUD_WORKSPACE/data_product_audits.md",
 }
+REQUIRED_ENGINEERING_FILES = {
+    ".github/workflows/geo-ring-cloud-governance.yml",
+    "_GEO_RING_CLOUD_INDEX/ci_check.py",
+    "_GEO_RING_CLOUD_WORKSPACE/architecture.md",
+    "_GEO_RING_CLOUD_WORKSPACE/engineering_policy.md",
+    "_GEO_RING_CLOUD_WORKSPACE/engineering_status.md",
+    "third_report/code/geo_ring_cloud_stage1/DEPENDENCIES.md",
+    "third_report/code/geo_ring_cloud_stage1/environment.yml",
+}
 COMMIT_MESSAGE_TOKEN = re.compile(
     r"\b(stage_\d{2}(?:_[0-9]+|[a-z0-9]+|_[a-z0-9]+)?|geo_ring_cloud|governance|index|artifact|skill|path_config|data_audit|research_tracker)\b",
     re.IGNORECASE,
@@ -351,6 +360,20 @@ def check_generated_artifacts(paths: list[str]) -> list[Finding]:
     return findings
 
 
+def check_engineering_contract() -> list[Finding]:
+    findings: list[Finding] = []
+    for rel_path in sorted(REQUIRED_ENGINEERING_FILES):
+        if not (ROOT / rel_path).is_file():
+            findings.append(
+                Finding(
+                    "ERROR",
+                    rel_path,
+                    "required engineering contract file is missing",
+                )
+            )
+    return findings
+
+
 def check_paths(paths: list[str], added_paths: set[str], baseline_mode: bool) -> list[Finding]:
     findings: list[Finding] = []
     for rel_path in paths:
@@ -447,6 +470,7 @@ def main() -> int:
             added = set()
 
     findings: list[Finding] = []
+    findings.extend(check_engineering_contract())
     findings.extend(check_naming(paths, added, baseline_mode=baseline_mode))
     findings.extend(check_stage_contract(paths, added, enforce_index_docs=args.staged))
     if args.staged:

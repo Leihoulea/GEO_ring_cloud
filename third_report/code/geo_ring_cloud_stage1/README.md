@@ -11,7 +11,19 @@
 
 所有项目路径通过 `path_config.py` 或环境变量覆盖。运行产物写入 `geo_ring_cloud_stage1`、`geo_ring_cloud_stage1_time_runs` 或明确的数据审计目录，不写入源码目录；测试临时产物只允许位于 `tests/_tmp`，且不会进入 Git 或正式 artifact index。
 
-修改 stage 脚本后执行：
+依赖职责、标准环境和可选能力见 `DEPENDENCIES.md`。创建环境后，统一运行：
+
+```powershell
+python _GEO_RING_CLOUD_INDEX\ci_check.py --scientific-tests
+```
+
+真实数据集成测试仅在本地数据可用时运行：
+
+```powershell
+python _GEO_RING_CLOUD_INDEX\ci_check.py --integration-tests
+```
+
+修改 stage 脚本后还必须执行：
 
 ```powershell
 python _GEO_RING_CLOUD_INDEX\build_index.py

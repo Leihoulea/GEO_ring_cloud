@@ -10,6 +10,7 @@ It applies to humans and AI agents.
 - MUST decide the `project_id + canonical_stage_id` before naming files.
 - MUST run `python _GEO_RING_CLOUD_INDEX\build_index.py` after adding or changing stage scripts.
 - MUST run `python _GEO_RING_CLOUD_INDEX\governance_check.py --staged` before commit.
+- MUST use the checked-in `environment.yml` as the default scientific dependency baseline and run `python _GEO_RING_CLOUD_INDEX\ci_check.py --scientific-tests` for core-code changes.
 
 ## Naming and identity
 
@@ -32,6 +33,7 @@ It applies to humans and AI agents.
 - New core code MUST NOT hard-code `D:\AAAresearch_paper\...` unless explicitly allowlisted.
 - Core code MUST NOT depend on `_NON_GEO_ARCHIVE`, `second_report`, `forth`, or EPIC-CERES code/output paths.
 - Raw data, time runs, evidence packs, SQLite/XLSX indexes, PPTX, images, NetCDF/HDF/HDF5, NPZ, and other large generated artifacts MUST stay out of Git by default.
+- GitHub CI MUST remain independent of local large-data paths; real-data integration tests are explicit local checks.
 
 ## Enforcement levels
 

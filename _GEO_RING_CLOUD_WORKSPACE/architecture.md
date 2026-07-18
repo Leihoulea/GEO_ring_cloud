@@ -11,7 +11,7 @@
 
 | layer | ownership | examples |
 | --- | --- | --- |
-| configuration | 路径、数据源 ID、环境覆盖 | `path_config.py`, `geo_ring_cloud_source_registry.py` |
+| configuration | 路径、数据源 ID、环境覆盖、依赖契约 | `path_config.py`, `geo_ring_cloud_source_registry.py`, `environment.yml` |
 | lineage | manifest、commit、输入输出追踪 | `geo_ring_cloud_lineage.py` |
 | adapters | 产品读取、格式适配、变量解码 | `geo_ring_cloud_claas3_adapter.py`, `geo_data_audit/` |
 | stage pipeline | 单一 canonical stage 的科学处理与验证 | `stage_09d_*`, `stage_10_*` |

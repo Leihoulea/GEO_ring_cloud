@@ -1,0 +1,18 @@
+name: geo-ring-cloud
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11.14
+  - numpy=2.2.6
+  - pandas=2.3.3
+  - scipy=1.16.3
+  - h5py=3.15.1
+  - netcdf4=1.7.4
+  - xarray=2026.2.0
+  - pyproj=3.7.2
+  - matplotlib=3.10.8
+  - pillow=12.0.0
+  - pyyaml=6.0.3
+  - boto3=1.42.78
+  - botocore=1.42.78
+  - satpy=0.60.0

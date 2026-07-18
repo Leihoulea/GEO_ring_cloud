@@ -111,6 +111,15 @@ MUST NOT make Geo Ring Cloud core code depend on `_NON_GEO_ARCHIVE`,
 
 ## Index And Git Contract
 
+For core-code changes, MUST use the checked-in dependency baseline and run:
+
+```powershell
+python _GEO_RING_CLOUD_INDEX\ci_check.py --scientific-tests
+```
+
+Use `--integration-tests` only when the configured local real-data roots are
+available. GitHub CI MUST remain independent of local large-data paths.
+
 After adding or changing stage scripts, MUST run:
 
 ```powershell

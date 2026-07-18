@@ -1549,6 +1549,8 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 - `legacy_aliases.md`: legacy labels mapped to canonical stage IDs.
 - `naming_policy.md`: naming rules for new work and known non-canonical labels.
 - `engineering_policy.md`: enforceable engineering contract for humans and AI agents.
+- Reproducible environment: `{ROOT / "third_report" / "code" / "geo_ring_cloud_stage1" / "environment.yml"}`
+- Local/CI quality gate: `python _GEO_RING_CLOUD_INDEX\\ci_check.py`
 """
     (WORKSPACE_DIR / "README.md").write_text(readme, encoding="utf-8")
     architecture = """# GEO-ring Cloud Architecture
@@ -1564,7 +1566,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 
 | layer | ownership | examples |
 | --- | --- | --- |
-| configuration | 路径、数据源 ID、环境覆盖 | `path_config.py`, `geo_ring_cloud_source_registry.py` |
+| configuration | 路径、数据源 ID、环境覆盖、依赖契约 | `path_config.py`, `geo_ring_cloud_source_registry.py`, `environment.yml` |
 | lineage | manifest、commit、输入输出追踪 | `geo_ring_cloud_lineage.py` |
 | adapters | 产品读取、格式适配、变量解码 | `geo_ring_cloud_claas3_adapter.py`, `geo_data_audit/` |
 | stage pipeline | 单一 canonical stage 的科学处理与验证 | `stage_09d_*`, `stage_10_*` |
@@ -1606,13 +1608,14 @@ Generated: `{GENERATED_AT}`
 - Git 仓库、远端、`.gitignore`、`.gitattributes` 与本地 pre-commit hook。
 - canonical stage taxonomy、artifact index、data product audit index 和跨项目 collision guard。
 - `path_config.py` 环境变量覆盖、统一 lineage manifest helper 与 staged governance check。
+- 已验证直接依赖基线、统一 `ci_check.py` 入口与 GitHub 轻量 CI 门禁。
 - 大数据、time-run、图片、Office 文件和生成数据库默认不进入 Git。
 
 ## 尚未达到的目标
 
 - 代码仍以历史扁平脚本为主，模块边界主要依靠索引和 `component_role`，尚未完成 Python package 化。
 - 仍有历史绝对路径和非 canonical 命名；普通模式保留 warning，新增污染会被 hook 阻断。
-- 依赖环境尚未形成锁定文件，尚无可在轻量环境稳定运行的 CI 门禁。
+- `environment.yml` 已固定已验证的直接依赖；跨平台传递依赖锁仍应在正式实验发布时按平台生成。
 - 一部分旧 time-run 使用 `stage0910` 等组合标签；为保障续跑暂保留，只作为 legacy alias，不得用于新组件命名。
 
 ## 优先级
@@ -1620,7 +1623,7 @@ Generated: `{GENERATED_AT}`
 1. P0：任何新增 governance error 必须在提交前清零。
 2. P1：为正在演进的共享组件补 `COMPONENT_ROLE`、测试和 manifest lineage。
 3. P1：逐批参数化仍活跃脚本中的绝对路径。
-4. P2：建立可复现依赖锁定与轻量 CI；大数据集成测试继续本地运行。
+4. P2：为正式实验发布生成平台化传递依赖锁；大数据集成测试继续本地运行。
 5. P2：按依赖审计结果渐进迁移扁平脚本，禁止一次性大搬迁。
 """
     (WORKSPACE_DIR / "engineering_status.md").write_text(engineering_status, encoding="utf-8")
@@ -1681,6 +1684,7 @@ It applies to humans and AI agents.
 - MUST decide the `project_id + canonical_stage_id` before naming files.
 - MUST run `python _GEO_RING_CLOUD_INDEX\\build_index.py` after adding or changing stage scripts.
 - MUST run `python _GEO_RING_CLOUD_INDEX\\governance_check.py --staged` before commit.
+- MUST use the checked-in `environment.yml` as the default scientific dependency baseline and run `python _GEO_RING_CLOUD_INDEX\\ci_check.py --scientific-tests` for core-code changes.
 
 ## Naming and identity
 
@@ -1703,6 +1707,7 @@ It applies to humans and AI agents.
 - New core code MUST NOT hard-code `D:\\AAAresearch_paper\\...` unless explicitly allowlisted.
 - Core code MUST NOT depend on `_NON_GEO_ARCHIVE`, `second_report`, `forth`, or EPIC-CERES code/output paths.
 - Raw data, time runs, evidence packs, SQLite/XLSX indexes, PPTX, images, NetCDF/HDF/HDF5, NPZ, and other large generated artifacts MUST stay out of Git by default.
+- GitHub CI MUST remain independent of local large-data paths; real-data integration tests are explicit local checks.
 
 ## Enforcement levels
 
