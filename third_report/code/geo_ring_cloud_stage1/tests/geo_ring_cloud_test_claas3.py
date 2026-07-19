@@ -129,18 +129,25 @@ class PackageBoundaryTests(unittest.TestCase):
         import geo_ring_cloud_claas3_adapter as legacy_claas3
         import geo_ring_cloud_epic_pair_diagnostics as legacy_diagnostics
         import path_config as legacy_paths
+        import stage_09d_diagnostic_common as legacy_full_pixel_workflow
         import stage1_common as legacy_pipeline
 
         from geo_ring_cloud import lineage, paths, run_discovery, sources
         from geo_ring_cloud import artifact_io, cloud_semantics, pipeline_support, quicklooks
         from geo_ring_cloud.adapters import claas3, cloud_products
         from geo_ring_cloud.diagnostics import epic_pair
+        from geo_ring_cloud.diagnostics import full_pixel, full_pixel_workflow
 
         self.assertIs(legacy_lineage.write_manifest, lineage.write_manifest)
         self.assertIs(legacy_runs.resolve_run_dir, run_discovery.resolve_run_dir)
         self.assertIs(legacy_sources.SourceDefinition, sources.SourceDefinition)
         self.assertIs(legacy_claas3.read_product, claas3.read_product)
         self.assertIs(legacy_diagnostics.paired_height_metrics, epic_pair.paired_height_metrics)
+        self.assertIs(legacy_full_pixel_workflow.d09d, full_pixel)
+        self.assertIs(
+            legacy_full_pixel_workflow.write_run_manifest,
+            full_pixel_workflow.write_run_manifest,
+        )
         self.assertIs(legacy_pipeline.read_product, pipeline_support.read_product)
         self.assertIs(pipeline_support.read_product, cloud_products.read_product)
         self.assertIs(pipeline_support.make_quicklook, quicklooks.make_quicklook)
@@ -389,6 +396,47 @@ class PackageBoundaryTests(unittest.TestCase):
             {node.name for node in stage_06c.body if isinstance(node, ast.FunctionDef)},
         )
 
+    def test_full_pixel_consumers_use_canonical_package_dependencies(self) -> None:
+        consumers = [
+            "stage_09d_geo_visible_control/stage_09d_vis_run.py",
+            "stage_09d_geo_visible_control/stage_09d_vis_postprocess.py",
+            "stage_09d_source_selection_sensitivity/stage_09d_sel_run.py",
+            "stage_09d_source_selection_sensitivity/stage_09d_sel_postprocess.py",
+            "stage_09d_vis_sel_joint/stage_09d_vis_sel_joint_report.py",
+            "stage_09e_psf_sel_qc/stage_09e_run_psf_sel_qc.py",
+            "stage_09f_spatial_story_maps/stage_09f_make_spatial_story_maps.py",
+        ]
+        for name in consumers:
+            source = (CODE_DIR / name).read_text(encoding="utf-8-sig")
+            self.assertNotIn("from stage_09d_diagnostic_common", source, name)
+            self.assertNotIn("import path_config", source, name)
+
+        runner = ast.parse(
+            (
+                CODE_DIR
+                / "stage09d_full_pixel_diagnostics"
+                / "run_stage09d_full_pixel_diagnostics.py"
+            ).read_text(encoding="utf-8-sig")
+        )
+        extracted = {
+            "load_npz",
+            "load_grid",
+            "row_col",
+            "sample_grid",
+            "read_epic",
+            "apply_policy",
+            "source_to_standard",
+            "binary_metrics",
+            "classify_array",
+            "find_prefusion",
+            "sample_context",
+            "make_boundary",
+        }
+        runner_functions = {
+            node.name for node in runner.body if isinstance(node, ast.FunctionDef)
+        }
+        self.assertFalse(extracted & runner_functions)
+
     def test_canonical_lineage_manifest_contract(self) -> None:
         from geo_ring_cloud.lineage import write_manifest
         from geo_ring_cloud.sources import REGISTRY_VERSION
@@ -416,6 +464,112 @@ class PackageBoundaryTests(unittest.TestCase):
         self.assertEqual(payload["related_stage_ids"], ["stage_09d", "stage_10"])
         self.assertEqual(payload["parameter_summary"], {"sample_count": 2})
         self.assertEqual(payload["source_registry_version"], REGISTRY_VERSION)
+
+
+class FullPixelDiagnosticTests(unittest.TestCase):
+    def test_sampling_policy_and_source_mapping_contract(self) -> None:
+        from geo_ring_cloud.diagnostics import full_pixel
+
+        grid = {
+            "resolution_degree": 1.0,
+            "lat_centers_first_last": [-0.5, 0.5],
+            "lon_centers_first_last": [-0.5, 0.5],
+        }
+        data = np.asarray([[10.0, 20.0], [30.0, 40.0]], dtype=np.float32)
+        valid = np.asarray([[True, False], [True, True]])
+        sampled, sampled_valid = full_pixel.sample_grid(
+            data,
+            valid,
+            np.asarray([[-0.5, -0.5], [0.5, 0.5]], dtype=np.float32),
+            np.asarray([[-0.5, 0.5], [-0.5, 0.5]], dtype=np.float32),
+            grid,
+        )
+        np.testing.assert_allclose(
+            sampled,
+            [[10.0, np.nan], [30.0, 40.0]],
+            equal_nan=True,
+        )
+        np.testing.assert_array_equal(
+            sampled_valid,
+            [[True, False], [True, True]],
+        )
+
+        raw = np.asarray([[0, 1, 2, 3, 9]], dtype=np.int16)
+        np.testing.assert_array_equal(
+            full_pixel.source_to_standard("FY4B", raw),
+            [[3, 2, 1, 0, -9999]],
+        )
+        policy = full_pixel.POLICIES["A_inclusive_binary"]
+        self.assertEqual(policy["positive"], 1)
+        classes, policy_valid = full_pixel.apply_policy(
+            np.asarray([[1, 2, 3, 4, 9]], dtype=np.float32),
+            policy["epic"],
+        )
+        np.testing.assert_array_equal(classes, [[0, 0, 1, 1, -1]])
+        np.testing.assert_array_equal(policy_valid, [[True, True, True, True, False]])
+
+    def test_stage09d_runner_exports_canonical_primitives(self) -> None:
+        from geo_ring_cloud.diagnostics import full_pixel
+
+        runner = importlib.import_module(
+            "stage09d_full_pixel_diagnostics.run_stage09d_full_pixel_diagnostics"
+        )
+        for name in (
+            "sample_grid",
+            "apply_policy",
+            "binary_metrics",
+            "source_to_standard",
+            "sample_context",
+            "make_boundary",
+        ):
+            self.assertIs(getattr(runner, name), getattr(full_pixel, name))
+        self.assertIs(runner.POLICIES, full_pixel.POLICIES)
+        self.assertEqual(runner.STAGE_ID, "stage_09d")
+
+    def test_full_pixel_stage_cli_import_boundaries(self) -> None:
+        scripts = [
+            "stage09d_full_pixel_diagnostics/run_stage09d_full_pixel_diagnostics.py",
+            "stage_09e_psf_sel_qc/stage_09e_run_psf_sel_qc.py",
+            "stage_09f_spatial_story_maps/stage_09f_make_spatial_story_maps.py",
+        ]
+        for script in scripts:
+            completed = subprocess.run(
+                [sys.executable, script, "--help"],
+                cwd=CODE_DIR,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("usage:", completed.stdout.lower())
+
+    def test_workflow_manifest_uses_explicit_canonical_stage(self) -> None:
+        from geo_ring_cloud.diagnostics.full_pixel_workflow import write_run_manifest
+
+        with test_directory("full_pixel_manifest") as root:
+            manifest_path = root / "stage_09e_contract_manifest.json"
+            script_path = CODE_DIR / "stage_09e_psf_sel_qc" / "stage_09e_run_psf_sel_qc.py"
+            write_run_manifest(
+                manifest_path,
+                canonical_stage_id="stage_09e",
+                script_path=script_path,
+                input_paths=[root / "input.csv"],
+                output_paths=[root / "output.csv"],
+                filters=["common_valid"],
+                unit_conversions=[],
+                row_counts={"metrics": 2},
+                warnings=[],
+            )
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["project_id"], "geo_ring_cloud")
+        self.assertEqual(payload["canonical_stage_id"], "stage_09e")
+        self.assertEqual(payload["stage_id"], "stage_09e")
+        self.assertEqual(payload["generating_script"], str(script_path))
+        self.assertEqual(payload["parameter_summary"]["row_counts"], {"metrics": 2})
+        self.assertIn("timestamp", payload)
+        self.assertIn("code_commit", payload)
 
 
 class FusionAndOverlapSupportTests(unittest.TestCase):

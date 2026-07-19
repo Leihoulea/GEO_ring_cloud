@@ -31,14 +31,14 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import path_config  # noqa: E402
-from stage_09d_diagnostic_common import (  # noqa: E402
+from geo_ring_cloud import paths as path_config  # noqa: E402
+from geo_ring_cloud.diagnostics import full_pixel as d09d  # noqa: E402
+from geo_ring_cloud.diagnostics.full_pixel_workflow import (  # noqa: E402
     SOURCE_FAMILY,
     SOURCE_ID_TO_NAME,
     SOURCE_NAME_TO_ID,
     base_valid_mask,
     bool_series,
-    d09d,
     family_array,
     load_manifest,
     scene_boundary,

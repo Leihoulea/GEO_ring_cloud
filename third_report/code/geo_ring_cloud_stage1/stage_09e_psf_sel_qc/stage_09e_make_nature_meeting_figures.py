@@ -26,7 +26,7 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import path_config  # noqa: E402
+from geo_ring_cloud import paths as path_config  # noqa: E402
 
 STAGE_ID = "stage_09e"
 RUN_ID = "stage_09e_nature_meeting_figures_202403"

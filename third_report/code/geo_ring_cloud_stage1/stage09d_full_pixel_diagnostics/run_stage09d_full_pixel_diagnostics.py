@@ -21,7 +21,6 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import netCDF4
 import numpy as np
 import pandas as pd
 
@@ -31,29 +30,30 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from geo_ring_cloud.lineage import utc_now  # noqa: E402
 from geo_ring_cloud.paths import RUNS_ROOT  # noqa: E402
+from geo_ring_cloud.diagnostics.full_pixel import (  # noqa: E402
+    POLICIES,
+    SOURCES,
+    SOURCE_ID,
+    SOURCE_PAIR_LIST,
+    binary_metrics,
+    classify_array,
+    find_prefusion,
+    load_grid,
+    load_npz,
+    make_boundary,
+    read_epic,
+    row_col,
+    sample_context,
+    sample_grid,
+    source_to_standard,
+    apply_policy,
+)
 
 
+STAGE_ID = "stage_09d"
 DEFAULT_09C_DIR = RUNS_ROOT / "stage09c_scaled_202403_batch"
 DEFAULT_OUT_DIR = RUNS_ROOT / "stage09d_full_pixel_diagnostics_202403"
 INV_09B = RUNS_ROOT / "stage09b_full_202403_overnight_diagnostics" / "01_inventory_expansion" / "stage09b_full_candidate_inventory_202403.csv"
-
-SOURCES = ["FY4B", "GOES-16", "GOES-18", "Himawari-9", "Meteosat-0deg", "Meteosat-IODC"]
-SOURCE_PRODUCTS = {"FY4B": "CLM", "GOES-16": "ACMF", "GOES-18": "ACMF", "Himawari-9": "CMSK", "Meteosat-0deg": "CLM", "Meteosat-IODC": "CLM"}
-SOURCE_ID = {1: "GOES-16", 2: "GOES-18", 3: "FY4B", 4: "Himawari-9", 5: "Meteosat-0deg", 6: "Meteosat-IODC"}
-SOURCE_PAIR_LIST = [
-    ("FY4B", "Himawari-9"),
-    ("FY4B", "Meteosat-IODC"),
-    ("Himawari-9", "Meteosat-IODC"),
-    ("Meteosat-0deg", "Meteosat-IODC"),
-    ("Meteosat-0deg", "GOES-16"),
-    ("GOES-16", "GOES-18"),
-]
-
-POLICIES = {
-    "A_inclusive_binary": {"epic": {1: 0, 2: 0, 3: 1, 4: 1}, "geo": {0: 0, 1: 0, 2: 1, 3: 1}, "positive": 1},
-    "B_high_confidence_only": {"epic": {1: 0, 4: 1}, "geo": {0: 0, 3: 1}, "positive": 1},
-    "C_uncertainty_aware_3class": {"epic": {1: 0, 2: 1, 3: 1, 4: 2}, "geo": {0: 0, 1: 1, 2: 1, 3: 2}, "positive": 2},
-}
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -104,130 +104,6 @@ def ensure_dirs(out: Path) -> None:
         (out / name).mkdir(parents=True, exist_ok=True)
 
 
-def load_npz(path: Path) -> dict[str, np.ndarray]:
-    with np.load(path, allow_pickle=True) as z:
-        return {k: np.asarray(z[k]) for k in z.files if not k.endswith("json")}
-
-
-def load_grid(run_dir: Path) -> dict[str, Any]:
-    return json.loads((run_dir / "reprojected_grid" / "target_grid_definition.json").read_text(encoding="utf-8"))
-
-
-def row_col(lat: np.ndarray, lon: np.ndarray, grid: dict[str, Any], shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    res = float(grid["resolution_degree"])
-    if "lat_centers_first_last" in grid:
-        lat0 = float(grid["lat_centers_first_last"][0])
-        lon0 = float(grid["lon_centers_first_last"][0])
-    else:
-        lat0 = float(grid["lat_min"]) + res / 2.0
-        lon0 = float(grid["lon_min"]) + res / 2.0
-    lon_norm = ((lon.astype(np.float32) + 180.0) % 360.0) - 180.0
-    r = np.rint((lat.astype(np.float32) - lat0) / res).astype(np.int64)
-    c = np.rint((lon_norm - lon0) / res).astype(np.int64)
-    ok = np.isfinite(lat) & np.isfinite(lon_norm) & (r >= 0) & (r < shape[0]) & (c >= 0) & (c < shape[1])
-    return r, c, ok
-
-
-def sample_grid(data: np.ndarray, valid: np.ndarray, lat: np.ndarray, lon: np.ndarray, grid: dict[str, Any], fill: float = np.nan) -> tuple[np.ndarray, np.ndarray]:
-    r, c, ok = row_col(lat, lon, grid, data.shape)
-    out = np.full(lat.shape, fill, dtype=np.float32)
-    out_valid = np.zeros(lat.shape, dtype=bool)
-    out[ok] = data[r[ok], c[ok]].astype(np.float32)
-    out_valid[ok] = valid[r[ok], c[ok]].astype(bool)
-    out[~out_valid] = fill
-    return out, out_valid
-
-
-def find_nc_var(ds: netCDF4.Dataset, options: list[str]) -> str | None:
-    for name in options:
-        group, _, var = name.rpartition("/")
-        obj = ds[group] if group else ds
-        if var in obj.variables:
-            return name
-    return None
-
-
-def read_epic(path: Path) -> dict[str, np.ndarray]:
-    with netCDF4.Dataset(path) as ds:
-        lat = find_nc_var(ds, ["geolocation_data/latitude", "geolocation_data/Latitude"])
-        lon = find_nc_var(ds, ["geolocation_data/longitude", "geolocation_data/Longitude"])
-        cm = find_nc_var(ds, ["geophysical_data/Cloud_Mask", "geophysical_data/cloud_mask"])
-        if not lat or not lon or not cm:
-            raise RuntimeError(f"missing EPIC lat/lon/cloud in {path}")
-        out = {
-            "lat": np.asarray(ds[lat][:], dtype=np.float32),
-            "lon": np.asarray(ds[lon][:], dtype=np.float32),
-            "cloud_mask": np.asarray(ds[cm][:], dtype=np.float32),
-        }
-        vza = find_nc_var(ds, ["geolocation_data/sensor_zenith", "geolocation_data/SensorZenith", "geolocation_data/ViewAngle"])
-        sza = find_nc_var(ds, ["geolocation_data/solar_zenith", "geolocation_data/SolarZenith", "geolocation_data/SunAngle"])
-        out["epic_vza"] = np.asarray(ds[vza][:], dtype=np.float32) if vza else np.full(out["lat"].shape, np.nan, dtype=np.float32)
-        out["sza"] = np.asarray(ds[sza][:], dtype=np.float32) if sza else np.full(out["lat"].shape, np.nan, dtype=np.float32)
-        return out
-
-
-def apply_policy(arr: np.ndarray, mapping: dict[int, int]) -> tuple[np.ndarray, np.ndarray]:
-    out = np.full(arr.shape, -1, dtype=np.int16)
-    valid = np.zeros(arr.shape, dtype=bool)
-    for raw, mapped in mapping.items():
-        m = arr == raw
-        out[m] = mapped
-        valid |= m
-    return out, valid
-
-
-def source_to_standard(source: str, raw: np.ndarray) -> np.ndarray:
-    out = np.full(raw.shape, -9999, dtype=np.int16)
-    if source == "FY4B":
-        mp = {0: 3, 1: 2, 2: 1, 3: 0}
-    elif source.startswith("GOES"):
-        mp = {0: 0, 1: 3}
-    elif source.startswith("Himawari"):
-        mp = {0: 0, 1: 1, 2: 2, 3: 3}
-    elif source.startswith("Meteosat"):
-        mp = {0: 0, 1: 0, 2: 3}
-    else:
-        mp = {}
-    for k, v in mp.items():
-        out[raw == k] = v
-    return out
-
-
-def binary_metrics(epic: np.ndarray, geo: np.ndarray, valid: np.ndarray, positive: int) -> dict[str, Any]:
-    n = int(np.count_nonzero(valid))
-    if n == 0:
-        return {"n_valid": 0, "agreement": math.nan}
-    e = epic[valid]
-    g = geo[valid]
-    ep = e == positive
-    gp = g == positive
-    tp = int(np.count_nonzero(ep & gp))
-    tn = int(np.count_nonzero((~ep) & (~gp)))
-    fp = int(np.count_nonzero((~ep) & gp))
-    fn = int(np.count_nonzero(ep & (~gp)))
-    precision = tp / max(tp + fp, 1)
-    recall = tp / max(tp + fn, 1)
-    specificity = tn / max(tn + fp, 1)
-    f1 = 2 * precision * recall / max(precision + recall, 1e-12)
-    return {
-        "n_valid": n,
-        "agreement": float(np.mean(e == g)),
-        "precision_cloud": precision,
-        "recall_cloud": recall,
-        "f1_cloud": f1,
-        "iou_cloud": tp / max(tp + fp + fn, 1),
-        "balanced_accuracy": (recall + specificity) / 2.0,
-        "cloud_fraction_epic": float(np.mean(ep)),
-        "cloud_fraction_source": float(np.mean(gp)),
-        "cloud_fraction_georing": float(np.mean(gp)),
-        "cloud_fraction_bias": float(np.mean(gp) - np.mean(ep)),
-        "TP": tp,
-        "TN": tn,
-        "FP": fp,
-        "FN": fn,
-    }
-
-
 def nanmean_mask(arr: np.ndarray, valid: np.ndarray) -> float:
     if not np.any(valid):
         return math.nan
@@ -242,13 +118,6 @@ def bin_value(value: float, bins: list[tuple[str, float, float]]) -> str:
         if lo <= value < hi:
             return label
     return bins[-1][0]
-
-
-def classify_array(values: np.ndarray, bins: list[tuple[str, float, float]]) -> np.ndarray:
-    out = np.full(values.shape, "missing", dtype=object)
-    for label, lo, hi in bins:
-        out[(values >= lo) & (values < hi)] = label
-    return out
 
 
 def integral_sum(mask: np.ndarray) -> np.ndarray:
@@ -290,15 +159,6 @@ def build_lookup(stage09c_dir: Path) -> dict[str, dict[str, str]]:
             "time_diff_min": r.get("time_diff_min", ""),
         })
     return lookup
-
-
-def find_prefusion(run_dir: Path, source: str, tag: str) -> Path | None:
-    root = run_dir / "reprojected_grid" / source
-    product = SOURCE_PRODUCTS[source]
-    hits = list(root.glob(f"{source}_{product}_cloud_mask_grid_{tag}.npz"))
-    if not hits:
-        hits = list(root.glob(f"*cloud_mask*{tag}.npz"))
-    return hits[0] if hits else None
 
 
 def find_any(run_dir: Path, pattern: str) -> Path | None:
@@ -373,28 +233,6 @@ def build_manifest(stage09c_dir: Path, out: Path) -> list[dict[str, Any]]:
     lines = ["# Stage 09D Sample Manifest", "", f"- Created UTC: `{utc_now()}`", f"- Samples: `{len(rows)}`", f"- Source-pair runnable: `{sum(str(r['can_run_source_pair']) == 'True' or r['can_run_source_pair'] is True for r in rows)}`", f"- Sampling runnable: `{sum(str(r['can_run_sampling']) == 'True' or r['can_run_sampling'] is True for r in rows)}`"]
     (out / "00_sample_manifest" / "stage09d_manifest_report.md").write_text("\n".join(lines), encoding="utf-8")
     return rows
-
-
-def sample_context(row: dict[str, Any]) -> dict[str, Any]:
-    tag = row["sample_id"]
-    run_dir = Path(row["stage_run_dir"])
-    epic = read_epic(Path(row["epic_file"]))
-    grid = load_grid(run_dir)
-    fused = load_npz(run_dir / "fused_best_source" / "fused_cloud_mask.npz")
-    fused_data = np.asarray(fused["data"])
-    fused_valid = np.asarray(fused.get("valid_mask", np.isfinite(fused_data))).astype(bool)
-    fused_on_epic, fused_on_valid = sample_grid(fused_data, fused_valid, epic["lat"], epic["lon"], grid)
-    source_map_path = run_dir / "fused_best_source" / "source_map_cloud_mask.npz"
-    count_path = run_dir / "fused_best_source" / "valid_count_map_cloud_mask.npz"
-    source_on_epic = np.full(epic["lat"].shape, np.nan, dtype=np.float32)
-    count_on_epic = np.full(epic["lat"].shape, np.nan, dtype=np.float32)
-    if source_map_path.exists():
-        sm = load_npz(source_map_path)
-        source_on_epic, _ = sample_grid(sm["data"], np.asarray(sm.get("valid_mask", np.isfinite(sm["data"]))).astype(bool), epic["lat"], epic["lon"], grid)
-    if count_path.exists():
-        vc = load_npz(count_path)
-        count_on_epic, _ = sample_grid(vc["data"], np.asarray(vc.get("valid_mask", np.isfinite(vc["data"]))).astype(bool), epic["lat"], epic["lon"], grid)
-    return {"tag": tag, "run_dir": run_dir, "epic": epic, "grid": grid, "fused_data": fused_data, "fused_valid": fused_valid, "fused_on_epic": fused_on_epic, "fused_on_valid": fused_on_valid, "selected_source": source_on_epic, "valid_count": count_on_epic}
 
 
 def truthy(value: Any) -> bool:
@@ -545,25 +383,6 @@ def source_pair_module(manifest: list[dict[str, Any]], out: Path, args: argparse
     write_csv(out / "01_source_pair_recompute" / "stage09d_source_pair_warnings.csv", warnings)
     summarize_source_pair(out)
     checkpoint(out, "source_pair")
-
-
-def make_boundary(fused_std: np.ndarray, fused_valid: np.ndarray, policy_name: str) -> tuple[np.ndarray, np.ndarray]:
-    policy = POLICIES[policy_name]
-    cls, pv = apply_policy(fused_std, policy["geo"])
-    cloud = cls == policy["positive"]
-    valid = fused_valid & pv
-    # Approximate boundary in EPIC pixel space; this captures representativeness at EPIC sample spacing.
-    padded_cloud = np.pad(cloud.astype(np.int8), 1, mode="edge")
-    padded_valid = np.pad(valid.astype(np.int8), 1, mode="constant")
-    count = np.zeros(cloud.shape, dtype=np.int16)
-    vcount = np.zeros(cloud.shape, dtype=np.int16)
-    for dy in range(3):
-        for dx in range(3):
-            count += padded_cloud[dy:dy + cloud.shape[0], dx:dx + cloud.shape[1]]
-            vcount += padded_valid[dy:dy + cloud.shape[0], dx:dx + cloud.shape[1]]
-    boundary = valid & (count > 0) & (count < vcount)
-    frac = np.where(vcount > 0, count / np.maximum(vcount, 1), np.nan)
-    return frac.astype(np.float32), boundary
 
 
 def summarize_source_pair(out: Path) -> None:

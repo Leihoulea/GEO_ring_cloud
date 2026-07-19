@@ -13,8 +13,14 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import path_config  # noqa: E402
-from stage_09d_diagnostic_common import md_table, read_csv, summarize_metric_rows, utc_now, write_csv  # noqa: E402
+from geo_ring_cloud import paths as path_config  # noqa: E402
+from geo_ring_cloud.diagnostics.full_pixel_workflow import (  # noqa: E402
+    md_table,
+    read_csv,
+    summarize_metric_rows,
+    utc_now,
+    write_csv,
+)
 
 
 DEFAULT_OUT = path_config.RUNS_ROOT / "stage09d_source_selection_sensitivity_202403"

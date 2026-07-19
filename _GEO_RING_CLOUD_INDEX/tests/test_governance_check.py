@@ -291,6 +291,26 @@ class ModuleRegistryTests(unittest.TestCase):
 
 
 class PackageDependencyBoundaryTests(unittest.TestCase):
+    def test_direct_legacy_stage_imports_are_rejected(self) -> None:
+        relative = (
+            "third_report/code/geo_ring_cloud_stage1/"
+            "geo_ring_cloud/diagnostics/bad.py"
+        )
+        sources = (
+            "import stage09d_full_pixel_diagnostics\n",
+            "import run_stage09d_full_pixel_diagnostics\n",
+            "from stage_09d_pipeline import helper\n",
+            "from stage09_pipeline import helper\n",
+        )
+        for index, source in enumerate(sources):
+            with self.subTest(source=source), isolated_root(f"direct_stage_import_{index}") as root:
+                write(root, relative, source)
+                findings = governance_check.check_package_dependency_boundaries([relative])
+
+            self.assertTrue(
+                any("must not depend on stage module" in item.message for item in findings)
+            )
+
     def test_dynamic_stage_loading_is_rejected(self) -> None:
         relative = (
             "third_report/code/geo_ring_cloud_stage1/"

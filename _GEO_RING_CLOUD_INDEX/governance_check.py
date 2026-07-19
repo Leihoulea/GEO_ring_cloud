@@ -125,6 +125,7 @@ COMPATIBILITY_SHIM_PATHS = {
     f"{CORE_CODE_PREFIX}geo_ring_cloud_run_discovery.py": "geo_ring_cloud.run_discovery",
     f"{CORE_CODE_PREFIX}geo_ring_cloud_claas3_adapter.py": "geo_ring_cloud.adapters.claas3",
     f"{CORE_CODE_PREFIX}geo_ring_cloud_epic_pair_diagnostics.py": "geo_ring_cloud.diagnostics.epic_pair",
+    f"{CORE_CODE_PREFIX}stage_09d_diagnostic_common.py": "geo_ring_cloud.diagnostics.full_pixel_workflow",
     f"{CORE_CODE_PREFIX}stage1_common.py": "geo_ring_cloud.pipeline_support",
 }
 STAGE_COMPATIBILITY_ENTRYPOINTS = {
@@ -188,6 +189,7 @@ LEGACY_IMPORT_MODULES = {
     "geo_ring_cloud_run_discovery",
     "geo_ring_cloud_claas3_adapter",
     "geo_ring_cloud_epic_pair_diagnostics",
+    "stage_09d_diagnostic_common",
 }
 FORBIDDEN_ACTIVE_IMPORT_MODULES = LEGACY_IMPORT_MODULES | {
     "geo_ring_cloud.pipeline_support",
@@ -766,7 +768,7 @@ def check_package_dependency_boundaries(paths: list[str]) -> list[Finding]:
                 module = node.module or ""
             elif isinstance(node, ast.Import):
                 module = next((alias.name for alias in node.names), "")
-            if module and (module.startswith("stage_") or re.match(r"^\d", module)):
+            if module and re.match(r"^(?:stage_?\d|run_stage_?\d|\d)", module):
                 findings.append(
                     Finding("ERROR", rel_path, f"package module must not depend on stage module: {module}")
                 )

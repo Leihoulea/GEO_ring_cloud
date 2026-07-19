@@ -21,8 +21,9 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import path_config  # noqa: E402
-from stage_09d_diagnostic_common import (  # noqa: E402
+from geo_ring_cloud import paths as path_config  # noqa: E402
+from geo_ring_cloud.diagnostics import full_pixel as d09d  # noqa: E402
+from geo_ring_cloud.diagnostics.full_pixel_workflow import (  # noqa: E402
     ABS_LAT_BINS,
     DEFAULT_STAGE09D_DIR,
     EPIC_VZA_BINS,
@@ -35,7 +36,6 @@ from stage_09d_diagnostic_common import (  # noqa: E402
     base_valid_mask,
     bool_series,
     classify,
-    d09d,
     describe_valid_context,
     ensure_dirs,
     grouped_bar,
@@ -418,6 +418,7 @@ def run(args: argparse.Namespace) -> Path:
     report_path.write_text(build_report(regret_rows, ge4_diag, ge4_source, iodc_diag, warnings), encoding="utf-8")
     write_run_manifest(
         out / "logs" / "stage_09d_sel_manifest.json",
+        canonical_stage_id=STAGE_ID,
         script_path=Path(__file__).resolve(),
         input_paths=[stage09d_dir / "00_sample_manifest" / "stage09d_53_sample_manifest.csv"],
         output_paths=[current_csv, available_csv, rank_csv, regret_csv, counter_csv, ge4_diag_csv, ge4_source_csv, iodc_diag_csv, iodc_source_csv, plot_index_csv, report_path],

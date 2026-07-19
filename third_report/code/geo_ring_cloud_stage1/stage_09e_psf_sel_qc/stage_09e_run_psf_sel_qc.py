@@ -27,12 +27,12 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import path_config  # noqa: E402
-from stage_09d_diagnostic_common import (  # noqa: E402
+from geo_ring_cloud import paths as path_config  # noqa: E402
+from geo_ring_cloud.diagnostics import full_pixel as d09d  # noqa: E402
+from geo_ring_cloud.diagnostics.full_pixel_workflow import (  # noqa: E402
     SOURCE_ID_TO_NAME,
     SOURCE_NAME_TO_ID,
     bool_series,
-    d09d,
     describe_valid_context,
     ensure_dirs,
     load_manifest,
@@ -350,6 +350,7 @@ def run_psf(args: argparse.Namespace, manifest: list[dict[str, Any]]) -> Path:
     report = write_psf_report(out, by_kernel, boundary_sum, gap_rows, warnings, [kernel_csv, per_sample_csv, by_kernel_csv, by_group_csv, boundary_csv, gap_csv, plot_index_csv])
     write_run_manifest(
         out / "logs" / "stage_09e_psf_manifest.json",
+        canonical_stage_id=STAGE_ID,
         script_path=Path(__file__),
         input_paths=[Path(args.stage09d_dir)],
         output_paths=[kernel_csv, per_sample_csv, by_kernel_csv, by_group_csv, boundary_csv, gap_csv, plot_index_csv, report],
@@ -689,6 +690,7 @@ def run_selqc(args: argparse.Namespace, manifest: list[dict[str, Any]]) -> Path:
     report = write_selqc_report(out, consistency_summary_csv, oracle_summary_csv, common_summary_csv, warnings, [consistency_csv, consistency_summary_csv, oracle_csv, oracle_summary_csv, common_csv, common_summary_csv, plot_index_csv])
     write_run_manifest(
         out / "logs" / "stage_09e_selqc_manifest.json",
+        canonical_stage_id=STAGE_ID,
         script_path=Path(__file__),
         input_paths=[Path(args.stage09d_dir)],
         output_paths=[consistency_csv, consistency_summary_csv, oracle_csv, oracle_summary_csv, common_csv, common_summary_csv, plot_index_csv, report],

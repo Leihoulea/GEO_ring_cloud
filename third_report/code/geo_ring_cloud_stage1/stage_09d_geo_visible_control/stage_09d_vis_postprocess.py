@@ -16,8 +16,15 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import path_config  # noqa: E402
-from stage_09d_diagnostic_common import md_table, read_csv, summarize_metric_rows, utc_now, write_csv, write_run_manifest  # noqa: E402
+from geo_ring_cloud import paths as path_config  # noqa: E402
+from geo_ring_cloud.diagnostics.full_pixel_workflow import (  # noqa: E402
+    md_table,
+    read_csv,
+    summarize_metric_rows,
+    utc_now,
+    write_csv,
+    write_run_manifest,
+)
 
 
 DEFAULT_OUT = path_config.RUNS_ROOT / "stage09d_geo_visible_controlled_metrics_202403"
@@ -224,6 +231,7 @@ def run(out: Path) -> Path:
     report_path.write_text(build_report(policy_mask, delta_rows, gap_rows, count_rows, pair_summary, warnings), encoding="utf-8")
     write_run_manifest(
         out / "logs" / "stage_09d_vis_postprocess_manifest.json",
+        canonical_stage_id=STAGE_ID,
         script_path=Path(__file__).resolve(),
         input_paths=[
             out / "02_policy_metrics" / "stage_09d_vis_policy_metrics_by_mask.csv",

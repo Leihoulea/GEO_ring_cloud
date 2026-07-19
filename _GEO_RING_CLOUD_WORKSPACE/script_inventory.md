@@ -10,9 +10,12 @@
 | geo_ring_cloud_source_registry.py | geo_ring_cloud |  | compatibility_shim | common | Stable source IDs, processing streams, products, profiles, tolerances, and variable rules |  |
 | path_config.py | geo_ring_cloud |  | compatibility_shim | common | Central environment-overridable paths including GEO_RING_CLAAS3_ROOT |  |
 | stage1_common.py | geo_ring_cloud |  | compatibility_shim | 公共 | 已登记 compatibility shim；权威 API 见 geo_ring_cloud.pipeline_support、pipeline_layout、cloud_semantics 和 diagnostics.summary |  |
+| stage_09d_diagnostic_common.py | geo_ring_cloud |  | compatibility_shim | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | geo_ring_cloud/data_asset_audit.py | geo_ring_cloud |  | data_asset_audit |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/diagnostics/epic_pair.py | geo_ring_cloud |  | diagnostics_library |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud/diagnostics/full_pixel.py | geo_ring_cloud |  | diagnostics_library |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/diagnostics/summary.py | geo_ring_cloud |  | diagnostics_library |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud/diagnostics/full_pixel_workflow.py | geo_ring_cloud |  | diagnostics_workflow |  | 当前文件系统扫描补充脚本 |  |
 | download_geo_geometry_samples.py | geo_ring_cloud |  | downloader | 下载 | 从 AWS S3 下载 GOES-16/18/Himawari-9 几何样本到 geo_geometry_check/ | D:\AAAresearch_paper\geo_geometry_check |
 | rebuild_stage1_evidence_pack.py | geo_ring_cloud |  | evidence_pack_builder | 证据包 | 重建 Stage1 证据包：汇总 data_check_report/geo_geometry_check/stage1 全部证据到 evidence_pack/ | D:\AAAresearch_paper\data_check_report,D:\AAAresearch_paper\geo_geometry_check,D:\AAAresearch_paper\geo_ring_cloud_stage1,D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack,D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 |
 | geo_ring_cloud_experiment_profile_pair.py | geo_ring_cloud |  | experiment_runner |  | 当前文件系统扫描补充脚本 |  |
@@ -98,7 +101,6 @@
 | stage09d_interpretation/audit_meteosat_semantics_stage09d.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | stage09d_interpretation/build_stage09d_interpretation_package.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | stage_09d_claas3_epic_profile_pair_evaluation.py | geo_ring_cloud | stage_09d |  | 09d | Matched common-domain EPIC cloud-mask profile-pair metrics and sample-block bootstrap |  |
-| stage_09d_diagnostic_common.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | stage_09d_geo_visible_control/stage_09d_vis_postprocess.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | stage_09d_geo_visible_control/stage_09d_vis_run.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | stage_09d_source_selection_sensitivity/stage_09d_sel_postprocess.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |

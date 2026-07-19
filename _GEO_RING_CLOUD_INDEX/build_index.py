@@ -624,6 +624,30 @@ MODULE_REGISTRY = (
         "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,DiagnosticTests",
         "notes": "Reusable diagnostics depend on package adapters and source registry, not stage scripts.",
     },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.diagnostics.full_pixel",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/diagnostics/full_pixel.py",
+        "component_role": "diagnostics_library",
+        "legacy_module": "run_stage09d_full_pixel_diagnostics",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage09d_full_pixel_diagnostics/run_stage09d_full_pixel_diagnostics.py",
+        "migration_status": "canonical_extracted",
+        "public_api": "full-pixel EPIC/GEO sampling, policy mapping, source normalization, context loading and boundary metrics",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::FullPixelDiagnosticTests",
+        "notes": "Stage 09d, 09e and 09f use one package API; the Stage 09d runner retains orchestration only.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.diagnostics.full_pixel_workflow",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/diagnostics/full_pixel_workflow.py",
+        "component_role": "diagnostics_workflow",
+        "legacy_module": "stage_09d_diagnostic_common",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage_09d_diagnostic_common.py",
+        "migration_status": "canonical_with_compatibility_shim",
+        "public_api": "cross-stage CSV, stratification, plotting, context summaries and canonical run manifests",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,FullPixelDiagnosticTests",
+        "notes": "Manifest callers must provide canonical_stage_id; the legacy module remains a pure shim.",
+    },
 )
 CODE_MIGRATIONS = (
     {
@@ -1708,7 +1732,10 @@ def build_sqlite():
         fp = code_root / fname
         refs = ",".join(sorted(set(refs_by_script.get(fname, []))))
         canonical = canonical_stage_id(stage)
-        component_role = declared_component_role(fp) or ("" if canonical else COMPONENT_ROLES.get(stage, "support"))
+        declared_role = declared_component_role(fp)
+        component_role = declared_role or ("" if canonical else COMPONENT_ROLES.get(stage, "support"))
+        if declared_role and declared_role != "compatibility_entrypoint":
+            canonical = ""
         cur.execute(
             "INSERT INTO scripts(path,filename,stage,project_id,canonical_stage_id,component_role,legacy_stage,responsibility,refs_external_paths) "
             "VALUES(?,?,?,?,?,?,?,?,?)",
@@ -1724,6 +1751,9 @@ def build_sqlite():
             stage = infer_stage_from_name(rel_name)
             canonical = canonical_stage_id(stage)
             component_role = component_role_for_script(fp, rel_name, canonical)
+            declared_role = declared_component_role(fp)
+            if declared_role and declared_role != "compatibility_entrypoint":
+                canonical = ""
             cur.execute(
                 "INSERT INTO scripts(path,filename,stage,project_id,canonical_stage_id,component_role,legacy_stage,responsibility,refs_external_paths) "
                 "VALUES(?,?,?,?,?,?,?,?,?)",
@@ -2032,7 +2062,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 | audit semantics | 数据资产审计的可测试语义修正规则 | `geo_ring_cloud.data_asset_audit` |
 | stage pipeline | 单一 canonical stage 的科学处理与验证 | `stage_09d_*`, `stage_10_*` |
 | orchestration | 跨阶段实验、批处理、time-run matrix | `geo_ring_cloud_experiment_profile_pair.py`, `geo_ring_cloud_time_run_matrix.py` |
-| diagnostics | 可复用指标、采样和分层统计 | `geo_ring_cloud.diagnostics.epic_pair` |
+| diagnostics | 可复用指标、采样、分层统计与 full-pixel workflow | `geo_ring_cloud.diagnostics.epic_pair`, `geo_ring_cloud.diagnostics.full_pixel`, `geo_ring_cloud.diagnostics.full_pixel_workflow` |
 | presentation | 代表性图、组会材料生成 | `stage_10/stage_10_make_*` |
 | tests | 轻量单元、smoke 与回归测试；生成物只放 `tests/_tmp` | `tests/` |
 
@@ -2097,6 +2127,7 @@ Generated: `{GENERATED_AT}`
 - Stage 06e 两个实现已迁入 `stage_06e_geometry_angle_sync/`；子进程与报告根分别由 `CODE_ROOT`、`THIRD_REPORT_ROOT` 稳定解析。
 - Stage 06f 三个实现已迁入 `stage_06f_data_asset_audit/`；原路径由 AST 门禁约束为薄兼容入口。
 - Stage 07p 两个实现已迁入 `stage_07p_overlap_validation/`；实验 runner 已切换 canonical 路径，`stage_07p_b` 保持独立。
+- Stage 09d/09e/09f 的 full-pixel 采样、policy 与 workflow support 已进入 `geo_ring_cloud.diagnostics`；后续阶段不再反向导入 Stage 09d 脚本。
 {dynamic_loader_status}
 {path_debt_status}
 - `environment.yml` 已固定已验证的直接依赖；跨平台传递依赖锁仍应在正式实验发布时按平台生成。
