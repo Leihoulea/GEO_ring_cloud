@@ -19,16 +19,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from geo_ring_cloud import paths as path_config
-from geo_ring_cloud.lineage import write_manifest
-from geo_ring_cloud.sources import REGISTRY_VERSION, tie_order, validate_profile
-from geo_ring_cloud.diagnostics.summary import finite_stats
-from geo_ring_cloud.pipeline_support import (
+from geo_ring_cloud.lineage import utc_now, write_manifest
+from geo_ring_cloud.pipeline_layout import (
     REPORT_DIR,
     SCRIPT_DIR,
     STAGE_ROOT,
-    ensure_dirs,
-    utc_now,
+    ensure_pipeline_directories as ensure_dirs,
 )
+from geo_ring_cloud.sources import REGISTRY_VERSION, tie_order, validate_profile
+from geo_ring_cloud.diagnostics.summary import finite_stats
 from geo_ring_cloud.cloud_semantics import cloud_mask_masks, cloud_mask_rows, cloud_mask_semantics
 
 

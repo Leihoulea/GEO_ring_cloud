@@ -18,18 +18,12 @@ import yaml
 
 from geo_ring_cloud.sources import SOURCE_BY_KEY, tie_order, validate_profile
 from geo_ring_cloud.diagnostics.summary import finite_stats
+from geo_ring_cloud.adapters.cloud_products import find_himawari_r21_geometry_file, read_mapping
+from geo_ring_cloud.lineage import utc_now
+from geo_ring_cloud.pipeline_layout import REPORT_DIR, SCRIPT_DIR
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
-from geo_ring_cloud.pipeline_support import (
-    REPORT_DIR,
-    SCRIPT_DIR,
-    find_himawari_r21_geometry_file,
-    read_mapping,
-    utc_now,
-)
-
 
 STAGE_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1")
 REPROJECT_DIR = STAGE_ROOT / "reprojected_grid"

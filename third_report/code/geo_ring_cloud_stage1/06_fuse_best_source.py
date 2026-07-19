@@ -29,15 +29,17 @@ from geo_ring_cloud.sources import (
     variable_rules,
 )
 from geo_ring_cloud.diagnostics.summary import finite_stats
-from geo_ring_cloud.pipeline_support import (
-    REPORT_DIR,
-    SCRIPT_DIR,
-    STAGE_ROOT,
-    ensure_dirs,
+from geo_ring_cloud.adapters.cloud_products import (
     find_himawari_r21_geometry_file,
     read_himawari_r21_geometry,
     read_mapping,
-    utc_now,
+)
+from geo_ring_cloud.lineage import utc_now
+from geo_ring_cloud.pipeline_layout import (
+    REPORT_DIR,
+    SCRIPT_DIR,
+    STAGE_ROOT,
+    ensure_pipeline_directories as ensure_dirs,
 )
 from geo_ring_cloud.cloud_semantics import cloud_mask_semantics, reproject_mask_for_use
 

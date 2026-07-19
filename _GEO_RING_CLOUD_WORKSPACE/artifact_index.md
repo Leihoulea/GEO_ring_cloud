@@ -48,7 +48,7 @@
 | geo_ring_cloud |  | experiment_runner | directory_summary | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\stage_10_claas3_aligned_202403\claas3_stage0910_march_202403 | experiment_runner | directory_summary | 217 | .csv:109, .json:107, .md:1 | claas3_stage0910_march_202403 |
 | geo_ring_cloud |  | experiment_runner | directory_summary | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\stage_10_claas3_aligned_202403\claas3_stage0910_pilot_202403 | experiment_runner | directory_summary | 25 | .csv:13, .json:11, .md:1 | claas3_stage0910_pilot_202403 |
 | geo_ring_cloud |  | data_product_audit | directory_summary | D:\AAAresearch_paper\third_report\code\geo_data_audit | data_product_audit | directory_summary | 17 | .py:16, .yaml:1 | geo_data_audit |
-| geo_ring_cloud |  | support | directory_summary | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 |  | directory_summary | 102 | .py:93, .ps1:3, .md:2, .yml:1, .toml:1, .json:1 | geo_ring_cloud_stage1 |
+| geo_ring_cloud |  | support | directory_summary | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 |  | directory_summary | 105 | .py:96, .ps1:3, .md:2, .yml:1, .toml:1, .json:1 | geo_ring_cloud_stage1 |
 | geo_ring_cloud |  | support | report | D:\AAAresearch_paper\geo_ring_cloud_stage1\reports\fy4b_quality_mapping_note.md |  | stage_report |  |  | fy4b_quality_mapping_note.md |
 | geo_ring_cloud |  | support | report | D:\AAAresearch_paper\geo_ring_cloud_stage1\reports\geo_ring_cloud_next_stage_report.md |  | stage_report |  |  | geo_ring_cloud_next_stage_report.md |
 | geo_ring_cloud |  | support | report | D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack\latest\README.md |  | evidence |  |  | README.md |

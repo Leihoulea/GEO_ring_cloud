@@ -2,18 +2,15 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import importlib.util
 import json
 import math
 import re
 import sqlite3
-import sys
 import traceback
 import xml.etree.ElementTree as ET
 import zipfile
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -24,6 +21,9 @@ import pandas as pd
 import yaml
 from satpy.readers.ahi_hsd import AHIHSDFileHandler
 from satpy.readers.seviri_l1b_native import NativeMSGFileHandler
+
+from geo_ring_cloud.adapters.cloud_products import attr_to_python, attrs_to_dict, normalize_name
+from geo_ring_cloud.lineage import utc_now
 
 
 WORK_ROOT = Path(r"D:\AAAresearch_paper\third_report")
@@ -78,23 +78,6 @@ MAX_ERROR_TEXT = 2000
 COMMIT_EVERY = 25
 
 
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-
-
-def load_module(module_path: Path, module_name: str):
-    spec = importlib.util.spec_from_file_location(module_name, module_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load module: {module_path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-STAGE1_COMMON = load_module(CODE_ROOT / "stage1_common.py", "stage1_common_06f")
-
-
 def safe_json(value: Any) -> str:
     def _default(obj: Any) -> Any:
         if isinstance(obj, (np.generic,)):
@@ -115,18 +98,6 @@ def truncate_text(text: Any, limit: int = MAX_ATTR_TEXT) -> str:
     if len(value) <= limit:
         return value
     return value[: limit - 3] + "..."
-
-
-def normalize_name(value: str) -> str:
-    return STAGE1_COMMON.normalize_name(value)
-
-
-def attr_to_python(value: Any) -> Any:
-    return STAGE1_COMMON.attr_to_python(value)
-
-
-def attrs_to_dict(attrs: Any) -> dict[str, Any]:
-    return STAGE1_COMMON.attrs_to_dict(attrs)
 
 
 def parse_time_from_any(value: Any) -> str | None:

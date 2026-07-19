@@ -446,15 +446,51 @@ MODULE_REGISTRY = (
     },
     {
         "project_id": PROJECT_ID,
-        "canonical_module": "geo_ring_cloud.pipeline_support",
-        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/pipeline_support.py",
-        "component_role": "transitional_pipeline_facade",
+        "canonical_module": "geo_ring_cloud.adapters.cloud_products",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/adapters/cloud_products.py",
+        "component_role": "product_adapter",
         "legacy_module": "stage1_common",
         "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage1_common.py",
-        "migration_status": "canonical_with_compatibility_shim",
-        "public_api": "legacy Stage 1 product readers, quicklooks and compatibility exports",
+        "migration_status": "canonical_extracted",
+        "public_api": "generic NetCDF/HDF/GRIB product readers, variable mapping, unit normalization, Himawari R21 geometry",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,CloudProductAdapterTests",
+        "notes": "Format adaptation is isolated from rendering, serialization, layout and stage orchestration.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.artifact_io",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/artifact_io.py",
+        "component_role": "artifact_io",
+        "legacy_module": "stage1_common",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage1_common.py",
+        "migration_status": "canonical_extracted",
+        "public_api": "safe_name, write_json_npz",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,ArtifactIoTests",
+        "notes": "Preserves the established Stage 1 NPZ arrays plus JSON metadata schema.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.quicklooks",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/quicklooks.py",
+        "component_role": "quicklook_renderer",
+        "legacy_module": "stage1_common",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage1_common.py",
+        "migration_status": "canonical_extracted",
+        "public_api": "make_quicklook",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,QuicklookTests",
+        "notes": "Bounded-memory rendering with separate categorical and continuous display behavior.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.pipeline_support",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/pipeline_support.py",
+        "component_role": "compatibility_facade",
+        "legacy_module": "stage1_common",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage1_common.py",
+        "migration_status": "canonical_compatibility_facade",
+        "public_api": "re-export facade for historical Stage 1 shared APIs",
         "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests",
-        "notes": "Transitional facade; new code imports focused layout and semantic modules. Product IO remains the next extraction target.",
+        "notes": "Pure imports and aliases only; governance rejects implementation logic and active stage callers use focused modules.",
     },
     {
         "project_id": PROJECT_ID,
@@ -1292,10 +1328,10 @@ def insert_data_product_audits(conn: sqlite3.Connection) -> None:
 
 def insert_naming_violations(conn: sqlite3.Connection) -> None:
     cur = conn.cursor()
-    registered_legacy_shims = {
+    registered_legacy_interfaces = {
         row["legacy_path"].replace("\\", "/").lower()
         for row in MODULE_REGISTRY
-        if "compatibility_shim" in row["migration_status"] and row["legacy_path"]
+        if row["legacy_module"] and row["legacy_path"]
     }
     for project_id, path, legacy, issue, severity, suggested, new_path, reason in [
         (PROJECT_ID, str(ROOT / "research_tracker"), "Step*/Stage* inferred labels", "untrusted_tracker_stage_inference", "warning", "", "", "research_tracker regex labels are not canonical taxonomy"),
@@ -1318,7 +1354,7 @@ def insert_naming_violations(conn: sqlite3.Connection) -> None:
                 continue
             rel_name = fp.relative_to(code_root).as_posix()
             repo_relative = fp.relative_to(ROOT).as_posix().lower()
-            if repo_relative in registered_legacy_shims:
+            if repo_relative in registered_legacy_interfaces:
                 continue
             inferred = canonical_stage_id(infer_stage_from_name(rel_name))
             cur.execute(
@@ -1751,7 +1787,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 
 ## 物理迁移原则
 
-`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、数组摘要统计、数据源注册、lineage、run discovery、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 是已登记的过渡 facade，不得继续增加新职责。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
+`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
 
 新 stage 若只有一个脚本，可使用 `stage_XX_<purpose>.py`；若有多个脚本，必须放入 `stage_XX_<purpose>/`。跨阶段工具不得伪造组合 stage，必须使用 `geo_ring_cloud_<role>_<purpose>.py`、声明 `COMPONENT_ROLE`，并在 manifest 中记录 `related_stage_ids`。
 """
@@ -1789,7 +1825,7 @@ Generated: `{GENERATED_AT}`
 
 ## 尚未达到的目标
 
-- `stage1_common.py` 已降为 compatibility shim，layout、cloud semantics 与数组摘要统计已拆出；产品读取和 quicklook 仍暂存于 `pipeline_support` 过渡 facade。
+- `stage1_common.py` 已降为 compatibility shim；`pipeline_support` 已降为纯兼容 facade，layout、cloud semantics、产品读取、quicklook、artifact IO 与数组摘要统计均已拆入专责模块。
 - 仍有历史绝对路径和非 canonical 命名；普通模式保留 warning，新增污染会被 hook 阻断。
 - `environment.yml` 已固定已验证的直接依赖；跨平台传递依赖锁仍应在正式实验发布时按平台生成。
 - 一部分旧 time-run 使用 `stage0910` 等组合标签；为保障续跑暂保留，只作为 legacy alias，不得用于新组件命名。
@@ -1797,8 +1833,8 @@ Generated: `{GENERATED_AT}`
 ## 优先级
 
 1. P0：任何新增 governance error 必须在提交前清零。
-2. P1：继续把 `pipeline_support` 中的通用产品读取与 quicklook 拆入专责模块，禁止向 facade 增加职责。
-3. P1：逐批参数化仍活跃脚本中的绝对路径。
+2. P1：逐批参数化仍活跃脚本中的历史绝对路径，并保持默认路径行为不变。
+3. P1：逐批清理阶段脚本通过动态加载彼此实现的编排耦合。
 4. P2：为正式实验发布生成平台化传递依赖锁；大数据集成测试继续本地运行。
 5. P2：按依赖审计结果渐进迁移扁平脚本，禁止一次性大搬迁。
 """
@@ -1874,7 +1910,7 @@ It applies to humans and AI agents.
 - MUST use `geo_ring_cloud_<role>_<purpose>.py` for new non-stage core utilities.
 - MUST place reusable shared APIs in the `geo_ring_cloud` package and import them through their canonical module names.
 - Package adapters and diagnostics MUST NOT import or dynamically load stage scripts; dependencies flow from stages to shared APIs.
-- `geo_ring_cloud.pipeline_support` is a transitional compatibility facade; new shared responsibilities MUST use focused package modules.
+- `geo_ring_cloud.pipeline_support` is a transitional compatibility facade. It MUST contain only imports, export metadata, and aliases; active stage/component code MUST NOT import it, and new shared responsibilities MUST use focused package modules.
 - Staged code MUST NOT import registered top-level compatibility shims; use canonical `geo_ring_cloud.*` modules.
 - Only the dedicated compatibility boundary test may import legacy shims, through the governance allowlist.
 - MUST NOT add implementation logic to top-level compatibility shims recorded in `module_registry.md`.

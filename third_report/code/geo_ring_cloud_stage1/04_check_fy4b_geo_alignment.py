@@ -14,7 +14,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from geo_ring_cloud.diagnostics.summary import finite_stats
-from geo_ring_cloud.pipeline_support import REPORT_DIR, SCRIPT_DIR, ensure_dirs, utc_now
+from geo_ring_cloud.lineage import utc_now
+from geo_ring_cloud.pipeline_layout import REPORT_DIR, SCRIPT_DIR, ensure_pipeline_directories as ensure_dirs
 
 
 NATIVE_DIR = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1\standardized_native")

@@ -61,9 +61,9 @@ class PackageBoundaryTests(unittest.TestCase):
         import stage1_common as legacy_pipeline
 
         from geo_ring_cloud import lineage, paths, run_discovery, sources
-        from geo_ring_cloud.adapters import claas3
+        from geo_ring_cloud import artifact_io, cloud_semantics, pipeline_support, quicklooks
+        from geo_ring_cloud.adapters import claas3, cloud_products
         from geo_ring_cloud.diagnostics import epic_pair
-        from geo_ring_cloud import cloud_semantics, pipeline_support
 
         self.assertIs(legacy_lineage.write_manifest, lineage.write_manifest)
         self.assertIs(legacy_runs.resolve_run_dir, run_discovery.resolve_run_dir)
@@ -71,6 +71,9 @@ class PackageBoundaryTests(unittest.TestCase):
         self.assertIs(legacy_claas3.read_product, claas3.read_product)
         self.assertIs(legacy_diagnostics.paired_height_metrics, epic_pair.paired_height_metrics)
         self.assertIs(legacy_pipeline.read_product, pipeline_support.read_product)
+        self.assertIs(pipeline_support.read_product, cloud_products.read_product)
+        self.assertIs(pipeline_support.make_quicklook, quicklooks.make_quicklook)
+        self.assertIs(pipeline_support.safe_name, artifact_io.safe_name)
         self.assertIs(legacy_pipeline.cloud_mask_masks, cloud_semantics.cloud_mask_masks)
         self.assertIs(pipeline_support.cloud_mask_semantics, cloud_semantics.cloud_mask_semantics)
         self.assertEqual(legacy_paths.PROJECT_ROOT, paths.PROJECT_ROOT)
@@ -117,6 +120,73 @@ class PipelineLayoutTests(unittest.TestCase):
         self.assertEqual(REPORT_DIR, STAGE_ROOT / "reports")
         self.assertEqual(PIPELINE_DIRECTORIES[0], STAGE_ROOT)
         self.assertEqual(len(PIPELINE_DIRECTORIES), len(set(PIPELINE_DIRECTORIES)))
+
+
+class CloudProductAdapterTests(unittest.TestCase):
+    def test_variable_resolution_unit_conversion_and_sentinel_masking(self) -> None:
+        from geo_ring_cloud.adapters.cloud_products import (
+            convert_units,
+            mask_sentinel_values,
+            resolve_variable_names,
+        )
+
+        resolved = resolve_variable_names(
+            ["science/Cloud_Optical_Thickness", "navigation/x"],
+            {
+                "cloud_optical_thickness": ["cloud optical thickness"],
+                "projection_x": ["x"],
+            },
+        )
+        self.assertEqual(resolved["science/Cloud_Optical_Thickness"], "cloud_optical_thickness")
+        self.assertEqual(resolved["navigation/x"], "projection_x")
+
+        height = convert_units(
+            "cloud_top_height_km",
+            np.asarray([1000.0, 2500.0], dtype=np.float32),
+            {"units": "m"},
+        )
+        np.testing.assert_allclose(height, [1.0, 2.5])
+        masked = mask_sentinel_values(np.asarray([1.0, -999.0, 65535.0], dtype=np.float32))
+        self.assertEqual(float(masked[0]), 1.0)
+        self.assertTrue(np.isnan(masked[1:]).all())
+
+
+class ArtifactIoTests(unittest.TestCase):
+    def test_npz_schema_and_portable_name_are_stable(self) -> None:
+        from geo_ring_cloud.artifact_io import safe_name, write_json_npz
+
+        self.assertEqual(safe_name("FY4B CPD / 2024:03"), "FY4B_CPD_2024_03")
+        with test_directory("artifact_io") as root:
+            path = root / "sample.npz"
+            write_json_npz(
+                path,
+                {"cloud_mask": np.asarray([[0, 1]], dtype=np.uint8)},
+                {"product": "CPD"},
+                {"has_cloud_mask": True},
+            )
+            with np.load(path, allow_pickle=False) as payload:
+                np.testing.assert_array_equal(payload["cloud_mask"], [[0, 1]])
+                self.assertEqual(json.loads(str(payload["metadata_json"])), {"product": "CPD"})
+                self.assertEqual(
+                    json.loads(str(payload["variable_availability_json"])),
+                    {"has_cloud_mask": True},
+                )
+
+
+class QuicklookTests(unittest.TestCase):
+    def test_representative_categorical_quicklook_is_nonempty(self) -> None:
+        from geo_ring_cloud.quicklooks import make_quicklook
+
+        with test_directory("quicklook") as root:
+            path = root / "cloud_mask.png"
+            make_quicklook(
+                np.asarray([[0, 1, 1], [0, 127, 1]], dtype=np.int16),
+                path,
+                "Cloud mask",
+                "cloud_mask",
+            )
+            self.assertTrue(path.is_file())
+            self.assertGreater(path.stat().st_size, 1000)
 
 
 class CloudSemanticsTests(unittest.TestCase):

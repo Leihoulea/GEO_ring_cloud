@@ -16,14 +16,16 @@ import netCDF4
 import numpy as np
 import pandas as pd
 
-from geo_ring_cloud.pipeline_support import (
-    REPORT_DIR,
-    SCRIPT_DIR,
-    ensure_dirs,
+from geo_ring_cloud.adapters.cloud_products import (
     find_himawari_r21_geometry_file,
     read_himawari_r21_geometry,
     read_mapping,
-    utc_now,
+)
+from geo_ring_cloud.lineage import utc_now
+from geo_ring_cloud.pipeline_layout import (
+    REPORT_DIR,
+    SCRIPT_DIR,
+    ensure_pipeline_directories as ensure_dirs,
 )
 
 

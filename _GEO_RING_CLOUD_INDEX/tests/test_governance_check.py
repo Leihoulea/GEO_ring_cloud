@@ -71,6 +71,38 @@ class CompatibilityShimTests(unittest.TestCase):
         self.assertTrue(all(item.severity == "ERROR" for item in findings))
 
 
+class PackageFacadeTests(unittest.TestCase):
+    def test_import_only_facade_is_accepted(self) -> None:
+        relative = next(iter(governance_check.PACKAGE_FACADE_PATHS))
+        with isolated_root("package_facade_valid") as root:
+            write(
+                root,
+                relative,
+                '"""facade"""\n'
+                'from .pipeline_layout import *\n'
+                'COMPONENT_ROLE = "compatibility_facade"\n'
+                'ensure_dirs = ensure_pipeline_directories\n'
+                '__all__ = ["ensure_dirs"]\n',
+            )
+            findings = governance_check.check_package_facades()
+
+        self.assertEqual(findings, [])
+
+    def test_facade_implementation_logic_is_rejected(self) -> None:
+        relative = next(iter(governance_check.PACKAGE_FACADE_PATHS))
+        with isolated_root("package_facade_logic") as root:
+            write(
+                root,
+                relative,
+                'from .pipeline_layout import *\n'
+                'COMPONENT_ROLE = "compatibility_facade"\n'
+                'def ensure_dirs():\n    return None\n',
+            )
+            findings = governance_check.check_package_facades()
+
+        self.assertTrue(any("implementation logic" in item.message for item in findings))
+
+
 class ModuleRegistryTests(unittest.TestCase):
     def test_nested_package_init_does_not_require_module_registration(self) -> None:
         relative = (
@@ -105,7 +137,26 @@ class ModuleRegistryTests(unittest.TestCase):
                 enforce_index_docs=True,
             )
 
-        self.assertTrue(any("not legacy shim: stage1_common" in item.message for item in findings))
+        self.assertTrue(any("compatibility boundary: stage1_common" in item.message for item in findings))
+
+    def test_staged_code_cannot_import_transitional_package_facade(self) -> None:
+        script = "third_report/code/geo_ring_cloud_stage1/stage_10_example.py"
+        artifact_index = "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md"
+        with isolated_root("package_facade_import") as root:
+            write(
+                root,
+                script,
+                'STAGE_ID = "stage_10"\n'
+                'from geo_ring_cloud.pipeline_support import REPORT_DIR\n',
+            )
+            write(root, artifact_index, "| path |\n| --- |\n")
+            findings = governance_check.check_stage_contract(
+                [script, artifact_index], set(), enforce_index_docs=True
+            )
+
+        self.assertTrue(
+            any("compatibility boundary: geo_ring_cloud.pipeline_support" in item.message for item in findings)
+        )
 
     def test_dedicated_compatibility_test_may_import_registered_shims(self) -> None:
         script = (

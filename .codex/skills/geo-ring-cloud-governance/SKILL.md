@@ -85,9 +85,11 @@ APIs; shared package APIs may depend only on lower-level package modules and
 declared third-party libraries.
 
 `geo_ring_cloud.pipeline_support` is a registered transitional facade for
-legacy Stage 1 APIs. MUST NOT add new responsibilities to it. New layout,
-semantics, adapter, diagnostic, visualization, or artifact behavior MUST go in
-a focused canonical package module and be added to `module_registry.md`.
+legacy Stage 1 APIs. It MUST contain only imports, export metadata, and aliases;
+MUST NOT contain functions, classes, or implementation logic. Active stage and
+component code MUST NOT import it. New layout, semantics, adapter, diagnostic,
+visualization, or artifact behavior MUST go in a focused canonical package
+module and be added to `module_registry.md`.
 Staged code MUST NOT import registered top-level compatibility shims such as
 `stage1_common`, `path_config`, or `geo_ring_cloud_source_registry`; import the
 canonical `geo_ring_cloud.*` module instead.

@@ -1,6 +1,8 @@
 | filename | project_id | canonical_stage_id | component_role | legacy_stage | responsibility | refs_external_paths |
 | --- | --- | --- | --- | --- | --- | --- |
+| geo_ring_cloud/artifact_io.py | geo_ring_cloud |  | artifact_io |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/cloud_semantics.py | geo_ring_cloud |  | cloud_semantics |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud/pipeline_support.py | geo_ring_cloud |  | compatibility_facade |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud_claas3_adapter.py | geo_ring_cloud |  | compatibility_shim | common | CLAAS-3 recursive discovery, deterministic deduplication, decoding, unit conversion, QA, and per-variable masks |  |
 | geo_ring_cloud_epic_pair_diagnostics.py | geo_ring_cloud |  | compatibility_shim |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud_lineage.py | geo_ring_cloud |  | compatibility_shim | common | Common run and artifact lineage manifest writer |  |
@@ -20,7 +22,9 @@
 | geo_ring_cloud/paths.py | geo_ring_cloud |  | path_configuration |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/pipeline_layout.py | geo_ring_cloud |  | pipeline_layout |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/adapters/claas3.py | geo_ring_cloud |  | product_adapter |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud/adapters/cloud_products.py | geo_ring_cloud |  | product_adapter |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/adapters/epic.py | geo_ring_cloud |  | product_adapter |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud/quicklooks.py | geo_ring_cloud |  | quicklook_renderer |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/run_discovery.py | geo_ring_cloud |  | run_discovery |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud_time_run_matrix.py | geo_ring_cloud |  | runner | runner | Matched operational_baseline and claas3_candidate runner with SQLite indexing |  |
 | run_epic_georing_sample_batch.py | geo_ring_cloud |  | runner | 运行器 | EPIC Geo-ring 批量样本运行器（RUNS=time_runs） | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\epic_202403_target_selection\recommended_epic_georing_validation_targets.csv |
@@ -31,7 +35,6 @@
 | tests/geo_ring_cloud_test_claas3_integration.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud_time_run_prune_failed.py | geo_ring_cloud |  | time_run_pruning |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud_time_run_prune_intermediates.py | geo_ring_cloud |  | time_run_pruning |  | 当前文件系统扫描补充脚本 |  |
-| geo_ring_cloud/pipeline_support.py | geo_ring_cloud |  | transitional_pipeline_facade |  | 当前文件系统扫描补充脚本 |  |
 | stage_00d_claas3_integration_readiness.py | geo_ring_cloud | stage_00d |  | 00d | CLAAS-3 March 2024 cadence, structure, QA, projection, and integration readiness gate |  |
 | 01_build_core_time_index.py | geo_ring_cloud | stage_01 |  | 01 | 从 data_check_report/parsed_file_metadata.csv 构建核心时次索引，按卫星完整度评分，选定原型时次 2024-03-05T00:00Z |  |
 | 02_build_standardized_cloud_native.py | geo_ring_cloud | stage_02 |  | 02 | 读取各卫星原生云产品，按统一变量名映射标准化为 native-grid NPZ，输出到 standardized_native/ |  |

@@ -11,28 +11,28 @@ import pandas as pd
 
 from geo_ring_cloud import paths as path_config
 from geo_ring_cloud.adapters.claas3 import read_product as read_claas3_product
-from geo_ring_cloud.diagnostics.summary import finite_stats
-from geo_ring_cloud.lineage import write_manifest
-from geo_ring_cloud.sources import REGISTRY_VERSION, validate_profile
-from geo_ring_cloud.pipeline_support import (
-    CONFIG_DIR,
+from geo_ring_cloud.adapters.cloud_products import (
     CORE_PRODUCTS,
-    find_himawari_r21_geometry_file,
-    NATIVE_DIR,
-    QUICKLOOK_DIR,
-    read_himawari_r21_geometry,
-    REPORT_DIR,
-    SCRIPT_DIR,
     STANDARD_VARS,
-    TIME_INDEX_DIR,
-    ensure_dirs,
-    make_quicklook,
+    find_himawari_r21_geometry_file,
+    read_himawari_r21_geometry,
     read_mapping,
     read_product,
-    safe_name,
-    utc_now,
-    write_json_npz,
 )
+from geo_ring_cloud.artifact_io import safe_name, write_json_npz
+from geo_ring_cloud.diagnostics.summary import finite_stats
+from geo_ring_cloud.lineage import utc_now, write_manifest
+from geo_ring_cloud.pipeline_layout import (
+    CONFIG_DIR,
+    NATIVE_DIR,
+    QUICKLOOK_DIR,
+    REPORT_DIR,
+    SCRIPT_DIR,
+    TIME_INDEX_DIR,
+    ensure_pipeline_directories as ensure_dirs,
+)
+from geo_ring_cloud.quicklooks import make_quicklook
+from geo_ring_cloud.sources import REGISTRY_VERSION, validate_profile
 
 
 BASE_STAGE_ROOT = Path(os.environ.get("GEO_RING_BASE_STAGE_ROOT", str(path_config.BASE_STAGE_ROOT)))
@@ -316,14 +316,12 @@ def main() -> int:
     shutil.copy2(code_root / "stage1_common.py", SCRIPT_DIR / "stage1_common.py")
     package_snapshot = SCRIPT_DIR / "geo_ring_cloud"
     package_snapshot.mkdir(parents=True, exist_ok=True)
-    for module_name in (
-        "__init__.py",
-        "paths.py",
-        "pipeline_layout.py",
-        "cloud_semantics.py",
-        "pipeline_support.py",
-    ):
-        shutil.copy2(code_root / "geo_ring_cloud" / module_name, package_snapshot / module_name)
+    package_root = code_root / "geo_ring_cloud"
+    for module_path in sorted(package_root.rglob("*.py")):
+        relative_path = module_path.relative_to(package_root)
+        destination = package_snapshot / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(module_path, destination)
     mapping = read_mapping()
     nominal_time = args.target_time.strip() or load_selected_time(args.mode)
     rows = file_map_for_time(nominal_time)

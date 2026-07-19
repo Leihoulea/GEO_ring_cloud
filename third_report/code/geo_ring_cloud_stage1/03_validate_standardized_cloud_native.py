@@ -9,18 +9,17 @@ import numpy as np
 import pandas as pd
 
 from geo_ring_cloud import paths as path_config
-from geo_ring_cloud.lineage import write_manifest
-from geo_ring_cloud.sources import REGISTRY_VERSION, validate_profile
-from geo_ring_cloud.diagnostics.summary import finite_stats
-from geo_ring_cloud.pipeline_support import (
+from geo_ring_cloud.adapters.cloud_products import STANDARD_VARS
+from geo_ring_cloud.lineage import utc_now, write_manifest
+from geo_ring_cloud.pipeline_layout import (
     NATIVE_DIR,
     QUICKLOOK_DIR,
     REPORT_DIR,
     SCRIPT_DIR,
-    STANDARD_VARS,
-    ensure_dirs,
-    utc_now,
+    ensure_pipeline_directories as ensure_dirs,
 )
+from geo_ring_cloud.sources import REGISTRY_VERSION, validate_profile
+from geo_ring_cloud.diagnostics.summary import finite_stats
 
 
 REQUIRED_BY_GROUP = {

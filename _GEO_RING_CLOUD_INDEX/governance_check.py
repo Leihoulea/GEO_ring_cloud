@@ -120,6 +120,9 @@ COMPATIBILITY_SHIM_PATHS = {
     f"{CORE_CODE_PREFIX}geo_ring_cloud_epic_pair_diagnostics.py": "geo_ring_cloud.diagnostics.epic_pair",
     f"{CORE_CODE_PREFIX}stage1_common.py": "geo_ring_cloud.pipeline_support",
 }
+PACKAGE_FACADE_PATHS = {
+    f"{CORE_PACKAGE_PREFIX}pipeline_support.py": "compatibility_facade",
+}
 LEGACY_IMPORT_MODULES = {
     "path_config",
     "stage1_common",
@@ -128,6 +131,9 @@ LEGACY_IMPORT_MODULES = {
     "geo_ring_cloud_run_discovery",
     "geo_ring_cloud_claas3_adapter",
     "geo_ring_cloud_epic_pair_diagnostics",
+}
+FORBIDDEN_ACTIVE_IMPORT_MODULES = LEGACY_IMPORT_MODULES | {
+    "geo_ring_cloud.pipeline_support",
 }
 LEGACY_IMPORT_TEST_ALLOWLIST = {
     f"{CORE_CODE_PREFIX}tests/geo_ring_cloud_test_claas3.py",
@@ -285,10 +291,12 @@ def legacy_imports_in_script(rel_path: str) -> set[str]:
         return set()
     modules: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module in LEGACY_IMPORT_MODULES:
+        if isinstance(node, ast.ImportFrom) and node.module in FORBIDDEN_ACTIVE_IMPORT_MODULES:
             modules.add(node.module)
         elif isinstance(node, ast.Import):
-            modules.update(alias.name for alias in node.names if alias.name in LEGACY_IMPORT_MODULES)
+            modules.update(
+                alias.name for alias in node.names if alias.name in FORBIDDEN_ACTIVE_IMPORT_MODULES
+            )
     return modules
 
 
@@ -343,7 +351,7 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
                     Finding(
                         "ERROR",
                         rel_path,
-                        f"staged code must import the canonical geo_ring_cloud package, not legacy shim: {module}",
+                        f"staged code must import a focused canonical module, not compatibility boundary: {module}",
                     )
                 )
 
@@ -531,6 +539,33 @@ def check_compatibility_shims() -> list[Finding]:
     return findings
 
 
+def check_package_facades() -> list[Finding]:
+    """Keep transitional package facades free of implementation responsibilities."""
+    findings: list[Finding] = []
+    allowed_node_types = (ast.Expr, ast.ImportFrom, ast.Assign, ast.AnnAssign)
+    for rel_path, expected_role in sorted(PACKAGE_FACADE_PATHS.items()):
+        text = read_text(rel_path)
+        if text is None:
+            findings.append(Finding("ERROR", rel_path, "registered package facade is missing or unreadable"))
+            continue
+        try:
+            tree = ast.parse(text, filename=rel_path)
+        except SyntaxError as exc:
+            findings.append(Finding("ERROR", rel_path, f"package facade is not valid Python: {exc}"))
+            continue
+        if component_role_in_script(rel_path) != expected_role:
+            findings.append(
+                Finding("ERROR", rel_path, f"package facade must declare COMPONENT_ROLE='{expected_role}'")
+            )
+        for node in tree.body:
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                continue
+            if not isinstance(node, allowed_node_types):
+                findings.append(Finding("ERROR", rel_path, "package facade contains implementation logic"))
+                break
+    return findings
+
+
 def check_package_dependency_boundaries(paths: list[str]) -> list[Finding]:
     findings: list[Finding] = []
     for rel_path in paths:
@@ -675,6 +710,7 @@ def main() -> int:
     findings: list[Finding] = []
     findings.extend(check_engineering_contract())
     findings.extend(check_compatibility_shims())
+    findings.extend(check_package_facades())
     findings.extend(check_package_dependency_boundaries(paths))
     findings.extend(check_naming(paths, added, baseline_mode=baseline_mode))
     findings.extend(check_stage_contract(paths, added, enforce_index_docs=args.staged))
