@@ -17,7 +17,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import BoundaryNorm, ListedColormap
 
-from stage1_common import REPORT_DIR, SCRIPT_DIR, ensure_dirs, utc_now
+from geo_ring_cloud.pipeline_support import REPORT_DIR, SCRIPT_DIR, ensure_dirs, utc_now
 
 
 STAGE_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1")

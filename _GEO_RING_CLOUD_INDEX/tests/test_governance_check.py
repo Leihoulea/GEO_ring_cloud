@@ -36,6 +36,23 @@ def write(root: Path, relative: str, content: str) -> None:
 
 
 class CompatibilityShimTests(unittest.TestCase):
+    def test_registered_legacy_name_skips_new_stage_naming_rules(self) -> None:
+        relative = "third_report/code/geo_ring_cloud_stage1/stage1_common.py"
+        with isolated_root("registered_legacy_shim") as root:
+            write(
+                root,
+                relative,
+                'from geo_ring_cloud.pipeline_support import *\n'
+                'COMPONENT_ROLE = "compatibility_shim"\n',
+            )
+            naming = governance_check.check_naming([relative], {relative}, baseline_mode=False)
+            contract = governance_check.check_stage_contract(
+                [relative], {relative}, enforce_index_docs=True
+            )
+
+        self.assertEqual(naming, [])
+        self.assertEqual(contract, [])
+
     def test_implementation_logic_is_rejected(self) -> None:
         with isolated_root("shim_logic") as root:
             for relative, canonical in governance_check.COMPATIBILITY_SHIM_PATHS.items():
@@ -71,6 +88,37 @@ class ModuleRegistryTests(unittest.TestCase):
             )
 
         self.assertEqual(findings, [])
+
+    def test_staged_code_cannot_add_legacy_shim_imports(self) -> None:
+        script = "third_report/code/geo_ring_cloud_stage1/stage_10_example.py"
+        artifact_index = "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md"
+        with isolated_root("legacy_import") as root:
+            write(
+                root,
+                script,
+                'STAGE_ID = "stage_10"\nfrom stage1_common import finite_stats\n',
+            )
+            write(root, artifact_index, "| path |\n| --- |\n")
+            findings = governance_check.check_stage_contract(
+                [script, artifact_index],
+                set(),
+                enforce_index_docs=True,
+            )
+
+        self.assertTrue(any("not legacy shim: stage1_common" in item.message for item in findings))
+
+    def test_dedicated_compatibility_test_may_import_registered_shims(self) -> None:
+        script = (
+            "third_report/code/geo_ring_cloud_stage1/"
+            "tests/geo_ring_cloud_test_claas3.py"
+        )
+        with isolated_root("compatibility_test_allowlist") as root:
+            write(root, script, "import stage1_common\n")
+            findings = governance_check.check_stage_contract(
+                [script], set(), enforce_index_docs=True
+            )
+
+        self.assertFalse(any("legacy shim" in item.message for item in findings))
 
     def test_modified_stage_script_requires_artifact_index_only(self) -> None:
         script = "third_report/code/geo_ring_cloud_stage1/stage_10_example.py"

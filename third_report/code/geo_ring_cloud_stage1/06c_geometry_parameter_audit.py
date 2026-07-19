@@ -16,7 +16,7 @@ import netCDF4
 import numpy as np
 import pandas as pd
 
-from stage1_common import (
+from geo_ring_cloud.pipeline_support import (
     REPORT_DIR,
     SCRIPT_DIR,
     ensure_dirs,

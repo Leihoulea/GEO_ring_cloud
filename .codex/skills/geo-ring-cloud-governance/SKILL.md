@@ -84,6 +84,16 @@ scripts. Dependency direction is one-way: stage scripts may call shared package
 APIs; shared package APIs may depend only on lower-level package modules and
 declared third-party libraries.
 
+`geo_ring_cloud.pipeline_support` is a registered transitional facade for
+legacy Stage 1 APIs. MUST NOT add new responsibilities to it. New layout,
+semantics, adapter, diagnostic, visualization, or artifact behavior MUST go in
+a focused canonical package module and be added to `module_registry.md`.
+Staged code MUST NOT import registered top-level compatibility shims such as
+`stage1_common`, `path_config`, or `geo_ring_cloud_source_registry`; import the
+canonical `geo_ring_cloud.*` module instead.
+Only the dedicated compatibility boundary test may import legacy shims, via
+the explicit governance allowlist; do not add broad directory exemptions.
+
 Generic data/product inspections SHOULD use `component_role=data_product_audit`.
 If an inspection supports a downstream stage, keep the generic audit role and
 record the linked stage in `related_stage_ids` / `canonical_stage_id`.

@@ -18,20 +18,18 @@ from scipy.spatial import cKDTree
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-import path_config
-from geo_ring_cloud_lineage import write_manifest
-from geo_ring_cloud_source_registry import REGISTRY_VERSION, tie_order, validate_profile
-from stage1_common import (
+from geo_ring_cloud import paths as path_config
+from geo_ring_cloud.lineage import write_manifest
+from geo_ring_cloud.sources import REGISTRY_VERSION, tie_order, validate_profile
+from geo_ring_cloud.diagnostics.summary import finite_stats
+from geo_ring_cloud.pipeline_support import (
     REPORT_DIR,
     SCRIPT_DIR,
     STAGE_ROOT,
-    cloud_mask_masks,
-    cloud_mask_rows,
-    cloud_mask_semantics,
     ensure_dirs,
-    finite_stats,
     utc_now,
 )
+from geo_ring_cloud.cloud_semantics import cloud_mask_masks, cloud_mask_rows, cloud_mask_semantics
 
 
 NATIVE_DIR = STAGE_ROOT / "standardized_native"

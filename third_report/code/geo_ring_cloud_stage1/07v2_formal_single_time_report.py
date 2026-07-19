@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 
-from stage1_common import SCRIPT_DIR, ensure_dirs, utc_now
+from geo_ring_cloud.pipeline_support import SCRIPT_DIR, ensure_dirs, utc_now
 
 
 STAGE_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1")

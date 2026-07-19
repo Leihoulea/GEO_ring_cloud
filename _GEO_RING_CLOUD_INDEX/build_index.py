@@ -147,9 +147,9 @@ TOP_DIRS = [
     ("geo_ring_cloud_stage1_time_runs", "强相关", "多时次运行、跨阶段实验与阶段诊断产物根目录", "较大", "是", "运行器与 stage_08 以后诊断脚本通过 RUNS_ROOT 引用；大产物保留原位"),
     ("geo_ring_cloud_stage1_evidence_pack", "强相关", "Stage1 证据包（latest + 10 snapshots）", "约 1.2 MB", "是", "rebuild_stage1_evidence_pack.py:EVIDENCE_ROOT 产出"),
     ("third_report/code/geo_ring_cloud_stage1", "强相关", "GEO-ring Cloud 主代码、阶段脚本、共享组件与测试", "代码目录", "是", "权威代码源；产物写入配置化的 stage/time-runs 根目录"),
-    ("data_check_report", "强相关", "前序数据审计报告（REPORT_ROOT，00-00f 阶段证据源）", "约 872 MB / 185 文件", "是", "stage1_common.py:25 REPORT_ROOT；PARSED_METADATA/MAPPING_YAML 等"),
+    ("data_check_report", "强相关", "前序数据审计报告（REPORT_ROOT，00-00f 阶段证据源）", "约 872 MB / 185 文件", "是", "geo_ring_cloud.paths + pipeline_layout 中的 REPORT_ROOT、PARSED_METADATA、MAPPING_YAML"),
     ("geo_geometry_check", "强相关", "几何校验样本（download_geo_geometry_samples.py 产物 + 06c/06d 审计）", "约 1.34 GB / 50 文件", "是", "download_geo_geometry_samples.py:22 OUT_ROOT；06c/06d/06e 引用"),
-    ("data", "强相关", "原始卫星数据（FY4A/FY4B L1 + FY4B 云产品 CLM/CLP/CLT/CTH/CTP/CTT/GEO + H09_Data）", "约 100+ GB", "是", "stage1_common.py:27 HIMAWARI_R21_DIR=data/H09_Data；06f 扫描 data/"),
+    ("data", "强相关", "原始卫星数据（FY4A/FY4B L1 + FY4B 云产品 CLM/CLP/CLT/CTH/CTP/CTT/GEO + H09_Data）", "约 100+ GB", "是", "geo_ring_cloud.paths.HIMAWARI_R21_DIR；06f 扫描 data/"),
     ("third_report/code/L1g", "上游相关", "standardized_L1_source 规范 + 全球 0.05° 网格规范", "小", "间接", "ring cloud 上游标准化层规范文档"),
     ("third_report/code/FY4B", "上游相关", "FY4B/AGRI standardized_L1 builder + 探查/预览", "小", "间接", "产出 standardized_L1_source 供 stage1 输入"),
     ("third_report/code/GOES", "上游相关", "GOES-16/18/ABI standardized_L1 builder", "小", "间接", "同上"),
@@ -203,7 +203,7 @@ SCRIPTS = [
     ("stage_07p_claas3_profile_pair_evaluation.py", "07p", "Common-domain CLAAS-3 versus operational Meteosat consistency and boundary diagnostics"),
     ("stage_09d_claas3_epic_profile_pair_evaluation.py", "09d", "Matched common-domain EPIC cloud-mask profile-pair metrics and sample-block bootstrap"),
     ("stage_10_claas3_epic_relative_height_evaluation.py", "10", "A/B-band EPIC-relative effective-height profile-pair diagnostics with common approximate PSF"),
-    ("stage1_common.py", "公共", "核心共享库：路径常量(STAGE_ROOT/REPORT_ROOT/HIMAWARI_R21_DIR)、标准变量名、cloud_mask 码表(FY4B/GOES/Himawari/Meteosat)、产品读取器、单位转换、quicklook 绘图"),
+    ("stage1_common.py", "公共", "已登记 compatibility shim；权威 API 见 geo_ring_cloud.pipeline_support、pipeline_layout、cloud_semantics 和 diagnostics.summary"),
     ("01_build_core_time_index.py", "01", "从 data_check_report/parsed_file_metadata.csv 构建核心时次索引，按卫星完整度评分，选定原型时次 2024-03-05T00:00Z"),
     ("02_build_standardized_cloud_native.py", "02", "读取各卫星原生云产品，按统一变量名映射标准化为 native-grid NPZ，输出到 standardized_native/"),
     ("03_validate_standardized_cloud_native.py", "03", "校验 02 产物 NPZ 的变量完整性、dtype、shape 一致性"),
@@ -251,14 +251,14 @@ SCRIPTS = [
 #    (外部路径, 引用脚本, 行号, 用途, 位置)
 # ---------------------------------------------------------------------------
 EXT_REFS = [
-    # stage1_common.py 中的核心路径常量
-    (r"D:\AAAresearch_paper\geo_ring_cloud_stage1", "stage1_common.py", 24, "STAGE_ROOT 产物根（可被 GEO_RING_STAGE_ROOT 环境变量覆盖）", "D盘内"),
-    (r"D:\AAAresearch_paper\data_check_report", "stage1_common.py", 25, "REPORT_ROOT 前序审计报告根", "D盘内"),
-    (r"D:\AAAresearch_paper\data_check_report\geometry_variable_audit", "stage1_common.py", 26, "GEOM_AUDIT_ROOT 几何审计目录", "D盘内"),
-    (r"D:\AAAresearch_paper\data\H09_Data", "stage1_common.py", 27, "HIMAWARI_R21_DIR Himawari R21 辅助几何文件", "D盘内"),
-    (r"D:\AAAresearch_paper\data_check_report\parsed_file_metadata.csv", "stage1_common.py", 29, "PARSED_METADATA 所有卫星文件元数据索引（01 阶段核心输入）", "D盘内"),
-    (r"D:\AAAresearch_paper\data_check_report\geometry_variable_audit\product_variable_inventory_full.csv", "stage1_common.py", 30, "VARIABLE_INVENTORY 产品变量清单", "D盘内"),
-    (r"D:\AAAresearch_paper\data_check_report\manual_variable_mapping_by_product.yaml", "stage1_common.py", 31, "MAPPING_YAML 手动变量映射表（02 直接读取）", "D盘内"),
+    # canonical paths and pipeline layout
+    (r"D:\AAAresearch_paper\geo_ring_cloud_stage1", "geo_ring_cloud/paths.py", 20, "STAGE_ROOT 产物根（可被 GEO_RING_STAGE_ROOT 环境变量覆盖）", "D盘内"),
+    (r"D:\AAAresearch_paper\data_check_report", "geo_ring_cloud/paths.py", 25, "DATA_CHECK_ROOT 前序审计报告根", "D盘内"),
+    (r"D:\AAAresearch_paper\data_check_report\geometry_variable_audit", "geo_ring_cloud/paths.py", 26, "DATA_CHECK_GEOMETRY_ROOT 几何审计目录", "D盘内"),
+    (r"D:\AAAresearch_paper\data\H09_Data", "geo_ring_cloud/paths.py", 32, "HIMAWARI_R21_DIR Himawari R21 辅助几何文件", "D盘内"),
+    (r"D:\AAAresearch_paper\data_check_report\parsed_file_metadata.csv", "geo_ring_cloud/pipeline_layout.py", 14, "PARSED_METADATA 所有卫星文件元数据索引（01 阶段核心输入）", "D盘内"),
+    (r"D:\AAAresearch_paper\data_check_report\geometry_variable_audit\product_variable_inventory_full.csv", "geo_ring_cloud/pipeline_layout.py", 15, "VARIABLE_INVENTORY 产品变量清单", "D盘内"),
+    (r"D:\AAAresearch_paper\data_check_report\manual_variable_mapping_by_product.yaml", "geo_ring_cloud/pipeline_layout.py", 16, "MAPPING_YAML 手动变量映射表（02 直接读取）", "D盘内"),
     # download_geo_geometry_samples.py
     (r"D:\AAAresearch_paper\geo_geometry_check", "download_geo_geometry_samples.py", 22, "OUT_ROOT 几何样本下载产物根", "D盘内"),
     # 06c/06d/06e 对 geo_geometry_check 的引用
@@ -419,6 +419,54 @@ MODULE_REGISTRY = (
         "public_api": "matrix_manifests, resolve_run_dir, discover_run_dirs, run_time_tag",
         "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,RunDiscoveryTests",
         "notes": "Supports canonical matrix manifests and legacy time-tag directories.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.pipeline_layout",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/pipeline_layout.py",
+        "component_role": "pipeline_layout",
+        "legacy_module": "stage1_common",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage1_common.py",
+        "migration_status": "canonical_extracted",
+        "public_api": "Stage 1 input/output paths, PIPELINE_DIRECTORIES, ensure_pipeline_directories",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,PipelineLayoutTests",
+        "notes": "Filesystem layout is isolated from product reading and scientific semantics.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.cloud_semantics",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/cloud_semantics.py",
+        "component_role": "cloud_semantics",
+        "legacy_module": "stage1_common",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage1_common.py",
+        "migration_status": "canonical_extracted",
+        "public_api": "cloud code tables, display/fusion masks, validity masks and quality normalization",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,CloudSemanticsTests",
+        "notes": "Canonical scientific semantics used directly by Stage 05 and Stage 06.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.pipeline_support",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/pipeline_support.py",
+        "component_role": "transitional_pipeline_facade",
+        "legacy_module": "stage1_common",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage1_common.py",
+        "migration_status": "canonical_with_compatibility_shim",
+        "public_api": "legacy Stage 1 product readers, quicklooks and compatibility exports",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests",
+        "notes": "Transitional facade; new code imports focused layout and semantic modules. Product IO remains the next extraction target.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.diagnostics.summary",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/diagnostics/summary.py",
+        "component_role": "diagnostics_library",
+        "legacy_module": "stage1_common",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage1_common.py",
+        "migration_status": "canonical_extracted",
+        "public_api": "finite_stats",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::SummaryDiagnosticsTests",
+        "notes": "Deterministic compact array statistics shared by validation and fusion stages.",
     },
     {
         "project_id": PROJECT_ID,
@@ -1244,6 +1292,11 @@ def insert_data_product_audits(conn: sqlite3.Connection) -> None:
 
 def insert_naming_violations(conn: sqlite3.Connection) -> None:
     cur = conn.cursor()
+    registered_legacy_shims = {
+        row["legacy_path"].replace("\\", "/").lower()
+        for row in MODULE_REGISTRY
+        if "compatibility_shim" in row["migration_status"] and row["legacy_path"]
+    }
     for project_id, path, legacy, issue, severity, suggested, new_path, reason in [
         (PROJECT_ID, str(ROOT / "research_tracker"), "Step*/Stage* inferred labels", "untrusted_tracker_stage_inference", "warning", "", "", "research_tracker regex labels are not canonical taxonomy"),
         (PROJECT_ID, str(ROOT / "third_report/code/geo_ring_cloud_stage1"), "公共/运行器/下载/证据包/汇总", "component_role_misused_as_stage", "info", "", "", "These are component roles, not pipeline stages"),
@@ -1264,6 +1317,9 @@ def insert_naming_violations(conn: sqlite3.Connection) -> None:
             if not LEGACY_STAGE_FILENAME.search(fp.name) or CANONICAL_STAGE_FILENAME.search(fp.name):
                 continue
             rel_name = fp.relative_to(code_root).as_posix()
+            repo_relative = fp.relative_to(ROOT).as_posix().lower()
+            if repo_relative in registered_legacy_shims:
+                continue
             inferred = canonical_stage_id(infer_stage_from_name(rel_name))
             cur.execute(
                 "INSERT INTO naming_violations(project_id,path,legacy_label,issue_type,severity,suggested_canonical_stage_id,suggested_new_path,reason) VALUES(?,?,?,?,?,?,?,?)",
@@ -1683,9 +1739,10 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 
 | layer | ownership | examples |
 | --- | --- | --- |
-| configuration | 路径、数据源 ID、环境覆盖、依赖契约 | `geo_ring_cloud.paths`, `geo_ring_cloud.sources`, `environment.yml` |
+| configuration | 路径、数据源 ID、环境覆盖、依赖契约 | `geo_ring_cloud.paths`, `geo_ring_cloud.pipeline_layout`, `geo_ring_cloud.sources`, `environment.yml` |
 | lineage | manifest、commit、输入输出追踪 | `geo_ring_cloud.lineage` |
 | adapters | 产品读取、格式适配、变量解码 | `geo_ring_cloud.adapters.claas3`, `geo_ring_cloud.adapters.epic`, `geo_data_audit/` |
+| semantics | 云代码含义、display/fusion 有效性与质量规则 | `geo_ring_cloud.cloud_semantics` |
 | stage pipeline | 单一 canonical stage 的科学处理与验证 | `stage_09d_*`, `stage_10_*` |
 | orchestration | 跨阶段实验、批处理、time-run matrix | `geo_ring_cloud_experiment_profile_pair.py`, `geo_ring_cloud_time_run_matrix.py` |
 | diagnostics | 可复用指标、采样和分层统计 | `geo_ring_cloud.diagnostics.epic_pair` |
@@ -1694,7 +1751,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 
 ## 物理迁移原则
 
-`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、数据源注册、lineage、run discovery、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
+`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、数组摘要统计、数据源注册、lineage、run discovery、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 是已登记的过渡 facade，不得继续增加新职责。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
 
 新 stage 若只有一个脚本，可使用 `stage_XX_<purpose>.py`；若有多个脚本，必须放入 `stage_XX_<purpose>/`。跨阶段工具不得伪造组合 stage，必须使用 `geo_ring_cloud_<role>_<purpose>.py`、声明 `COMPONENT_ROLE`，并在 manifest 中记录 `related_stage_ids`。
 """
@@ -1732,7 +1789,7 @@ Generated: `{GENERATED_AT}`
 
 ## 尚未达到的目标
 
-- package 第二批共享 API 已完成；`stage1_common.py`、运行编排器和多数历史 stage 脚本仍位于扁平目录。
+- `stage1_common.py` 已降为 compatibility shim，layout、cloud semantics 与数组摘要统计已拆出；产品读取和 quicklook 仍暂存于 `pipeline_support` 过渡 facade。
 - 仍有历史绝对路径和非 canonical 命名；普通模式保留 warning，新增污染会被 hook 阻断。
 - `environment.yml` 已固定已验证的直接依赖；跨平台传递依赖锁仍应在正式实验发布时按平台生成。
 - 一部分旧 time-run 使用 `stage0910` 等组合标签；为保障续跑暂保留，只作为 legacy alias，不得用于新组件命名。
@@ -1740,7 +1797,7 @@ Generated: `{GENERATED_AT}`
 ## 优先级
 
 1. P0：任何新增 governance error 必须在提交前清零。
-2. P1：拆分 `stage1_common.py` 的稳定配置/数组工具与 stage 专用逻辑，并保留兼容入口。
+2. P1：继续把 `pipeline_support` 中的通用产品读取与 quicklook 拆入专责模块，禁止向 facade 增加职责。
 3. P1：逐批参数化仍活跃脚本中的绝对路径。
 4. P2：为正式实验发布生成平台化传递依赖锁；大数据集成测试继续本地运行。
 5. P2：按依赖审计结果渐进迁移扁平脚本，禁止一次性大搬迁。
@@ -1817,6 +1874,9 @@ It applies to humans and AI agents.
 - MUST use `geo_ring_cloud_<role>_<purpose>.py` for new non-stage core utilities.
 - MUST place reusable shared APIs in the `geo_ring_cloud` package and import them through their canonical module names.
 - Package adapters and diagnostics MUST NOT import or dynamically load stage scripts; dependencies flow from stages to shared APIs.
+- `geo_ring_cloud.pipeline_support` is a transitional compatibility facade; new shared responsibilities MUST use focused package modules.
+- Staged code MUST NOT import registered top-level compatibility shims; use canonical `geo_ring_cloud.*` modules.
+- Only the dedicated compatibility boundary test may import legacy shims, through the governance allowlist.
 - MUST NOT add implementation logic to top-level compatibility shims recorded in `module_registry.md`.
 - MUST NOT treat `geo_ring_cloud.stage_09` and `epic_ceres.stage_09` as the same stage.
 

@@ -9,11 +9,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import path_config
+from geo_ring_cloud import paths as path_config
 from geo_ring_cloud.adapters.claas3 import read_product as read_claas3_product
-from geo_ring_cloud_lineage import write_manifest
-from geo_ring_cloud_source_registry import REGISTRY_VERSION, validate_profile
-from stage1_common import (
+from geo_ring_cloud.diagnostics.summary import finite_stats
+from geo_ring_cloud.lineage import write_manifest
+from geo_ring_cloud.sources import REGISTRY_VERSION, validate_profile
+from geo_ring_cloud.pipeline_support import (
     CONFIG_DIR,
     CORE_PRODUCTS,
     find_himawari_r21_geometry_file,
@@ -25,7 +26,6 @@ from stage1_common import (
     STANDARD_VARS,
     TIME_INDEX_DIR,
     ensure_dirs,
-    finite_stats,
     make_quicklook,
     read_mapping,
     read_product,
@@ -312,7 +312,18 @@ def main() -> int:
     source_profile = validate_profile(args.source_profile)
     ensure_dirs()
     shutil.copy2(__file__, SCRIPT_DIR / Path(__file__).name)
-    shutil.copy2(Path(__file__).with_name("stage1_common.py"), SCRIPT_DIR / "stage1_common.py")
+    code_root = Path(__file__).resolve().parent
+    shutil.copy2(code_root / "stage1_common.py", SCRIPT_DIR / "stage1_common.py")
+    package_snapshot = SCRIPT_DIR / "geo_ring_cloud"
+    package_snapshot.mkdir(parents=True, exist_ok=True)
+    for module_name in (
+        "__init__.py",
+        "paths.py",
+        "pipeline_layout.py",
+        "cloud_semantics.py",
+        "pipeline_support.py",
+    ):
+        shutil.copy2(code_root / "geo_ring_cloud" / module_name, package_snapshot / module_name)
     mapping = read_mapping()
     nominal_time = args.target_time.strip() or load_selected_time(args.mode)
     rows = file_map_for_time(nominal_time)

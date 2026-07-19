@@ -16,16 +16,16 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from geo_ring_cloud_source_registry import SOURCE_BY_KEY, tie_order, validate_profile
+from geo_ring_cloud.sources import SOURCE_BY_KEY, tie_order, validate_profile
+from geo_ring_cloud.diagnostics.summary import finite_stats
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from stage1_common import (
+from geo_ring_cloud.pipeline_support import (
     REPORT_DIR,
     SCRIPT_DIR,
     find_himawari_r21_geometry_file,
-    finite_stats,
     read_mapping,
     utc_now,
 )

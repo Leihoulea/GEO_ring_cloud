@@ -18,9 +18,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import BoundaryNorm, ListedColormap
 
-import path_config
-from geo_ring_cloud_lineage import write_manifest
-from geo_ring_cloud_source_registry import (
+from geo_ring_cloud import paths as path_config
+from geo_ring_cloud.lineage import write_manifest
+from geo_ring_cloud.sources import (
     REGISTRY_VERSION,
     SOURCE_BY_KEY,
     SOURCE_ID_MAP,
@@ -28,19 +28,18 @@ from geo_ring_cloud_source_registry import (
     validate_profile,
     variable_rules,
 )
-from stage1_common import (
+from geo_ring_cloud.diagnostics.summary import finite_stats
+from geo_ring_cloud.pipeline_support import (
     REPORT_DIR,
     SCRIPT_DIR,
     STAGE_ROOT,
-    cloud_mask_semantics,
     ensure_dirs,
     find_himawari_r21_geometry_file,
-    finite_stats,
     read_himawari_r21_geometry,
     read_mapping,
-    reproject_mask_for_use,
     utc_now,
 )
+from geo_ring_cloud.cloud_semantics import cloud_mask_semantics, reproject_mask_for_use
 
 
 REPROJECT_DIR = STAGE_ROOT / "reprojected_grid"

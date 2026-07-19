@@ -58,16 +58,21 @@ class PackageBoundaryTests(unittest.TestCase):
         import geo_ring_cloud_claas3_adapter as legacy_claas3
         import geo_ring_cloud_epic_pair_diagnostics as legacy_diagnostics
         import path_config as legacy_paths
+        import stage1_common as legacy_pipeline
 
         from geo_ring_cloud import lineage, paths, run_discovery, sources
         from geo_ring_cloud.adapters import claas3
         from geo_ring_cloud.diagnostics import epic_pair
+        from geo_ring_cloud import cloud_semantics, pipeline_support
 
         self.assertIs(legacy_lineage.write_manifest, lineage.write_manifest)
         self.assertIs(legacy_runs.resolve_run_dir, run_discovery.resolve_run_dir)
         self.assertIs(legacy_sources.SourceDefinition, sources.SourceDefinition)
         self.assertIs(legacy_claas3.read_product, claas3.read_product)
         self.assertIs(legacy_diagnostics.paired_height_metrics, epic_pair.paired_height_metrics)
+        self.assertIs(legacy_pipeline.read_product, pipeline_support.read_product)
+        self.assertIs(legacy_pipeline.cloud_mask_masks, cloud_semantics.cloud_mask_masks)
+        self.assertIs(pipeline_support.cloud_mask_semantics, cloud_semantics.cloud_mask_semantics)
         self.assertEqual(legacy_paths.PROJECT_ROOT, paths.PROJECT_ROOT)
 
     def test_canonical_lineage_manifest_contract(self) -> None:
@@ -97,6 +102,66 @@ class PackageBoundaryTests(unittest.TestCase):
         self.assertEqual(payload["related_stage_ids"], ["stage_09d", "stage_10"])
         self.assertEqual(payload["parameter_summary"], {"sample_count": 2})
         self.assertEqual(payload["source_registry_version"], REGISTRY_VERSION)
+
+
+class PipelineLayoutTests(unittest.TestCase):
+    def test_layout_is_derived_from_configured_stage_root(self) -> None:
+        from geo_ring_cloud.pipeline_layout import (
+            NATIVE_DIR,
+            PIPELINE_DIRECTORIES,
+            REPORT_DIR,
+            STAGE_ROOT,
+        )
+
+        self.assertEqual(NATIVE_DIR, STAGE_ROOT / "standardized_native")
+        self.assertEqual(REPORT_DIR, STAGE_ROOT / "reports")
+        self.assertEqual(PIPELINE_DIRECTORIES[0], STAGE_ROOT)
+        self.assertEqual(len(PIPELINE_DIRECTORIES), len(set(PIPELINE_DIRECTORIES)))
+
+
+class CloudSemanticsTests(unittest.TestCase):
+    def test_fy4b_display_fusion_and_off_disc_masks_are_distinct(self) -> None:
+        from geo_ring_cloud.cloud_semantics import cloud_mask_masks
+
+        values = np.asarray([[0, 1, 126, 127]], dtype=np.int16)
+        display, fusion, off_disc = cloud_mask_masks("FY4B", "CLM", values)
+        np.testing.assert_array_equal(display, [[True, True, True, False]])
+        np.testing.assert_array_equal(fusion, [[True, True, False, False]])
+        np.testing.assert_array_equal(off_disc, [[False, False, True, False]])
+
+    def test_unknown_product_falls_back_to_fill_aware_validity(self) -> None:
+        from geo_ring_cloud.cloud_semantics import cloud_mask_masks
+
+        values = np.asarray([[0.0, np.nan, 255.0]], dtype=np.float32)
+        display, fusion, off_disc = cloud_mask_masks("Unknown", "MASK", values)
+        np.testing.assert_array_equal(display, [[True, False, False]])
+        np.testing.assert_array_equal(fusion, display)
+        self.assertFalse(off_disc.any())
+
+    def test_quality_normalization_preserves_validity_contract(self) -> None:
+        from geo_ring_cloud.cloud_semantics import add_valid_and_quality
+
+        arrays = {
+            "cloud_mask": np.asarray([[0, 127]], dtype=np.int16),
+            "quality_flag_raw": np.asarray([[0, 1]], dtype=np.int16),
+        }
+        add_valid_and_quality(arrays)
+        np.testing.assert_array_equal(arrays["valid_mask"], [[1, 0]])
+        np.testing.assert_array_equal(arrays["quality_flag_standard"], [[3, 1]])
+
+
+class SummaryDiagnosticsTests(unittest.TestCase):
+    def test_float_and_integer_summaries_are_deterministic(self) -> None:
+        from geo_ring_cloud.diagnostics.summary import finite_stats
+
+        floating = finite_stats(np.asarray([[1.0, np.nan], [3.0, 5.0]], dtype=np.float32))
+        integer = finite_stats(np.asarray([1, 2, 3], dtype=np.int16))
+        self.assertEqual(floating["shape"], "2x2")
+        self.assertEqual(floating["nan_ratio"], 0.25)
+        self.assertEqual(floating["mean"], 3.0)
+        self.assertEqual(integer["min"], 1)
+        self.assertEqual(integer["max"], 3)
+        self.assertEqual(integer["mean"], 2.0)
 
 
 def add_grid(ds: netCDF4.Dataset) -> None:

@@ -118,6 +118,19 @@ COMPATIBILITY_SHIM_PATHS = {
     f"{CORE_CODE_PREFIX}geo_ring_cloud_run_discovery.py": "geo_ring_cloud.run_discovery",
     f"{CORE_CODE_PREFIX}geo_ring_cloud_claas3_adapter.py": "geo_ring_cloud.adapters.claas3",
     f"{CORE_CODE_PREFIX}geo_ring_cloud_epic_pair_diagnostics.py": "geo_ring_cloud.diagnostics.epic_pair",
+    f"{CORE_CODE_PREFIX}stage1_common.py": "geo_ring_cloud.pipeline_support",
+}
+LEGACY_IMPORT_MODULES = {
+    "path_config",
+    "stage1_common",
+    "geo_ring_cloud_source_registry",
+    "geo_ring_cloud_lineage",
+    "geo_ring_cloud_run_discovery",
+    "geo_ring_cloud_claas3_adapter",
+    "geo_ring_cloud_epic_pair_diagnostics",
+}
+LEGACY_IMPORT_TEST_ALLOWLIST = {
+    f"{CORE_CODE_PREFIX}tests/geo_ring_cloud_test_claas3.py",
 }
 WORKSPACE_INDEX_DOCS = {
     "_GEO_RING_CLOUD_WORKSPACE/stage_registry.md",
@@ -264,11 +277,28 @@ def component_role_in_script(rel_path: str) -> str:
     return match.group(1) if match else ""
 
 
+def legacy_imports_in_script(rel_path: str) -> set[str]:
+    text = read_text(rel_path) or ""
+    try:
+        tree = ast.parse(text, filename=rel_path)
+    except SyntaxError:
+        return set()
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in LEGACY_IMPORT_MODULES:
+            modules.add(node.module)
+        elif isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names if alias.name in LEGACY_IMPORT_MODULES)
+    return modules
+
+
 def check_naming(paths: list[str], added_paths: set[str], baseline_mode: bool) -> list[Finding]:
     findings: list[Finding] = []
     for rel_path in paths:
         normalized = normalize_path(rel_path)
         if ".git/" in normalized:
+            continue
+        if normalized in COMPATIBILITY_SHIM_PATHS:
             continue
         name_only = Path(normalized).name
         has_ambiguous = any(pattern.search(name_only) for pattern in AMBIGUOUS_STAGE_PATTERNS)
@@ -295,11 +325,27 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
 
     for rel_path in paths:
         normalized = normalize_path(rel_path)
+        if normalized in COMPATIBILITY_SHIM_PATHS:
+            continue
         if not is_core_code(normalized):
             continue
         suffix = Path(normalized).suffix.lower()
         if suffix not in CODE_AND_CONFIG_EXTENSIONS:
             continue
+
+        if (
+            enforce_index_docs
+            and suffix == ".py"
+            and normalized not in LEGACY_IMPORT_TEST_ALLOWLIST
+        ):
+            for module in sorted(legacy_imports_in_script(rel_path)):
+                findings.append(
+                    Finding(
+                        "ERROR",
+                        rel_path,
+                        f"staged code must import the canonical geo_ring_cloud package, not legacy shim: {module}",
+                    )
+                )
 
         if suffix == ".py" and is_stage_owned_path(normalized):
             changed_stage_scripts = True

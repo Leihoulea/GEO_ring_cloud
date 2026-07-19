@@ -8,12 +8,12 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-import path_config
+from geo_ring_cloud import paths as path_config
 from geo_ring_cloud.adapters.claas3 import discover_files, records_as_dicts, select_for_time
-from geo_ring_cloud_lineage import write_manifest
-from geo_ring_cloud_source_registry import REGISTRY_VERSION, SOURCE_BY_KEY
+from geo_ring_cloud.lineage import write_manifest
+from geo_ring_cloud.sources import REGISTRY_VERSION, SOURCE_BY_KEY
 
-from stage1_common import (
+from geo_ring_cloud.pipeline_support import (
     CONFIG_DIR,
     CORE_PRODUCTS,
     PARSED_METADATA,
