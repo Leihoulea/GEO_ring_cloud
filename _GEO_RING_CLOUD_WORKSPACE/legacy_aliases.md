@@ -260,6 +260,8 @@
 | geo_ring_cloud | stage_07p | stage_07p | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_07p_b | stage_07p_b | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_07p_claas3_profile_pair_evaluation.py | stage_07p | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_07p_overlap_validation/stage_07p_claas3_profile_pair_evaluation.py | stage_07p | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_07p_overlap_validation/stage_07p_overlap_validator.py | stage_07p | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_07v2 | stage_07v2 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_08 | stage_08 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_08b | stage_08b | 1.0 | registry-defined alias |

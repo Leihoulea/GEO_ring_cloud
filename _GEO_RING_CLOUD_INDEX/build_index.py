@@ -203,7 +203,8 @@ SCRIPTS = [
     ("stage_00d_claas3_integration_readiness.py", "00d", "CLAAS-3 March 2024 cadence, structure, QA, projection, and integration readiness gate"),
     ("stage_06c_geometry_audit/stage_06c_claas3_geometry_angle_lineage.py", "06c", "Stage 06c canonical CLAAS-3 CF projection and navigation-derived angle lineage gate"),
     ("stage_06c_claas3_geometry_angle_lineage.py", "06c", "Stage 06c CLAAS-3 lineage 历史路径兼容入口"),
-    ("stage_07p_claas3_profile_pair_evaluation.py", "07p", "Common-domain CLAAS-3 versus operational Meteosat consistency and boundary diagnostics"),
+    ("stage_07p_overlap_validation/stage_07p_claas3_profile_pair_evaluation.py", "07p", "Stage 07p canonical common-domain CLAAS-3 versus operational Meteosat diagnostics"),
+    ("stage_07p_claas3_profile_pair_evaluation.py", "07p", "Stage 07p CLAAS-3 profile-pair 历史路径兼容入口"),
     ("stage_09d_claas3_epic_profile_pair_evaluation.py", "09d", "Matched common-domain EPIC cloud-mask profile-pair metrics and sample-block bootstrap"),
     ("stage_10_claas3_epic_relative_height_evaluation.py", "10", "A/B-band EPIC-relative effective-height profile-pair diagnostics with common approximate PSF"),
     ("stage1_common.py", "公共", "已登记 compatibility shim；权威 API 见 geo_ring_cloud.pipeline_support、pipeline_layout、cloud_semantics 和 diagnostics.summary"),
@@ -232,7 +233,8 @@ SCRIPTS = [
     ("06f_reexport_with_obitype_patch.py", "06f", "Stage 06f 历史路径兼容入口；实现位于 canonical stage package"),
     ("06f_report_sync_patch.py", "06f", "Stage 06f 历史路径兼容入口；实现位于 canonical stage package"),
     ("07_overlap_consistency_validation.py", "07", "重叠区一致性验证 v1：相邻卫星覆盖区 cloud_mask/CTH/CTT 差异（历史版）"),
-    ("07p_overlap_validator_hotfix.py", "07p", "重叠验证热修复：修 cloud-mask 映射/angle-layer/分层执行"),
+    ("stage_07p_overlap_validation/stage_07p_overlap_validator.py", "07p", "Stage 07p canonical 重叠验证：cloud-mask 映射、angle-layer 与分层执行"),
+    ("07p_overlap_validator_hotfix.py", "07p", "Stage 07p 历史路径兼容入口；实现位于 canonical stage package"),
     ("07p_b_source_boundary_magnitude_review.py", "07p-b", "源边界跳变幅度审查"),
     ("07v2_formal_single_time_report.py", "07v2", "正式单时次报告生成：聚合 07p，生成最终验收决策"),
     ("08_epic_visual_comparison.py", "08", "EPIC(DSCOVR) 目视比较：下载 EPIC 图像与融合结果对比"),
@@ -719,6 +721,30 @@ CODE_MIGRATIONS = (
         "verified_by": "governance AST boundary; canonical/legacy import identity; syntax smoke test",
         "rollback": "restore implementation at legacy_path and remove the canonical package only after reverting imports",
         "notes": "Report synchronization implementation now has a canonical stage-owned filename.",
+    },
+    {
+        "migration_id": "stage_07p_20260719_overlap_validator",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_07p",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/07p_overlap_validator_hotfix.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_07p_overlap_validation/stage_07p_overlap_validator.py",
+        "compatibility_strategy": "legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; Python syntax and scientific regression tests",
+        "rollback": "restore implementation at legacy_path and remove the canonical package only after reverting registry and tests",
+        "notes": "Repaired overlap validator now has a canonical name without the historical hotfix suffix.",
+    },
+    {
+        "migration_id": "stage_07p_20260719_claas3_profile_pair",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_07p",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage_07p_claas3_profile_pair_evaluation.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_07p_overlap_validation/stage_07p_claas3_profile_pair_evaluation.py",
+        "compatibility_strategy": "legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; CLI help smoke test; experiment runner target test",
+        "rollback": "restore implementation at legacy_path and revert the experiment runner target before removing the canonical package",
+        "notes": "Experiment runner now executes the canonical path; legacy path remains available for external callers.",
     },
 )
 INDEX_EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", "_tmp"}
@@ -2012,7 +2038,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 
 ## 物理迁移原则
 
-`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。`stage_06c_geometry_audit/`、`stage_06e_geometry_angle_sync/` 与 `stage_06f_data_asset_audit/` 已完成多脚本 canonical 物理归位；历史顶层路径仅保留受治理的薄兼容入口，迁移证据见 `code_migrations.md`。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
+`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。`stage_06c_geometry_audit/`、`stage_06e_geometry_angle_sync/`、`stage_06f_data_asset_audit/` 与 `stage_07p_overlap_validation/` 已完成多脚本 canonical 物理归位；历史顶层路径仅保留受治理的薄兼容入口，迁移证据见 `code_migrations.md`。`stage_07p_b` 是独立的边界量级审查阶段，不属于 `stage_07p_overlap_validation/`。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
 
 新 stage 若只有一个脚本，可使用 `stage_XX_<purpose>.py`；若有多个脚本，必须放入 `stage_XX_<purpose>/`。跨阶段工具不得伪造组合 stage，必须使用 `geo_ring_cloud_<role>_<purpose>.py`、声明 `COMPONENT_ROLE`，并在 manifest 中记录 `related_stage_ids`。
 """
@@ -2070,6 +2096,7 @@ Generated: `{GENERATED_AT}`
 - Stage 06c 三个实现已迁入 `stage_06c_geometry_audit/`；CLAAS-3 lineage gate 已直接使用 canonical paths、lineage 与 source registry API。
 - Stage 06e 两个实现已迁入 `stage_06e_geometry_angle_sync/`；子进程与报告根分别由 `CODE_ROOT`、`THIRD_REPORT_ROOT` 稳定解析。
 - Stage 06f 三个实现已迁入 `stage_06f_data_asset_audit/`；原路径由 AST 门禁约束为薄兼容入口。
+- Stage 07p 两个实现已迁入 `stage_07p_overlap_validation/`；实验 runner 已切换 canonical 路径，`stage_07p_b` 保持独立。
 {dynamic_loader_status}
 {path_debt_status}
 - `environment.yml` 已固定已验证的直接依赖；跨平台传递依赖锁仍应在正式实验发布时按平台生成。

@@ -39,6 +39,7 @@
 | stage_06c_geometry_audit/__init__.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | stage_06e_geometry_angle_sync/__init__.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | stage_06f_data_asset_audit/__init__.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
+| stage_07p_overlap_validation/__init__.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3_integration.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud_time_run_prune_failed.py | geo_ring_cloud |  | time_run_pruning |  | 当前文件系统扫描补充脚本 |  |
@@ -71,8 +72,10 @@
 | 06f_report_sync_patch.py | geo_ring_cloud | stage_06f | compatibility_entrypoint | 06f | Stage 06f 历史路径兼容入口；实现位于 canonical stage package |  |
 | 06f_unknown_aware_data_asset_audit.py | geo_ring_cloud | stage_06f | compatibility_entrypoint | 06f | Stage 06f 历史路径兼容入口；实现位于 canonical stage package |  |
 | 07_overlap_consistency_validation.py | geo_ring_cloud | stage_07 |  | 07 | 重叠区一致性验证 v1：相邻卫星覆盖区 cloud_mask/CTH/CTT 差异（历史版） |  |
-| 07p_overlap_validator_hotfix.py | geo_ring_cloud | stage_07p |  | 07p | 重叠验证热修复：修 cloud-mask 映射/angle-layer/分层执行 |  |
-| stage_07p_claas3_profile_pair_evaluation.py | geo_ring_cloud | stage_07p |  | 07p | Common-domain CLAAS-3 versus operational Meteosat consistency and boundary diagnostics |  |
+| stage_07p_overlap_validation/stage_07p_claas3_profile_pair_evaluation.py | geo_ring_cloud | stage_07p |  | 07p | Stage 07p canonical common-domain CLAAS-3 versus operational Meteosat diagnostics |  |
+| stage_07p_overlap_validation/stage_07p_overlap_validator.py | geo_ring_cloud | stage_07p |  | 07p | Stage 07p canonical 重叠验证：cloud-mask 映射、angle-layer 与分层执行 |  |
+| 07p_overlap_validator_hotfix.py | geo_ring_cloud | stage_07p | compatibility_entrypoint | 07p | Stage 07p 历史路径兼容入口；实现位于 canonical stage package |  |
+| stage_07p_claas3_profile_pair_evaluation.py | geo_ring_cloud | stage_07p | compatibility_entrypoint | 07p | Stage 07p CLAAS-3 profile-pair 历史路径兼容入口 |  |
 | 07p_b_source_boundary_magnitude_review.py | geo_ring_cloud | stage_07p_b |  | 07p-b | 源边界跳变幅度审查 |  |
 | 07v2_formal_single_time_report.py | geo_ring_cloud | stage_07v2 |  | 07v2 | 正式单时次报告生成：聚合 07p，生成最终验收决策 |  |
 | 08_epic_visual_comparison.py | geo_ring_cloud | stage_08 |  | 08 | EPIC(DSCOVR) 目视比较：下载 EPIC 图像与融合结果对比 |  |

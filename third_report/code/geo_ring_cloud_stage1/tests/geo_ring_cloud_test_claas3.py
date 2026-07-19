@@ -40,7 +40,11 @@ from geo_ring_cloud.adapters.epic import read_epic_cth  # noqa: E402
 from geo_ring_cloud.run_discovery import discover_run_dirs, resolve_run_dir  # noqa: E402
 from geo_ring_cloud.sources import SOURCE_ID_MAP, tie_order, variable_rules  # noqa: E402
 from geo_ring_cloud_time_run_matrix import REQUIRED_PROFILE_ARTIFACTS, profile_artifacts_complete  # noqa: E402
-from geo_ring_cloud_experiment_profile_pair import reusable_operational_baseline, write_batch_status  # noqa: E402
+from geo_ring_cloud_experiment_profile_pair import (  # noqa: E402
+    STAGE_07P_PROFILE_PAIR_SCRIPT,
+    reusable_operational_baseline,
+    write_batch_status,
+)
 import rebuild_stage1_evidence_pack as evidence_pack  # noqa: E402
 from run_epic_georing_single_sample import runtime_environment  # noqa: E402
 from geo_ring_cloud.diagnostics.epic_pair import (  # noqa: E402
@@ -94,6 +98,26 @@ class EvidencePackBuilderTests(unittest.TestCase):
         self.assertEqual(
             rows["stage_06c_geometry_audit/stage_06c_multi_satellite_geometry_metadata_audit.py"][:2],
             ["06c-final", "executed canonical"],
+        )
+        self.assertEqual(
+            rows["stage_07p_overlap_validation/stage_07p_overlap_validator.py"][:2],
+            ["07p", "executed canonical"],
+        )
+        self.assertEqual(
+            rows["stage_07p_overlap_validation/stage_07p_claas3_profile_pair_evaluation.py"][:2],
+            ["07p", "present canonical gate"],
+        )
+        self.assertEqual(
+            rows["07p_overlap_validator_hotfix.py"][:2],
+            ["07p", "compatibility entrypoint"],
+        )
+        self.assertEqual(
+            rows["stage_07p_claas3_profile_pair_evaluation.py"][:2],
+            ["07p", "compatibility entrypoint"],
+        )
+        self.assertEqual(
+            rows["07p_b_source_boundary_magnitude_review.py"][:2],
+            ["07p-b", "executed"],
         )
 
 
@@ -254,6 +278,56 @@ class PackageBoundaryTests(unittest.TestCase):
         self.assertNotIn("from geo_ring_cloud_lineage", source)
         self.assertNotIn("from geo_ring_cloud_source_registry", source)
 
+    def test_stage_07p_legacy_entrypoints_export_canonical_objects(self) -> None:
+        mappings = {
+            "07p_overlap_validator_hotfix": (
+                "stage_07p_overlap_validation.stage_07p_overlap_validator",
+                "main",
+            ),
+            "stage_07p_claas3_profile_pair_evaluation": (
+                "stage_07p_overlap_validation.stage_07p_claas3_profile_pair_evaluation",
+                "main",
+            ),
+        }
+        for legacy_name, (canonical_name, public_name) in mappings.items():
+            legacy = importlib.import_module(legacy_name)
+            canonical = importlib.import_module(canonical_name)
+            self.assertIs(getattr(legacy, public_name), getattr(canonical, public_name))
+            self.assertEqual(legacy.STAGE_ID, "stage_07p")
+
+    def test_stage_07p_claas3_legacy_and_canonical_help(self) -> None:
+        commands = [
+            [sys.executable, "stage_07p_claas3_profile_pair_evaluation.py", "--help"],
+            [
+                sys.executable,
+                "-m",
+                "stage_07p_overlap_validation.stage_07p_claas3_profile_pair_evaluation",
+                "--help",
+            ],
+        ]
+        for command in commands:
+            completed = subprocess.run(
+                command,
+                cwd=CODE_DIR,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("usage:", completed.stdout.lower())
+
+        canonical_path = (
+            CODE_DIR
+            / "stage_07p_overlap_validation"
+            / "stage_07p_claas3_profile_pair_evaluation.py"
+        )
+        source = canonical_path.read_text(encoding="utf-8-sig")
+        self.assertNotIn("import path_config", source)
+        self.assertNotIn("from geo_ring_cloud_lineage", source)
+        self.assertEqual(STAGE_07P_PROFILE_PAIR_SCRIPT, canonical_path)
+        self.assertTrue(STAGE_07P_PROFILE_PAIR_SCRIPT.exists())
+
     def test_migrated_stage_scripts_use_static_package_dependencies(self) -> None:
         migrated = [
             "05_reproject_cloud_to_grid.py",
@@ -267,6 +341,9 @@ class PackageBoundaryTests(unittest.TestCase):
             "stage_06c_geometry_audit/stage_06c_claas3_geometry_angle_lineage.py",
             "07_overlap_consistency_validation.py",
             "07p_overlap_validator_hotfix.py",
+            "stage_07p_claas3_profile_pair_evaluation.py",
+            "stage_07p_overlap_validation/stage_07p_overlap_validator.py",
+            "stage_07p_overlap_validation/stage_07p_claas3_profile_pair_evaluation.py",
             "07p_b_source_boundary_magnitude_review.py",
             "06e_full_geometry_angle_source_sync_patch.py",
             "06e_vza_ecef_final_audit.py",

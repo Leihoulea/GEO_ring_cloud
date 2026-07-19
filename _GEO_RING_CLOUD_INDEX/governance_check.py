@@ -140,6 +140,14 @@ STAGE_COMPATIBILITY_ENTRYPOINTS = {
         "stage_06c_geometry_audit.stage_06c_claas3_geometry_angle_lineage",
         "stage_06c",
     ),
+    f"{CORE_CODE_PREFIX}07p_overlap_validator_hotfix.py": (
+        "stage_07p_overlap_validation.stage_07p_overlap_validator",
+        "stage_07p",
+    ),
+    f"{CORE_CODE_PREFIX}stage_07p_claas3_profile_pair_evaluation.py": (
+        "stage_07p_overlap_validation.stage_07p_claas3_profile_pair_evaluation",
+        "stage_07p",
+    ),
     f"{CORE_CODE_PREFIX}06e_full_geometry_angle_source_sync_patch.py": (
         "stage_06e_geometry_angle_sync.stage_06e_full_geometry_angle_source_sync",
         "stage_06e",

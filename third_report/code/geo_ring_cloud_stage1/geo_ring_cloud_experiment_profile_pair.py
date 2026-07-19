@@ -24,8 +24,13 @@ from geo_ring_cloud_time_run_matrix import profile_artifacts_complete
 
 PROJECT_ID = "geo_ring_cloud"
 COMPONENT_ROLE = "experiment_runner"
-RELATED_STAGE_IDS = ("stage_09d", "stage_10")
+RELATED_STAGE_IDS = ("stage_07p", "stage_09d", "stage_10")
 SCRIPT_DIR = Path(__file__).resolve().parent
+STAGE_07P_PROFILE_PAIR_SCRIPT = (
+    SCRIPT_DIR
+    / "stage_07p_overlap_validation"
+    / "stage_07p_claas3_profile_pair_evaluation.py"
+)
 PILOT_TAGS = {
     "20240306_1300",
     "20240313_1300",
@@ -501,7 +506,7 @@ def process_sample(args: argparse.Namespace, index: int, row: dict[str, str]) ->
         checkpoint["baseline_regression"] = baseline_regression(row, profile_roots["operational_baseline"])
         checkpoint["unchanged_prefusion_regression"] = unchanged_prefusion_regression(profile_roots["operational_baseline"], profile_roots["claas3_candidate"])
         stage07_dir = run_root / "stage_07p_claas3_aligned"
-        run([sys.executable, str(SCRIPT_DIR / "stage_07p_claas3_profile_pair_evaluation.py"), "--matrix-manifest", str(matrix), "--output-dir", str(stage07_dir)])
+        run([sys.executable, str(STAGE_07P_PROFILE_PAIR_SCRIPT), "--matrix-manifest", str(matrix), "--output-dir", str(stage07_dir)])
         stage09_dir = args.stage09_root / "samples" / time_tag
         stage10_dir = args.stage10_root / "samples" / time_tag
         diagnostic_cache = args.experiment_root / "diagnostic_cache" / f"{time_tag}_cloud_mask_samples.npz"
