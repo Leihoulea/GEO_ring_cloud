@@ -13,10 +13,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from geo_ring_cloud_run_discovery import discover_run_dirs, run_time_tag
+from geo_ring_cloud.paths import RUNS_ROOT
+from geo_ring_cloud.run_discovery import discover_run_dirs, run_time_tag
 
 
-RUNS_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs")
 SELECTION_INVENTORY = RUNS_ROOT / "epic_202403_target_selection" / "epic_202403_geo_source_candidate_inventory.csv"
 OUT_DIR = RUNS_ROOT / "epic_202403_multisample_summary"
 QL_DIR = OUT_DIR / "renamed_quicklooks"

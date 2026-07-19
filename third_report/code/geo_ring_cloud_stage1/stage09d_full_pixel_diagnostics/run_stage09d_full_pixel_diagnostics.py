@@ -7,10 +7,10 @@ import json
 import math
 import os
 import re
+import sys
 import traceback
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -25,8 +25,14 @@ import netCDF4
 import numpy as np
 import pandas as pd
 
+SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-RUNS_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs")
+from geo_ring_cloud.lineage import utc_now  # noqa: E402
+from geo_ring_cloud.paths import RUNS_ROOT  # noqa: E402
+
+
 DEFAULT_09C_DIR = RUNS_ROOT / "stage09c_scaled_202403_batch"
 DEFAULT_OUT_DIR = RUNS_ROOT / "stage09d_full_pixel_diagnostics_202403"
 INV_09B = RUNS_ROOT / "stage09b_full_202403_overnight_diagnostics" / "01_inventory_expansion" / "stage09b_full_candidate_inventory_202403.csv"
@@ -48,10 +54,6 @@ POLICIES = {
     "B_high_confidence_only": {"epic": {1: 0, 4: 1}, "geo": {0: 0, 3: 1}, "positive": 1},
     "C_uncertainty_aware_3class": {"epic": {1: 0, 2: 1, 3: 1, 4: 2}, "geo": {0: 0, 1: 1, 2: 1, 3: 2}, "positive": 2},
 }
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:

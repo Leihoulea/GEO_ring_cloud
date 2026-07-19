@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -8,9 +9,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
+SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\stage09d_full_pixel_diagnostics_202403")
-STAGE09C = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\stage09c_scaled_202403_batch")
+from geo_ring_cloud.paths import RUNS_ROOT  # noqa: E402
+
+
+ROOT = RUNS_ROOT / "stage09d_full_pixel_diagnostics_202403"
+STAGE09C = RUNS_ROOT / "stage09c_scaled_202403_batch"
 OUT = ROOT / "interpretation_package" / "visibility_filter_sensitivity"
 FIG = OUT / "figures"
 

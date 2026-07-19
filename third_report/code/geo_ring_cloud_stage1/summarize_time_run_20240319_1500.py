@@ -3,8 +3,10 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
+from geo_ring_cloud.paths import RUNS_ROOT
 
-ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\20240319_1500")
+
+ROOT = RUNS_ROOT / "20240319_1500"
 REPORT_DIR = ROOT / "reports"
 EPIC_DIR = ROOT / "epic_visual_comparison_20240319_1500"
 FUSED_DIR = ROOT / "fused_best_source"

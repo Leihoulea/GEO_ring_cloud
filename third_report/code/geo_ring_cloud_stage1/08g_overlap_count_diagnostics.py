@@ -9,8 +9,10 @@ import netCDF4
 import numpy as np
 import pandas as pd
 
+from geo_ring_cloud.paths import RUNS_ROOT
 
-ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs")
+
+ROOT = RUNS_ROOT
 SUMMARY = ROOT / "epic_202403_multisample_summary" / "epic_georing_multisample_summary.csv"
 OUT = ROOT / "epic_202403_multisample_summary" / "geometry_prefusion_diagnostics" / "fused_metrics_by_overlap_count.csv"
 

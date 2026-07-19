@@ -7,8 +7,9 @@ from typing import Any
 
 import pandas as pd
 
+from geo_ring_cloud.paths import RUNS_ROOT
 
-RUNS_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs")
+
 SUMMARY_ROOT = RUNS_ROOT / "epic_202403_multisample_summary"
 TIME_CONTROL_ROOT = RUNS_ROOT / "epic_202403_meteosat_time_offset_control"
 TARGET_SELECTION_ROOT = RUNS_ROOT / "epic_202403_target_selection"

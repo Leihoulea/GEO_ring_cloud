@@ -11,10 +11,10 @@ from typing import Any
 import netCDF4
 import numpy as np
 
-from geo_ring_cloud_run_discovery import resolve_run_dir
+from geo_ring_cloud.paths import RUNS_ROOT
+from geo_ring_cloud.run_discovery import resolve_run_dir
 
 
-RUNS_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs")
 DEFAULT_08H_DIR = RUNS_ROOT / "epic_202403_meteosat_time_offset_control"
 DEFAULT_OUT_DIR = DEFAULT_08H_DIR / "source_overlap_diagnostics"
 

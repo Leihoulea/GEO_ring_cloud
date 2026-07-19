@@ -12,6 +12,9 @@ from typing import Any
 import netCDF4
 import numpy as np
 
+from geo_ring_cloud.paths import RUNS_ROOT
+from geo_ring_cloud.pipeline_layout import TIME_INDEX_DIR
+
 
 SATELLITES = {
     "GOES-16": -75.2,
@@ -333,8 +336,8 @@ def run(args: argparse.Namespace) -> Path:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Select EPIC March 2024 L2 cloud scenes for GEO-ring source-sector semantic validation.")
     p.add_argument("--epic-dir", required=True)
-    p.add_argument("--core-time-index", default=r"D:\AAAresearch_paper\geo_ring_cloud_stage1\time_index\core_time_index.csv")
-    p.add_argument("--out-dir", default=r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\epic_202403_target_selection")
+    p.add_argument("--core-time-index", default=str(TIME_INDEX_DIR / "core_time_index.csv"))
+    p.add_argument("--out-dir", default=str(RUNS_ROOT / "epic_202403_target_selection"))
     p.add_argument("--stride", type=int, default=32)
     p.add_argument("--max-files", type=int, default=0)
     return p

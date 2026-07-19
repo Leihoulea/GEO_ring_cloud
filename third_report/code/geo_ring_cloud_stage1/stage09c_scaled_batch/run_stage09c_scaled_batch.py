@@ -7,9 +7,9 @@ import math
 import os
 import re
 import subprocess
+import sys
 import time
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -18,15 +18,19 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
-RUNS_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs")
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from geo_ring_cloud.lineage import utc_now  # noqa: E402
+from geo_ring_cloud.paths import BASE_STAGE_ROOT, RUNS_ROOT  # noqa: E402
+
+
 OUT_ROOT = RUNS_ROOT / "stage09c_scaled_202403_batch"
 STAGE09B_ROOT = RUNS_ROOT / "stage09b_full_202403_overnight_diagnostics"
 STAGE09_ROOT = RUNS_ROOT / "stage09_epic_georing_cloud_mask_diagnostics"
 INV_09B = STAGE09B_ROOT / "01_inventory_expansion" / "stage09b_full_candidate_inventory_202403.csv"
 TARGET_09B = STAGE09B_ROOT / "02_target_selection" / "stage09b_overnight_target_list.csv"
-BASE_STAGE_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1")
 
 FIELDS_HISTORY = [
     "sample_id",
@@ -43,10 +47,6 @@ FIELDS_HISTORY = [
     "failure_reason",
     "log_file",
 ]
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:

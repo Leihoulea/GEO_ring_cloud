@@ -7,22 +7,18 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from geo_ring_cloud_run_discovery import resolve_run_dir
+from geo_ring_cloud.lineage import utc_now
+from geo_ring_cloud.paths import BASE_STAGE_ROOT, RUNS_ROOT
+from geo_ring_cloud.run_discovery import resolve_run_dir
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-RUNS_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs")
 DEFAULT_INVENTORY = RUNS_ROOT / "epic_202403_target_selection" / "epic_202403_geo_source_candidate_inventory.csv"
 DEFAULT_OLD_SUMMARY = RUNS_ROOT / "epic_202403_multisample_summary" / "epic_georing_multisample_summary.csv"
 DEFAULT_OUT_DIR = RUNS_ROOT / "epic_202403_meteosat_time_offset_control"
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -395,7 +391,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--old-summary", default=str(DEFAULT_OLD_SUMMARY))
     p.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR))
     p.add_argument("--runs-root", default=str(RUNS_ROOT))
-    p.add_argument("--base-stage-root", default=r"D:\AAAresearch_paper\geo_ring_cloud_stage1")
+    p.add_argument("--base-stage-root", default=str(BASE_STAGE_ROOT))
     p.add_argument("--max-delta-min", type=float, default=5.0)
     p.add_argument("--min-meteosat-fraction", type=float, default=0.55)
     p.add_argument("--max-samples", type=int, default=3)

@@ -11,12 +11,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\stage09d_full_pixel_diagnostics_202403")
+from geo_ring_cloud.paths import CODE_ROOT, RUNS_ROOT  # noqa: E402
+
+
+ROOT = RUNS_ROOT / "stage09d_full_pixel_diagnostics_202403"
 OUT = ROOT / "interpretation_package" / "stage09d_question_followup"
 FIG = OUT / "figures"
 TAB = OUT / "tables"
-STAGE09D_CODE = Path(r"D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage09d_full_pixel_diagnostics")
+STAGE09D_CODE = CODE_ROOT / "stage09d_full_pixel_diagnostics"
 
 
 def read_csv(path: Path) -> pd.DataFrame:

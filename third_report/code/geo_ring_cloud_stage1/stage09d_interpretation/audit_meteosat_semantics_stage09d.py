@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-RUNS_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs")
+from geo_ring_cloud.paths import RUNS_ROOT  # noqa: E402
+
+
 STAGE09D = RUNS_ROOT / "stage09d_full_pixel_diagnostics_202403"
 OUT = STAGE09D / "interpretation_package" / "meteosat_semantics_audit"
 MANIFEST = STAGE09D / "00_sample_manifest" / "stage09d_53_sample_manifest.csv"

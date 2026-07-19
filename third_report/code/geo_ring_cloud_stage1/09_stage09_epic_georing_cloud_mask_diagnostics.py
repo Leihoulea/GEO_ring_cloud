@@ -13,7 +13,9 @@ from typing import Any
 
 import pandas as pd
 
-from geo_ring_cloud_run_discovery import discover_run_dirs as discover_profile_run_dirs, run_time_tag
+from geo_ring_cloud.lineage import utc_now
+from geo_ring_cloud.paths import RUNS_ROOT
+from geo_ring_cloud.run_discovery import discover_run_dirs as discover_profile_run_dirs, run_time_tag
 
 import matplotlib
 
@@ -21,7 +23,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
-RUNS_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs")
 DEFAULT_OUT_DIR = RUNS_ROOT / "stage09_epic_georing_cloud_mask_diagnostics"
 SELECTION_INVENTORY = RUNS_ROOT / "epic_202403_target_selection" / "epic_202403_geo_source_candidate_inventory.csv"
 MULTISAMPLE_DIR = RUNS_ROOT / "epic_202403_multisample_summary"
@@ -42,10 +43,6 @@ POLICY_LABELS = {
     "B_high_confidence_only": "B high confidence",
     "C_uncertainty_aware_3class": "C uncertainty-aware",
 }
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:

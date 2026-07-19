@@ -24,6 +24,8 @@ import numpy as np
 from matplotlib.colors import BoundaryNorm, ListedColormap
 from PIL import Image
 
+from geo_ring_cloud.paths import STAGE_ROOT, env_path
+
 
 def parse_target_time() -> datetime:
     text = os.environ.get("GEO_RING_TARGET_TIME", "2024-03-05T00:00:00Z").replace("Z", "+00:00")
@@ -34,10 +36,9 @@ TARGET_TIME = parse_target_time()
 TARGET_DATE = TARGET_TIME.strftime("%Y-%m-%d")
 TIME_TAG = os.environ.get("GEO_RING_TIME_TAG", TARGET_TIME.strftime("%Y%m%d_%H%M"))
 
-STAGE_ROOT = Path(os.environ.get("GEO_RING_STAGE_ROOT", r"D:\AAAresearch_paper\geo_ring_cloud_stage1"))
 FUSED_DIR = STAGE_ROOT / "fused_best_source"
 GRID_JSON = STAGE_ROOT / "reprojected_grid" / "target_grid_definition.json"
-OUT_DIR = Path(os.environ.get("EPIC_VISUAL_OUT_DIR", str(STAGE_ROOT / f"epic_visual_comparison_{TIME_TAG}")))
+OUT_DIR = env_path("EPIC_VISUAL_OUT_DIR", STAGE_ROOT / f"epic_visual_comparison_{TIME_TAG}")
 IMG_DIR = OUT_DIR / "epic_images"
 QL_DIR = OUT_DIR / "quicklooks_epic_compare"
 REPORT_DIR = STAGE_ROOT / "reports"

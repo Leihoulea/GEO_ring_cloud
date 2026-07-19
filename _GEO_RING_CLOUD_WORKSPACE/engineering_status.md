@@ -1,6 +1,6 @@
 # GEO-ring Cloud Engineering Status
 
-Generated: `2026-07-19T05:06:03Z`
+Generated: `2026-07-19T05:18:58Z`
 
 ## 当前规模
 
@@ -12,7 +12,7 @@ Generated: `2026-07-19T05:06:03Z`
 - data product audits：19
 - time-run 顶层目录：156
 - 已登记历史命名 warning：32
-- 历史绝对路径 warning 文件：48
+- 历史绝对路径 warning 文件：29
 
 ## 已建立的工程能力
 

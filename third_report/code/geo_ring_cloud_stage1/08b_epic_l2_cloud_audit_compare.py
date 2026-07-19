@@ -18,13 +18,18 @@ import netCDF4
 import numpy as np
 from matplotlib.colors import BoundaryNorm, ListedColormap
 
+from geo_ring_cloud.paths import CLAAS3_ROOT, RUNS_ROOT, env_path
+
 
 TARGET_TIME = "2024-03-19T15:00:00Z"
 TIME_TAG = "20240319_1500"
-TIME_RUN_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\20240319_1500")
+TIME_RUN_ROOT = RUNS_ROOT / TIME_TAG
 FUSED_DIR = TIME_RUN_ROOT / "fused_best_source"
 GRID_JSON = TIME_RUN_ROOT / "reprojected_grid" / "target_grid_definition.json"
-EPIC_L2_FILE = Path(r"E:\GEO_Cloud_2024\CMSAF\DSCOVR_EPIC_L2_CLOUD_03_20240319150052_03.nc4")
+EPIC_L2_FILE = env_path(
+    "GEO_RING_EPIC_L2_FILE",
+    CLAAS3_ROOT / "DSCOVR_EPIC_L2_CLOUD_03_20240319150052_03.nc4",
+)
 OUT_DIR = TIME_RUN_ROOT / "epic_l2_cloud_comparison_20240319_1500"
 QL_DIR = OUT_DIR / "quicklooks"
 REPORT_DIR = TIME_RUN_ROOT / "reports"

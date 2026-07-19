@@ -11,10 +11,10 @@ import netCDF4
 import numpy as np
 import pandas as pd
 
-from geo_ring_cloud_run_discovery import resolve_run_dir
+from geo_ring_cloud.paths import RUNS_ROOT
+from geo_ring_cloud.run_discovery import resolve_run_dir
 
 
-RUNS_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs")
 SUMMARY_CSV = RUNS_ROOT / "epic_202403_multisample_summary" / "epic_georing_multisample_summary.csv"
 OUT_DIR = RUNS_ROOT / "epic_202403_multisample_summary" / "geometry_prefusion_diagnostics"
 
