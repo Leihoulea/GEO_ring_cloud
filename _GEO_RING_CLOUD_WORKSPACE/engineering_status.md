@@ -1,14 +1,14 @@
 # GEO-ring Cloud Engineering Status
 
-Generated: `2026-07-19T08:02:29Z`
+Generated: `2026-07-19T08:18:45Z`
 
 ## 当前规模
 
-- 索引脚本：117
+- 索引脚本：115
 - canonical shared modules：22
-- 已登记物理代码迁移：10
+- 已登记物理代码迁移：15
 - canonical stages：43
-- SQLite 详细 artifact 记录：997
+- SQLite 详细 artifact 记录：1006
 - Markdown 快查 artifact 记录：436
 - data product audits：19
 - time-run 顶层目录：156
@@ -33,6 +33,7 @@ Generated: `2026-07-19T08:02:29Z`
 - Stage 06e 两个实现已迁入 `stage_06e_geometry_angle_sync/`；子进程与报告根分别由 `CODE_ROOT`、`THIRD_REPORT_ROOT` 稳定解析。
 - Stage 06f 三个实现已迁入 `stage_06f_data_asset_audit/`；原路径由 AST 门禁约束为薄兼容入口。
 - Stage 07p 两个实现已迁入 `stage_07p_overlap_validation/`；实验 runner 已切换 canonical 路径，`stage_07p_b` 保持独立。
+- Stage 09d full-pixel runner 与四个解释实现已迁入 `stage_09d_full_pixel_diagnostics/`、`stage_09d_interpretation/`；历史嵌套路径保留受治理的可执行薄兼容入口。
 - Stage 09d/09e/09f 的 full-pixel 采样、policy 与 workflow support 已进入 `geo_ring_cloud.diagnostics`；后续阶段不再反向导入 Stage 09d 脚本。
 - 阶段脚本之间的动态实现加载已清零；Stage 05/06/07 主链均使用静态 package API。
 - 活跃项目代码中的机器本地绝对路径 warning 已清零；历史非 canonical 命名继续由 alias/baseline 吸收。

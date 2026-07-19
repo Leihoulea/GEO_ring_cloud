@@ -414,8 +414,8 @@ class PackageBoundaryTests(unittest.TestCase):
         runner = ast.parse(
             (
                 CODE_DIR
-                / "stage09d_full_pixel_diagnostics"
-                / "run_stage09d_full_pixel_diagnostics.py"
+                / "stage_09d_full_pixel_diagnostics"
+                / "stage_09d_run_full_pixel_diagnostics.py"
             ).read_text(encoding="utf-8-sig")
         )
         extracted = {
@@ -511,9 +511,13 @@ class FullPixelDiagnosticTests(unittest.TestCase):
     def test_stage09d_runner_exports_canonical_primitives(self) -> None:
         from geo_ring_cloud.diagnostics import full_pixel
 
-        runner = importlib.import_module(
+        legacy_runner = importlib.import_module(
             "stage09d_full_pixel_diagnostics.run_stage09d_full_pixel_diagnostics"
         )
+        runner = importlib.import_module(
+            "stage_09d_full_pixel_diagnostics.stage_09d_run_full_pixel_diagnostics"
+        )
+        self.assertIs(legacy_runner.main, runner.main)
         for name in (
             "sample_grid",
             "apply_policy",
@@ -524,11 +528,40 @@ class FullPixelDiagnosticTests(unittest.TestCase):
         ):
             self.assertIs(getattr(runner, name), getattr(full_pixel, name))
         self.assertIs(runner.POLICIES, full_pixel.POLICIES)
+        self.assertEqual(legacy_runner.STAGE_ID, "stage_09d")
         self.assertEqual(runner.STAGE_ID, "stage_09d")
+
+    def test_stage09d_interpretation_compatibility_entrypoints(self) -> None:
+        mappings = {
+            "stage09d_interpretation.analyze_geo_visible_filter":
+                "stage_09d_interpretation.stage_09d_analyze_geo_visible_filter",
+            "stage09d_interpretation.answer_stage09d_questions":
+                "stage_09d_interpretation.stage_09d_answer_questions",
+            "stage09d_interpretation.audit_meteosat_semantics_stage09d":
+                "stage_09d_interpretation.stage_09d_audit_meteosat_semantics",
+            "stage09d_interpretation.build_stage09d_interpretation_package":
+                "stage_09d_interpretation.stage_09d_build_interpretation_package",
+        }
+        for legacy_name, canonical_name in mappings.items():
+            legacy = importlib.import_module(legacy_name)
+            canonical = importlib.import_module(canonical_name)
+            self.assertIs(legacy.main, canonical.main, legacy_name)
+            self.assertEqual(legacy.STAGE_ID, "stage_09d", legacy_name)
+            self.assertEqual(canonical.STAGE_ID, "stage_09d", canonical_name)
+
+        answer_source = (
+            CODE_DIR
+            / "stage_09d_interpretation"
+            / "stage_09d_answer_questions.py"
+        ).read_text(encoding="utf-8-sig")
+        self.assertNotIn("run_stage09d_full_pixel_diagnostics", answer_source)
+        self.assertNotIn("STAGE09D_CODE", answer_source)
+        self.assertIn("geo_ring_cloud.diagnostics", answer_source)
 
     def test_full_pixel_stage_cli_import_boundaries(self) -> None:
         scripts = [
             "stage09d_full_pixel_diagnostics/run_stage09d_full_pixel_diagnostics.py",
+            "stage_09d_full_pixel_diagnostics/stage_09d_run_full_pixel_diagnostics.py",
             "stage_09e_psf_sel_qc/stage_09e_run_psf_sel_qc.py",
             "stage_09f_spatial_story_maps/stage_09f_make_spatial_story_maps.py",
         ]

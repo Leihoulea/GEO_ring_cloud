@@ -149,6 +149,26 @@ STAGE_COMPATIBILITY_ENTRYPOINTS = {
         "stage_07p_overlap_validation.stage_07p_claas3_profile_pair_evaluation",
         "stage_07p",
     ),
+    f"{CORE_CODE_PREFIX}stage09d_full_pixel_diagnostics/run_stage09d_full_pixel_diagnostics.py": (
+        "stage_09d_full_pixel_diagnostics.stage_09d_run_full_pixel_diagnostics",
+        "stage_09d",
+    ),
+    f"{CORE_CODE_PREFIX}stage09d_interpretation/analyze_geo_visible_filter.py": (
+        "stage_09d_interpretation.stage_09d_analyze_geo_visible_filter",
+        "stage_09d",
+    ),
+    f"{CORE_CODE_PREFIX}stage09d_interpretation/answer_stage09d_questions.py": (
+        "stage_09d_interpretation.stage_09d_answer_questions",
+        "stage_09d",
+    ),
+    f"{CORE_CODE_PREFIX}stage09d_interpretation/audit_meteosat_semantics_stage09d.py": (
+        "stage_09d_interpretation.stage_09d_audit_meteosat_semantics",
+        "stage_09d",
+    ),
+    f"{CORE_CODE_PREFIX}stage09d_interpretation/build_stage09d_interpretation_package.py": (
+        "stage_09d_interpretation.stage_09d_build_interpretation_package",
+        "stage_09d",
+    ),
     f"{CORE_CODE_PREFIX}06e_full_geometry_angle_source_sync_patch.py": (
         "stage_06e_geometry_angle_sync.stage_06e_full_geometry_angle_source_sync",
         "stage_06e",
@@ -656,9 +676,21 @@ def check_stage_compatibility_entrypoints() -> list[Finding]:
         imports_canonical = False
         invalid = False
         for node in tree.body:
-            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            if isinstance(node, ast.Expr):
+                if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                    continue
+                if ast.unparse(node) == "sys.path.insert(0, str(Path(__file__).resolve().parents[1]))":
+                    continue
+                invalid = True
+                break
+            if isinstance(node, ast.Import):
+                if [alias.name for alias in node.names] != ["sys"]:
+                    invalid = True
+                    break
                 continue
             if isinstance(node, ast.ImportFrom):
+                if node.module == "pathlib" and [alias.name for alias in node.names] == ["Path"]:
+                    continue
                 if node.module != canonical_module:
                     invalid = True
                     break

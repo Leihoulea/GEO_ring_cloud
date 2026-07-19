@@ -206,6 +206,16 @@ SCRIPTS = [
     ("stage_07p_overlap_validation/stage_07p_claas3_profile_pair_evaluation.py", "07p", "Stage 07p canonical common-domain CLAAS-3 versus operational Meteosat diagnostics"),
     ("stage_07p_claas3_profile_pair_evaluation.py", "07p", "Stage 07p CLAAS-3 profile-pair 历史路径兼容入口"),
     ("stage_09d_claas3_epic_profile_pair_evaluation.py", "09d", "Matched common-domain EPIC cloud-mask profile-pair metrics and sample-block bootstrap"),
+    ("stage_09d_full_pixel_diagnostics/stage_09d_run_full_pixel_diagnostics.py", "09d", "Stage 09d canonical full-pixel diagnostic runner"),
+    ("stage09d_full_pixel_diagnostics/run_stage09d_full_pixel_diagnostics.py", "09d", "Stage 09d full-pixel runner 历史嵌套路径兼容入口"),
+    ("stage_09d_interpretation/stage_09d_analyze_geo_visible_filter.py", "09d", "Stage 09d canonical GEO visibility-filter sensitivity analysis"),
+    ("stage_09d_interpretation/stage_09d_answer_questions.py", "09d", "Stage 09d canonical follow-up diagnostic questions"),
+    ("stage_09d_interpretation/stage_09d_audit_meteosat_semantics.py", "09d", "Stage 09d canonical Meteosat cloud-mask semantics audit"),
+    ("stage_09d_interpretation/stage_09d_build_interpretation_package.py", "09d", "Stage 09d canonical interpretation package builder"),
+    ("stage09d_interpretation/analyze_geo_visible_filter.py", "09d", "Stage 09d visibility analysis 历史嵌套路径兼容入口"),
+    ("stage09d_interpretation/answer_stage09d_questions.py", "09d", "Stage 09d follow-up questions 历史嵌套路径兼容入口"),
+    ("stage09d_interpretation/audit_meteosat_semantics_stage09d.py", "09d", "Stage 09d Meteosat audit 历史嵌套路径兼容入口"),
+    ("stage09d_interpretation/build_stage09d_interpretation_package.py", "09d", "Stage 09d interpretation builder 历史嵌套路径兼容入口"),
     ("stage_10_claas3_epic_relative_height_evaluation.py", "10", "A/B-band EPIC-relative effective-height profile-pair diagnostics with common approximate PSF"),
     ("stage1_common.py", "公共", "已登记 compatibility shim；权威 API 见 geo_ring_cloud.pipeline_support、pipeline_layout、cloud_semantics 和 diagnostics.summary"),
     ("01_build_core_time_index.py", "01", "从 data_check_report/parsed_file_metadata.csv 构建核心时次索引，按卫星完整度评分，选定原型时次 2024-03-05T00:00Z"),
@@ -634,7 +644,7 @@ MODULE_REGISTRY = (
         "migration_status": "canonical_extracted",
         "public_api": "full-pixel EPIC/GEO sampling, policy mapping, source normalization, context loading and boundary metrics",
         "test_evidence": "tests/geo_ring_cloud_test_claas3.py::FullPixelDiagnosticTests",
-        "notes": "Stage 09d, 09e and 09f use one package API; the Stage 09d runner retains orchestration only.",
+        "notes": "Stage 09d, 09e and 09f use one package API; the canonical Stage 09d runner retains orchestration only and the historical nested path is a compatibility entrypoint.",
     },
     {
         "project_id": PROJECT_ID,
@@ -769,6 +779,66 @@ CODE_MIGRATIONS = (
         "verified_by": "governance AST boundary; canonical/legacy import identity; CLI help smoke test; experiment runner target test",
         "rollback": "restore implementation at legacy_path and revert the experiment runner target before removing the canonical package",
         "notes": "Experiment runner now executes the canonical path; legacy path remains available for external callers.",
+    },
+    {
+        "migration_id": "stage_09d_20260719_full_pixel_runner",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_09d",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage09d_full_pixel_diagnostics/run_stage09d_full_pixel_diagnostics.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_09d_full_pixel_diagnostics/stage_09d_run_full_pixel_diagnostics.py",
+        "compatibility_strategy": "nested_legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; both CLI help paths; scientific regression tests",
+        "rollback": "restore implementation at legacy_path and remove the canonical package only after reverting registry and tests",
+        "notes": "Full-pixel orchestration now uses a canonical package and imports reusable diagnostics APIs.",
+    },
+    {
+        "migration_id": "stage_09d_20260719_visibility_interpretation",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_09d",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage09d_interpretation/analyze_geo_visible_filter.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_09d_interpretation/stage_09d_analyze_geo_visible_filter.py",
+        "compatibility_strategy": "nested_legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; Python syntax and scientific regression tests",
+        "rollback": "restore implementation at legacy_path and remove canonical implementation after reverting registry and tests",
+        "notes": "Visibility-filter analysis retains its historical executable path without duplicated logic.",
+    },
+    {
+        "migration_id": "stage_09d_20260719_question_followup",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_09d",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage09d_interpretation/answer_stage09d_questions.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_09d_interpretation/stage_09d_answer_questions.py",
+        "compatibility_strategy": "nested_legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; direct full_pixel package dependency test",
+        "rollback": "restore implementation at legacy_path and remove canonical implementation after reverting registry and tests",
+        "notes": "Follow-up diagnostics no longer mutate sys.path to import the historical Stage 09d runner.",
+    },
+    {
+        "migration_id": "stage_09d_20260719_meteosat_semantics_audit",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_09d",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage09d_interpretation/audit_meteosat_semantics_stage09d.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_09d_interpretation/stage_09d_audit_meteosat_semantics.py",
+        "compatibility_strategy": "nested_legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; Python syntax and scientific regression tests",
+        "rollback": "restore implementation at legacy_path and remove canonical implementation after reverting registry and tests",
+        "notes": "Canonical filename places the stage ID first and removes the historical trailing stage token.",
+    },
+    {
+        "migration_id": "stage_09d_20260719_interpretation_builder",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_09d",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage09d_interpretation/build_stage09d_interpretation_package.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_09d_interpretation/stage_09d_build_interpretation_package.py",
+        "compatibility_strategy": "nested_legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; Python syntax and scientific regression tests",
+        "rollback": "restore implementation at legacy_path and remove canonical implementation after reverting registry and tests",
+        "notes": "Interpretation package generation now has one canonical stage-owned implementation path.",
     },
 )
 INDEX_EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", "_tmp"}
@@ -1379,6 +1449,8 @@ def insert_stage_registry(conn: sqlite3.Connection) -> None:
         for fp in sorted(code_root.rglob("*.py")):
             if is_index_excluded(fp):
                 continue
+            if fp.name == "__init__.py":
+                continue
             rel_name = fp.relative_to(code_root).as_posix()
             stage = infer_stage_from_name(rel_name)
             canonical = canonical_stage_id(stage)
@@ -1745,6 +1817,8 @@ def build_sqlite():
         for fp in sorted(code_root.rglob("*.py")):
             if is_index_excluded(fp):
                 continue
+            if fp.name == "__init__.py":
+                continue
             rel_name = fp.relative_to(code_root).as_posix()
             if rel_name in known_script_names:
                 continue
@@ -2068,7 +2142,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 
 ## 物理迁移原则
 
-`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。`stage_06c_geometry_audit/`、`stage_06e_geometry_angle_sync/`、`stage_06f_data_asset_audit/` 与 `stage_07p_overlap_validation/` 已完成多脚本 canonical 物理归位；历史顶层路径仅保留受治理的薄兼容入口，迁移证据见 `code_migrations.md`。`stage_07p_b` 是独立的边界量级审查阶段，不属于 `stage_07p_overlap_validation/`。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
+`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。`stage_06c_geometry_audit/`、`stage_06e_geometry_angle_sync/`、`stage_06f_data_asset_audit/`、`stage_07p_overlap_validation/`、`stage_09d_full_pixel_diagnostics/` 与 `stage_09d_interpretation/` 已完成多脚本 canonical 物理归位；历史路径仅保留受治理的薄兼容入口，迁移证据见 `code_migrations.md`。`stage_07p_b` 是独立的边界量级审查阶段，不属于 `stage_07p_overlap_validation/`。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
 
 新 stage 若只有一个脚本，可使用 `stage_XX_<purpose>.py`；若有多个脚本，必须放入 `stage_XX_<purpose>/`。跨阶段工具不得伪造组合 stage，必须使用 `geo_ring_cloud_<role>_<purpose>.py`、声明 `COMPONENT_ROLE`，并在 manifest 中记录 `related_stage_ids`。
 """
@@ -2127,6 +2201,7 @@ Generated: `{GENERATED_AT}`
 - Stage 06e 两个实现已迁入 `stage_06e_geometry_angle_sync/`；子进程与报告根分别由 `CODE_ROOT`、`THIRD_REPORT_ROOT` 稳定解析。
 - Stage 06f 三个实现已迁入 `stage_06f_data_asset_audit/`；原路径由 AST 门禁约束为薄兼容入口。
 - Stage 07p 两个实现已迁入 `stage_07p_overlap_validation/`；实验 runner 已切换 canonical 路径，`stage_07p_b` 保持独立。
+- Stage 09d full-pixel runner 与四个解释实现已迁入 `stage_09d_full_pixel_diagnostics/`、`stage_09d_interpretation/`；历史嵌套路径保留受治理的可执行薄兼容入口。
 - Stage 09d/09e/09f 的 full-pixel 采样、policy 与 workflow support 已进入 `geo_ring_cloud.diagnostics`；后续阶段不再反向导入 Stage 09d 脚本。
 {dynamic_loader_status}
 {path_debt_status}

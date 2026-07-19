@@ -280,8 +280,13 @@
 | geo_ring_cloud | stage_09d | stage_09d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09d_claas3_epic_profile_pair_evaluation.py | stage_09d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09d_diagnostic_common.py | stage_09d | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_09d_full_pixel_diagnostics/stage_09d_run_full_pixel_diagnostics.py | stage_09d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09d_geo_visible_control/stage_09d_vis_postprocess.py | stage_09d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09d_geo_visible_control/stage_09d_vis_run.py | stage_09d | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_09d_interpretation/stage_09d_analyze_geo_visible_filter.py | stage_09d | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_09d_interpretation/stage_09d_answer_questions.py | stage_09d | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_09d_interpretation/stage_09d_audit_meteosat_semantics.py | stage_09d | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_09d_interpretation/stage_09d_build_interpretation_package.py | stage_09d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09d_source_selection_sensitivity/stage_09d_sel_postprocess.py | stage_09d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09d_source_selection_sensitivity/stage_09d_sel_run.py | stage_09d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09d_vis_sel_joint/stage_09d_vis_sel_joint_report.py | stage_09d | 1.0 | registry-defined alias |

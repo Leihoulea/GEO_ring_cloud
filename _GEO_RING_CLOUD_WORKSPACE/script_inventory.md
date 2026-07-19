@@ -23,9 +23,6 @@
 | geo_ring_cloud/geometry.py | geo_ring_cloud |  | geometry |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/lineage.py | geo_ring_cloud |  | lineage |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/overlap.py | geo_ring_cloud |  | overlap_metrics |  | 当前文件系统扫描补充脚本 |  |
-| geo_ring_cloud/adapters/__init__.py | geo_ring_cloud |  | package_namespace |  | 当前文件系统扫描补充脚本 |  |
-| geo_ring_cloud/diagnostics/__init__.py | geo_ring_cloud |  | package_namespace |  | 当前文件系统扫描补充脚本 |  |
-| geo_ring_cloud/__init__.py | geo_ring_cloud |  | package_root |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/paths.py | geo_ring_cloud |  | path_configuration |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/pipeline_layout.py | geo_ring_cloud |  | pipeline_layout |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/adapters/claas3.py | geo_ring_cloud |  | product_adapter |  | 当前文件系统扫描补充脚本 |  |
@@ -39,10 +36,6 @@
 | run_epic_georing_single_sample.py | geo_ring_cloud |  | runner | 运行器 | EPIC Geo-ring 单时次完整运行流水线（BASE=stage1, RUNS=time_runs） |  |
 | geo_ring_cloud/sources.py | geo_ring_cloud |  | source_registry |  | 当前文件系统扫描补充脚本 |  |
 | summarize_time_run_20240319_1500.py | geo_ring_cloud |  | summary_helper | 汇总 | 汇总 20240319_1500 时次运行结果 |  |
-| stage_06c_geometry_audit/__init__.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
-| stage_06e_geometry_angle_sync/__init__.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
-| stage_06f_data_asset_audit/__init__.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
-| stage_07p_overlap_validation/__init__.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3_integration.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud_time_run_prune_failed.py | geo_ring_cloud |  | time_run_pruning |  | 当前文件系统扫描补充脚本 |  |
@@ -95,17 +88,22 @@
 | 09_stage09_epic_georing_cloud_mask_diagnostics.py | geo_ring_cloud | stage_09 |  | 09 | Stage09 EPIC-Geo-ring 云掩膜诊断（RUNS_ROOT=time_runs） | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs |
 | stage09b_full_overnight/run_stage09b_full_overnight.py | geo_ring_cloud | stage_09b |  | 09b | Stage09b 全夜批量运行（RUNS_ROOT + BASE_STAGE_ROOT） |  |
 | stage09c_scaled_batch/run_stage09c_scaled_batch.py | geo_ring_cloud | stage_09c |  | 09c | Stage09c 扩展批量运行（RUNS_ROOT + BASE_STAGE_ROOT） |  |
-| stage09d_full_pixel_diagnostics/run_stage09d_full_pixel_diagnostics.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
-| stage09d_interpretation/analyze_geo_visible_filter.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
-| stage09d_interpretation/answer_stage09d_questions.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
-| stage09d_interpretation/audit_meteosat_semantics_stage09d.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
-| stage09d_interpretation/build_stage09d_interpretation_package.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | stage_09d_claas3_epic_profile_pair_evaluation.py | geo_ring_cloud | stage_09d |  | 09d | Matched common-domain EPIC cloud-mask profile-pair metrics and sample-block bootstrap |  |
+| stage_09d_full_pixel_diagnostics/stage_09d_run_full_pixel_diagnostics.py | geo_ring_cloud | stage_09d |  | 09d | Stage 09d canonical full-pixel diagnostic runner |  |
 | stage_09d_geo_visible_control/stage_09d_vis_postprocess.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | stage_09d_geo_visible_control/stage_09d_vis_run.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
+| stage_09d_interpretation/stage_09d_analyze_geo_visible_filter.py | geo_ring_cloud | stage_09d |  | 09d | Stage 09d canonical GEO visibility-filter sensitivity analysis |  |
+| stage_09d_interpretation/stage_09d_answer_questions.py | geo_ring_cloud | stage_09d |  | 09d | Stage 09d canonical follow-up diagnostic questions |  |
+| stage_09d_interpretation/stage_09d_audit_meteosat_semantics.py | geo_ring_cloud | stage_09d |  | 09d | Stage 09d canonical Meteosat cloud-mask semantics audit |  |
+| stage_09d_interpretation/stage_09d_build_interpretation_package.py | geo_ring_cloud | stage_09d |  | 09d | Stage 09d canonical interpretation package builder |  |
 | stage_09d_source_selection_sensitivity/stage_09d_sel_postprocess.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | stage_09d_source_selection_sensitivity/stage_09d_sel_run.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | stage_09d_vis_sel_joint/stage_09d_vis_sel_joint_report.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
+| stage09d_full_pixel_diagnostics/run_stage09d_full_pixel_diagnostics.py | geo_ring_cloud | stage_09d | compatibility_entrypoint | 09d | Stage 09d full-pixel runner 历史嵌套路径兼容入口 |  |
+| stage09d_interpretation/analyze_geo_visible_filter.py | geo_ring_cloud | stage_09d | compatibility_entrypoint | 09d | Stage 09d visibility analysis 历史嵌套路径兼容入口 |  |
+| stage09d_interpretation/answer_stage09d_questions.py | geo_ring_cloud | stage_09d | compatibility_entrypoint | 09d | Stage 09d follow-up questions 历史嵌套路径兼容入口 |  |
+| stage09d_interpretation/audit_meteosat_semantics_stage09d.py | geo_ring_cloud | stage_09d | compatibility_entrypoint | 09d | Stage 09d Meteosat audit 历史嵌套路径兼容入口 |  |
+| stage09d_interpretation/build_stage09d_interpretation_package.py | geo_ring_cloud | stage_09d | compatibility_entrypoint | 09d | Stage 09d interpretation builder 历史嵌套路径兼容入口 |  |
 | stage_09e_psf_sel_qc/stage_09e_make_nature_meeting_figures.py | geo_ring_cloud | stage_09e |  | 09e | 当前文件系统扫描补充脚本；推断阶段 09e |  |
 | stage_09e_psf_sel_qc/stage_09e_run_psf_sel_qc.py | geo_ring_cloud | stage_09e |  | 09e | 当前文件系统扫描补充脚本；推断阶段 09e |  |
 | stage_09f_spatial_story_maps/stage_09f_make_spatial_story_maps.py | geo_ring_cloud | stage_09f |  | 09f | 当前文件系统扫描补充脚本；推断阶段 09f |  |

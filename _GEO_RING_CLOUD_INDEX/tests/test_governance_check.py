@@ -106,6 +106,31 @@ class StageCompatibilityEntrypointTests(unittest.TestCase):
 
         self.assertEqual(sum("implementation logic" in item.message for item in findings), 1)
 
+    def test_nested_stage_entrypoint_accepts_standard_bootstrap(self) -> None:
+        with isolated_root("nested_stage_entrypoint") as root:
+            self.write_registered_entrypoints(root)
+            target = next(
+                path
+                for path in governance_check.STAGE_COMPATIBILITY_ENTRYPOINTS
+                if "stage09d_full_pixel_diagnostics/" in path
+            )
+            canonical, stage_id = governance_check.STAGE_COMPATIBILITY_ENTRYPOINTS[target]
+            write(
+                root,
+                target,
+                '"""Nested compatibility entrypoint."""\n'
+                "import sys\n"
+                "from pathlib import Path\n"
+                "sys.path.insert(0, str(Path(__file__).resolve().parents[1]))\n"
+                f"from {canonical} import *\n"
+                f'STAGE_ID = "{stage_id}"\n'
+                'COMPONENT_ROLE = "compatibility_entrypoint"\n'
+                'if __name__ == "__main__":\n    raise SystemExit(main())\n',
+            )
+            findings = governance_check.check_stage_compatibility_entrypoints()
+
+        self.assertEqual(findings, [])
+
 
 class PackageFacadeTests(unittest.TestCase):
     def test_import_only_facade_is_accepted(self) -> None:

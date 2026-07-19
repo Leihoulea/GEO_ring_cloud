@@ -6,7 +6,7 @@
 | D:\AAAresearch_paper\geo_ring_cloud_stage1 | 强相关 | Stage1 主产物根目录（STAGE_ROOT） | 819 | 6.3 GB | 是 | 是 | 否 | keep_in_place | standardized_native/reprojected_grid/fused_best_source/overlap_validation/reports 等产物 + scripts 副本 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack | 强相关 | Stage1 证据包（latest + 10 snapshots） | 264 | 471.2 KB | 是 | 是 | 否 | keep_in_place | rebuild_stage1_evidence_pack.py:EVIDENCE_ROOT 产出 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | 强相关 | 多时次运行、跨阶段实验与阶段诊断产物根目录 | 43207 | 228.2 GB | 是 | 是 | 否 | keep_in_place | 运行器与 stage_08 以后诊断脚本通过 RUNS_ROOT 引用；大产物保留原位 |
-| D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 | 强相关 | GEO-ring Cloud 主代码、阶段脚本、共享组件与测试 | 131 | 2.0 MB | 是 | 是 | 否 | keep_in_place | 权威代码源；产物写入配置化的 stage/time-runs 根目录 |
+| D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 | 强相关 | GEO-ring Cloud 主代码、阶段脚本、共享组件与测试 | 140 | 2.0 MB | 是 | 是 | 否 | keep_in_place | 权威代码源；产物写入配置化的 stage/time-runs 根目录 |
 | D:\AAAresearch_paper\third_report\Satellite_Data_20240312 | 上游相关 | 2024-03-12 主数据集快照（六星原生 + standardized_L1 样例 + reprojected 旧版） | 8741 | 122.4 GB | 间接 | 是 | 否 | keep_in_place | 含 channel_mapping/standardized_L1_source 等 |
 | D:\AAAresearch_paper\third_report\code\FY4B | 上游相关 | FY4B/AGRI standardized_L1 builder + 探查/预览 | 25 | 25.1 MB | 间接 | 是 | 否 | keep_in_place | 产出 standardized_L1_source 供 stage1 输入 |
 | D:\AAAresearch_paper\third_report\code\GOES | 上游相关 | GOES-16/18/ABI standardized_L1 builder | 18 | 14.2 MB | 间接 | 是 | 否 | keep_in_place | 同上 |

@@ -218,6 +218,11 @@ def script_manifest_rows() -> list[list[str]]:
         "stage_07p_claas3_profile_pair_evaluation.py": ("07p", "compatibility entrypoint"),
         "07p_b_source_boundary_magnitude_review.py": ("07p-b", "executed"),
         "07v2_formal_single_time_report.py": ("07v2", "executed"),
+        "stage_09d_full_pixel_diagnostics/stage_09d_run_full_pixel_diagnostics.py": ("09d", "present canonical runner"),
+        "stage_09d_interpretation/stage_09d_analyze_geo_visible_filter.py": ("09d", "present canonical interpretation"),
+        "stage_09d_interpretation/stage_09d_answer_questions.py": ("09d", "present canonical interpretation"),
+        "stage_09d_interpretation/stage_09d_audit_meteosat_semantics.py": ("09d", "present canonical interpretation"),
+        "stage_09d_interpretation/stage_09d_build_interpretation_package.py": ("09d", "present canonical interpretation"),
         "download_geo_geometry_samples.py": ("06c-support", "executed"),
         "stage1_common.py": ("shared", "support library"),
     }
