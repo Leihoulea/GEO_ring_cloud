@@ -420,6 +420,42 @@ MODULE_REGISTRY = (
         "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,RunDiscoveryTests",
         "notes": "Supports canonical matrix manifests and legacy time-tag directories.",
     },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.adapters.claas3",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/adapters/claas3.py",
+        "component_role": "product_adapter",
+        "legacy_module": "geo_ring_cloud_claas3_adapter",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud_claas3_adapter.py",
+        "migration_status": "canonical_with_compatibility_shim",
+        "public_api": "CLAAS-3 file discovery, time selection, structure signature, normalized product read",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,Claas3AdapterTests",
+        "notes": "CMA/CTX/CPP reader and normalization contract; legacy import remains a pure shim.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.adapters.epic",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/adapters/epic.py",
+        "component_role": "product_adapter",
+        "legacy_module": "",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage_10_cth_validation/stage_10_run_cth_validation.py",
+        "migration_status": "canonical_extracted",
+        "public_api": "EPIC_CTH_CANDIDATES, read_epic_cth",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::EpicAdapterTests",
+        "notes": "Removes diagnostics-to-stage reverse dependency; Stage 10 retains a compatibility wrapper.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.diagnostics.epic_pair",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/diagnostics/epic_pair.py",
+        "component_role": "diagnostics_library",
+        "legacy_module": "geo_ring_cloud_epic_pair_diagnostics",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud_epic_pair_diagnostics.py",
+        "migration_status": "canonical_with_compatibility_shim",
+        "public_api": "EPIC/GEO paired sampling, strata, classification and height metrics, bootstrap",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,DiagnosticTests",
+        "notes": "Reusable diagnostics depend on package adapters and source registry, not stage scripts.",
+    },
 )
 INDEX_EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", "_tmp"}
 COMPONENT_ROLE_ASSIGNMENT = re.compile(
@@ -1649,16 +1685,16 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 | --- | --- | --- |
 | configuration | 路径、数据源 ID、环境覆盖、依赖契约 | `geo_ring_cloud.paths`, `geo_ring_cloud.sources`, `environment.yml` |
 | lineage | manifest、commit、输入输出追踪 | `geo_ring_cloud.lineage` |
-| adapters | 产品读取、格式适配、变量解码 | `geo_ring_cloud_claas3_adapter.py`, `geo_data_audit/` |
+| adapters | 产品读取、格式适配、变量解码 | `geo_ring_cloud.adapters.claas3`, `geo_ring_cloud.adapters.epic`, `geo_data_audit/` |
 | stage pipeline | 单一 canonical stage 的科学处理与验证 | `stage_09d_*`, `stage_10_*` |
 | orchestration | 跨阶段实验、批处理、time-run matrix | `geo_ring_cloud_experiment_profile_pair.py`, `geo_ring_cloud_time_run_matrix.py` |
-| diagnostics | 可复用指标、采样和分层统计 | `geo_ring_cloud_epic_pair_diagnostics.py` |
+| diagnostics | 可复用指标、采样和分层统计 | `geo_ring_cloud.diagnostics.epic_pair` |
 | presentation | 代表性图、组会材料生成 | `stage_10/stage_10_make_*` |
 | tests | 轻量单元、smoke 与回归测试；生成物只放 `tests/_tmp` | `tests/` |
 
 ## 物理迁移原则
 
-`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、数据源注册、lineage 和 run discovery。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
+`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、数据源注册、lineage、run discovery、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
 
 新 stage 若只有一个脚本，可使用 `stage_XX_<purpose>.py`；若有多个脚本，必须放入 `stage_XX_<purpose>/`。跨阶段工具不得伪造组合 stage，必须使用 `geo_ring_cloud_<role>_<purpose>.py`、声明 `COMPONENT_ROLE`，并在 manifest 中记录 `related_stage_ids`。
 """
@@ -1696,7 +1732,7 @@ Generated: `{GENERATED_AT}`
 
 ## 尚未达到的目标
 
-- package 第一批共享 API 已完成；`stage1_common.py`、CLAAS-3 adapter、诊断库和多数历史 stage 脚本仍位于扁平目录。
+- package 第二批共享 API 已完成；`stage1_common.py`、运行编排器和多数历史 stage 脚本仍位于扁平目录。
 - 仍有历史绝对路径和非 canonical 命名；普通模式保留 warning，新增污染会被 hook 阻断。
 - `environment.yml` 已固定已验证的直接依赖；跨平台传递依赖锁仍应在正式实验发布时按平台生成。
 - 一部分旧 time-run 使用 `stage0910` 等组合标签；为保障续跑暂保留，只作为 legacy alias，不得用于新组件命名。
@@ -1704,7 +1740,7 @@ Generated: `{GENERATED_AT}`
 ## 优先级
 
 1. P0：任何新增 governance error 必须在提交前清零。
-2. P1：按依赖图继续迁移 CLAAS-3 adapter 与稳定诊断库，并为每批迁移保留 compatibility test。
+2. P1：拆分 `stage1_common.py` 的稳定配置/数组工具与 stage 专用逻辑，并保留兼容入口。
 3. P1：逐批参数化仍活跃脚本中的绝对路径。
 4. P2：为正式实验发布生成平台化传递依赖锁；大数据集成测试继续本地运行。
 5. P2：按依赖审计结果渐进迁移扁平脚本，禁止一次性大搬迁。
@@ -1780,6 +1816,7 @@ It applies to humans and AI agents.
 - MUST NOT create new `Step*`, `stage10*`, `Stage10*`, or `10_stage*` names.
 - MUST use `geo_ring_cloud_<role>_<purpose>.py` for new non-stage core utilities.
 - MUST place reusable shared APIs in the `geo_ring_cloud` package and import them through their canonical module names.
+- Package adapters and diagnostics MUST NOT import or dynamically load stage scripts; dependencies flow from stages to shared APIs.
 - MUST NOT add implementation logic to top-level compatibility shims recorded in `module_registry.md`.
 - MUST NOT treat `geo_ring_cloud.stage_09` and `epic_ceres.stage_09` as the same stage.
 

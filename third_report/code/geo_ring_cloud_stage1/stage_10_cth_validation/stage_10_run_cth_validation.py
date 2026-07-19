@@ -28,6 +28,7 @@ CODE_ROOT = Path(__file__).resolve().parents[1]
 if str(CODE_ROOT) not in sys.path:
     sys.path.insert(0, str(CODE_ROOT))
 
+from geo_ring_cloud.adapters.epic import read_epic_cth  # noqa: E402
 from path_config import RUNS_ROOT  # noqa: E402
 
 
@@ -166,49 +167,7 @@ def read_nc_array(ds: netCDF4.Dataset, name: str) -> np.ndarray:
 
 
 def read_epic(path: Path, cth_var_name: str | None = None) -> dict[str, Any]:
-    with netCDF4.Dataset(path) as ds:
-        lat_var = find_existing_var(ds, ["geolocation_data/latitude", "geolocation_data/Latitude"])
-        lon_var = find_existing_var(ds, ["geolocation_data/longitude", "geolocation_data/Longitude"])
-        cm_var = find_existing_var(ds, ["geophysical_data/Cloud_Mask", "geophysical_data/cloud_mask"])
-        cth_var = cth_var_name or find_existing_var(ds, EPIC_CTH_CANDIDATES)
-        if not lat_var or not lon_var or not cm_var or not cth_var:
-            raise RuntimeError(f"missing required EPIC variable in {path}")
-        cth_attrs = nc_var_attrs(ds[cth_var])
-        cth_raw = read_nc_array(ds, cth_var).astype(np.float32)
-        fill = cth_attrs.get("_FillValue", -999)
-        cth_valid = np.isfinite(cth_raw) & (cth_raw != float(fill))
-        units = str(cth_attrs.get("units", "")).lower()
-        if units == "m":
-            cth_km = cth_raw / 1000.0
-            standardized_units = "km"
-            conversion = "m_to_km"
-        elif units == "km":
-            cth_km = cth_raw
-            standardized_units = "km"
-            conversion = "none"
-        else:
-            cth_km = cth_raw
-            standardized_units = units or "unknown"
-            conversion = "none_or_unknown"
-        physical_valid = cth_valid & (cth_km >= 0) & (cth_km <= 25)
-        return {
-            "lat": read_nc_array(ds, lat_var).astype(np.float32),
-            "lon": read_nc_array(ds, lon_var).astype(np.float32),
-            "cloud_mask": read_nc_array(ds, cm_var).astype(np.float32),
-            "cth_km": cth_km.astype(np.float32),
-            "cth_valid": physical_valid,
-            "cth_raw_valid": cth_valid,
-            "cth_var": cth_var,
-            "cth_attrs": cth_attrs,
-            "cth_units_standardized": standardized_units,
-            "cth_conversion": conversion,
-            "epic_vza": read_nc_array(ds, "geolocation_data/sensor_zenith").astype(np.float32)
-            if "sensor_zenith" in ds.groups["geolocation_data"].variables
-            else np.full(cth_raw.shape, np.nan, dtype=np.float32),
-            "sza": read_nc_array(ds, "geolocation_data/solar_zenith").astype(np.float32)
-            if "solar_zenith" in ds.groups["geolocation_data"].variables
-            else np.full(cth_raw.shape, np.nan, dtype=np.float32),
-        }
+    return read_epic_cth(path, cth_var_name)
 
 
 def epic_inventory(path: Path) -> list[dict[str, Any]]:

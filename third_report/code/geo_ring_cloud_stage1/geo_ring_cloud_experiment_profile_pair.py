@@ -17,7 +17,7 @@ from typing import Any
 import numpy as np
 
 from geo_ring_cloud import paths as path_config
-from geo_ring_cloud_epic_pair_diagnostics import epic_time_from_name, find_prefusion_layer, load_npz, read_csv, time_delta_minutes, write_csv
+from geo_ring_cloud.diagnostics.epic_pair import epic_time_from_name, find_prefusion_layer, load_npz, read_csv, time_delta_minutes, write_csv
 from geo_ring_cloud.lineage import code_commit, write_manifest
 from geo_ring_cloud_time_run_matrix import profile_artifacts_complete
 

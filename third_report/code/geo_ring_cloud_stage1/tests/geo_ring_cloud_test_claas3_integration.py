@@ -13,7 +13,7 @@ PROJECT_ROOT = CODE_DIR.parents[2]
 TIME_RUNS_ROOT = PROJECT_ROOT / "geo_ring_cloud_stage1_time_runs"
 sys.path.insert(0, str(CODE_DIR))
 
-from geo_ring_cloud_claas3_adapter import discover_files, read_product, select_for_time  # noqa: E402
+from geo_ring_cloud.adapters.claas3 import discover_files, read_product, select_for_time  # noqa: E402
 from geo_ring_cloud.paths import CLAAS3_ROOT  # noqa: E402
 
 

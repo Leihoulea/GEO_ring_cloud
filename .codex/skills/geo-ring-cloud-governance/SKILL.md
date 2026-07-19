@@ -79,6 +79,11 @@ Reusable shared APIs MUST live in the `geo_ring_cloud` package, use lowercase
 legacy modules registered as compatibility shims MUST contain no implementation
 logic.
 
+Package adapters and diagnostics MUST NOT import or dynamically load stage
+scripts. Dependency direction is one-way: stage scripts may call shared package
+APIs; shared package APIs may depend only on lower-level package modules and
+declared third-party libraries.
+
 Generic data/product inspections SHOULD use `component_role=data_product_audit`.
 If an inspection supports a downstream stage, keep the generic audit role and
 record the linked stage in `related_stage_ids` / `canonical_stage_id`.

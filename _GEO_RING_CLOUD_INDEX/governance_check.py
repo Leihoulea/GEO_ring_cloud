@@ -116,6 +116,8 @@ COMPATIBILITY_SHIM_PATHS = {
     f"{CORE_CODE_PREFIX}geo_ring_cloud_source_registry.py": "geo_ring_cloud.sources",
     f"{CORE_CODE_PREFIX}geo_ring_cloud_lineage.py": "geo_ring_cloud.lineage",
     f"{CORE_CODE_PREFIX}geo_ring_cloud_run_discovery.py": "geo_ring_cloud.run_discovery",
+    f"{CORE_CODE_PREFIX}geo_ring_cloud_claas3_adapter.py": "geo_ring_cloud.adapters.claas3",
+    f"{CORE_CODE_PREFIX}geo_ring_cloud_epic_pair_diagnostics.py": "geo_ring_cloud.diagnostics.epic_pair",
 }
 WORKSPACE_INDEX_DOCS = {
     "_GEO_RING_CLOUD_WORKSPACE/stage_registry.md",
@@ -286,6 +288,7 @@ def check_naming(paths: list[str], added_paths: set[str], baseline_mode: bool) -
 def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_docs: bool) -> list[Finding]:
     findings: list[Finding] = []
     changed_stage_scripts = False
+    added_stage_scripts = False
     added_package_modules: list[str] = []
     normalized_paths = {normalize_path(p) for p in paths}
     normalized_added = {normalize_path(p) for p in added_paths}
@@ -300,6 +303,7 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
 
         if suffix == ".py" and is_stage_owned_path(normalized):
             changed_stage_scripts = True
+            added_stage_scripts = added_stage_scripts or normalized in normalized_added
         if suffix == ".py" and is_core_package_module(normalized) and normalized in normalized_added:
             added_package_modules.append(normalized)
 
@@ -377,19 +381,22 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
                 )
 
     if changed_stage_scripts and enforce_index_docs:
-        for doc in sorted(WORKSPACE_INDEX_DOCS - normalized_paths):
+        required_docs = WORKSPACE_INDEX_DOCS if added_stage_scripts else {
+            "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md"
+        }
+        for doc in sorted(required_docs - normalized_paths):
             findings.append(
                 Finding(
                     "ERROR",
                     doc,
-                    "stage code changed; run build_index.py and stage updated workspace index Markdown",
+                    "stage code changed; run build_index.py and stage the applicable workspace index Markdown",
                 )
             )
     if added_package_modules:
         registry_text = read_text(MODULE_REGISTRY_DOC) or ""
         for module_path in added_package_modules:
             rel_module = module_path.removeprefix(CORE_PACKAGE_PREFIX).removesuffix(".py")
-            if rel_module == "__init__":
+            if Path(rel_module).name == "__init__":
                 continue
             canonical_module = "geo_ring_cloud." + rel_module.replace("/", ".")
             if canonical_module not in registry_text:
@@ -475,6 +482,40 @@ def check_compatibility_shims() -> list[Finding]:
                     break
         if not imports_canonical:
             findings.append(Finding("ERROR", rel_path, f"compatibility shim must import {canonical_module}"))
+    return findings
+
+
+def check_package_dependency_boundaries(paths: list[str]) -> list[Finding]:
+    findings: list[Finding] = []
+    for rel_path in paths:
+        normalized = normalize_path(rel_path)
+        if not is_core_package_module(normalized):
+            continue
+        text = read_text(rel_path)
+        if text is None:
+            continue
+        try:
+            tree = ast.parse(text, filename=rel_path)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            module = ""
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+            elif isinstance(node, ast.Import):
+                module = next((alias.name for alias in node.names), "")
+            if module and (module.startswith("stage_") or re.match(r"^\d", module)):
+                findings.append(
+                    Finding("ERROR", rel_path, f"package module must not depend on stage module: {module}")
+                )
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "spec_from_file_location"
+            ):
+                findings.append(
+                    Finding("ERROR", rel_path, "package module must not dynamically load stage scripts")
+                )
     return findings
 
 
@@ -588,6 +629,7 @@ def main() -> int:
     findings: list[Finding] = []
     findings.extend(check_engineering_contract())
     findings.extend(check_compatibility_shims())
+    findings.extend(check_package_dependency_boundaries(paths))
     findings.extend(check_naming(paths, added, baseline_mode=baseline_mode))
     findings.extend(check_stage_contract(paths, added, enforce_index_docs=args.staged))
     if args.staged:

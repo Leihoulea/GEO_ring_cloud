@@ -10,5 +10,6 @@ readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = []
 
-[tool.setuptools]
-packages = ["geo_ring_cloud"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["geo_ring_cloud*"]

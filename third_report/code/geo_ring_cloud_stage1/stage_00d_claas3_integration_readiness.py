@@ -10,7 +10,7 @@ from typing import Any
 import netCDF4
 
 import path_config
-from geo_ring_cloud_claas3_adapter import discover_files, records_as_dicts, structure_signature
+from geo_ring_cloud.adapters.claas3 import discover_files, records_as_dicts, structure_signature
 from geo_ring_cloud_lineage import write_manifest
 from geo_ring_cloud_source_registry import REGISTRY_VERSION
 

@@ -55,6 +55,37 @@ class CompatibilityShimTests(unittest.TestCase):
 
 
 class ModuleRegistryTests(unittest.TestCase):
+    def test_nested_package_init_does_not_require_module_registration(self) -> None:
+        relative = (
+            "third_report/code/geo_ring_cloud_stage1/"
+            "geo_ring_cloud/adapters/__init__.py"
+        )
+        registry = "_GEO_RING_CLOUD_WORKSPACE/module_registry.md"
+        with isolated_root("nested_package_init") as root:
+            write(root, relative, 'COMPONENT_ROLE = "package_namespace"\n')
+            write(root, registry, "| canonical_module |\n| --- |\n")
+            findings = governance_check.check_stage_contract(
+                [relative, registry],
+                {relative},
+                enforce_index_docs=True,
+            )
+
+        self.assertEqual(findings, [])
+
+    def test_modified_stage_script_requires_artifact_index_only(self) -> None:
+        script = "third_report/code/geo_ring_cloud_stage1/stage_10_example.py"
+        artifact_index = "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md"
+        with isolated_root("modified_stage_index") as root:
+            write(root, script, 'STAGE_ID = "stage_10"\n')
+            write(root, artifact_index, "| path |\n| --- |\n")
+            findings = governance_check.check_stage_contract(
+                [script, artifact_index],
+                set(),
+                enforce_index_docs=True,
+            )
+
+        self.assertEqual(findings, [])
+
     def test_unregistered_package_module_is_rejected(self) -> None:
         relative = (
             "third_report/code/geo_ring_cloud_stage1/"
@@ -88,6 +119,24 @@ class ModuleRegistryTests(unittest.TestCase):
             )
 
         self.assertEqual(findings, [])
+
+
+class PackageDependencyBoundaryTests(unittest.TestCase):
+    def test_dynamic_stage_loading_is_rejected(self) -> None:
+        relative = (
+            "third_report/code/geo_ring_cloud_stage1/"
+            "geo_ring_cloud/diagnostics/bad.py"
+        )
+        with isolated_root("package_stage_dependency") as root:
+            write(
+                root,
+                relative,
+                "import importlib.util\n"
+                "importlib.util.spec_from_file_location('stage', 'stage_10_run.py')\n",
+            )
+            findings = governance_check.check_package_dependency_boundaries([relative])
+
+        self.assertTrue(any("dynamically load stage scripts" in item.message for item in findings))
 
 
 if __name__ == "__main__":

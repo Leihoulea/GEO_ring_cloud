@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 import path_config
-from geo_ring_cloud_claas3_adapter import read_product as read_claas3_product
+from geo_ring_cloud.adapters.claas3 import read_product as read_claas3_product
 from geo_ring_cloud_lineage import write_manifest
 from geo_ring_cloud_source_registry import REGISTRY_VERSION, validate_profile
 from stage1_common import (

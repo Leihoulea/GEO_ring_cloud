@@ -18,6 +18,7 @@ It applies to humans and AI agents.
 - MUST NOT create new `Step*`, `stage10*`, `Stage10*`, or `10_stage*` names.
 - MUST use `geo_ring_cloud_<role>_<purpose>.py` for new non-stage core utilities.
 - MUST place reusable shared APIs in the `geo_ring_cloud` package and import them through their canonical module names.
+- Package adapters and diagnostics MUST NOT import or dynamically load stage scripts; dependencies flow from stages to shared APIs.
 - MUST NOT add implementation logic to top-level compatibility shims recorded in `module_registry.md`.
 - MUST NOT treat `geo_ring_cloud.stage_09` and `epic_ceres.stage_09` as the same stage.
 

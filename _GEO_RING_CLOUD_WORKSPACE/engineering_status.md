@@ -1,13 +1,13 @@
 # GEO-ring Cloud Engineering Status
 
-Generated: `2026-07-18T17:30:41Z`
+Generated: `2026-07-19T04:08:23Z`
 
 ## 当前规模
 
-- 索引脚本：84
-- canonical shared modules：4
+- 索引脚本：89
+- canonical shared modules：7
 - canonical stages：43
-- SQLite 详细 artifact 记录：959
+- SQLite 详细 artifact 记录：964
 - Markdown 快查 artifact 记录：436
 - data product audits：19
 - time-run 顶层目录：156
@@ -24,7 +24,7 @@ Generated: `2026-07-18T17:30:41Z`
 
 ## 尚未达到的目标
 
-- package 第一批共享 API 已完成；`stage1_common.py`、CLAAS-3 adapter、诊断库和多数历史 stage 脚本仍位于扁平目录。
+- package 第二批共享 API 已完成；`stage1_common.py`、运行编排器和多数历史 stage 脚本仍位于扁平目录。
 - 仍有历史绝对路径和非 canonical 命名；普通模式保留 warning，新增污染会被 hook 阻断。
 - `environment.yml` 已固定已验证的直接依赖；跨平台传递依赖锁仍应在正式实验发布时按平台生成。
 - 一部分旧 time-run 使用 `stage0910` 等组合标签；为保障续跑暂保留，只作为 legacy alias，不得用于新组件命名。
@@ -32,7 +32,7 @@ Generated: `2026-07-18T17:30:41Z`
 ## 优先级
 
 1. P0：任何新增 governance error 必须在提交前清零。
-2. P1：按依赖图继续迁移 CLAAS-3 adapter 与稳定诊断库，并为每批迁移保留 compatibility test。
+2. P1：拆分 `stage1_common.py` 的稳定配置/数组工具与 stage 专用逻辑，并保留兼容入口。
 3. P1：逐批参数化仍活跃脚本中的绝对路径。
 4. P2：为正式实验发布生成平台化传递依赖锁；大数据集成测试继续本地运行。
 5. P2：按依赖审计结果渐进迁移扁平脚本，禁止一次性大搬迁。

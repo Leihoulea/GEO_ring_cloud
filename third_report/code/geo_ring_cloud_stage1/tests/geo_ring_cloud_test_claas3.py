@@ -31,13 +31,14 @@ def test_directory(name: str):
     finally:
         shutil.rmtree(path, ignore_errors=True)
 
-from geo_ring_cloud_claas3_adapter import discover_files, parse_filename, read_product, select_for_time  # noqa: E402
+from geo_ring_cloud.adapters.claas3 import discover_files, parse_filename, read_product, select_for_time  # noqa: E402
+from geo_ring_cloud.adapters.epic import read_epic_cth  # noqa: E402
 from geo_ring_cloud.run_discovery import discover_run_dirs, resolve_run_dir  # noqa: E402
 from geo_ring_cloud.sources import SOURCE_ID_MAP, tie_order, variable_rules  # noqa: E402
 from geo_ring_cloud_time_run_matrix import REQUIRED_PROFILE_ARTIFACTS, profile_artifacts_complete  # noqa: E402
 from geo_ring_cloud_experiment_profile_pair import reusable_operational_baseline, write_batch_status  # noqa: E402
 from run_epic_georing_single_sample import runtime_environment  # noqa: E402
-from geo_ring_cloud_epic_pair_diagnostics import (  # noqa: E402
+from geo_ring_cloud.diagnostics.epic_pair import (  # noqa: E402
     POLICIES,
     aggregate_height_samples,
     apply_policy,
@@ -54,13 +55,19 @@ class PackageBoundaryTests(unittest.TestCase):
         import geo_ring_cloud_lineage as legacy_lineage
         import geo_ring_cloud_run_discovery as legacy_runs
         import geo_ring_cloud_source_registry as legacy_sources
+        import geo_ring_cloud_claas3_adapter as legacy_claas3
+        import geo_ring_cloud_epic_pair_diagnostics as legacy_diagnostics
         import path_config as legacy_paths
 
         from geo_ring_cloud import lineage, paths, run_discovery, sources
+        from geo_ring_cloud.adapters import claas3
+        from geo_ring_cloud.diagnostics import epic_pair
 
         self.assertIs(legacy_lineage.write_manifest, lineage.write_manifest)
         self.assertIs(legacy_runs.resolve_run_dir, run_discovery.resolve_run_dir)
         self.assertIs(legacy_sources.SourceDefinition, sources.SourceDefinition)
+        self.assertIs(legacy_claas3.read_product, claas3.read_product)
+        self.assertIs(legacy_diagnostics.paired_height_metrics, epic_pair.paired_height_metrics)
         self.assertEqual(legacy_paths.PROJECT_ROOT, paths.PROJECT_ROOT)
 
     def test_canonical_lineage_manifest_contract(self) -> None:
@@ -74,7 +81,7 @@ class PackageBoundaryTests(unittest.TestCase):
                 canonical_stage_id="stage_09d",
                 component_role="diagnostics_library",
                 related_stage_ids=("stage_09d", "stage_10"),
-                generating_script=CODE_DIR / "geo_ring_cloud_epic_pair_diagnostics.py",
+                generating_script=CODE_DIR / "geo_ring_cloud" / "diagnostics" / "epic_pair.py",
                 input_paths=(root / "input.nc",),
                 output_paths=(root / "output.csv",),
                 parameters={"sample_count": 2},
@@ -151,6 +158,26 @@ def make_cpp(path: Path) -> None:
         processing[:] = np.full((2, 2), 33, dtype=np.uint16)
 
 
+def make_epic_cth(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with netCDF4.Dataset(path, "w") as ds:
+        ds.createDimension("y", 2)
+        ds.createDimension("x", 2)
+        geolocation = ds.createGroup("geolocation_data")
+        geophysical = ds.createGroup("geophysical_data")
+        latitude = geolocation.createVariable("latitude", "f4", ("y", "x"))
+        longitude = geolocation.createVariable("longitude", "f4", ("y", "x"))
+        latitude[:] = [[10, 10], [9, 9]]
+        longitude[:] = [[100, 101], [100, 101]]
+        cloud_mask = geophysical.createVariable("Cloud_Mask", "i1", ("y", "x"))
+        cloud_mask[:] = [[1, 2], [3, 4]]
+        height = geophysical.createVariable(
+            "A-band_Effective_Cloud_Height", "f4", ("y", "x"), fill_value=-999.0
+        )
+        height.units = "m"
+        height[:] = [[1000.0, 2000.0], [-999.0, 26000.0]]
+
+
 class RegistryTests(unittest.TestCase):
     def test_source_ids_are_stable_and_claas_is_appended(self) -> None:
         self.assertEqual(SOURCE_ID_MAP["GOES-16"], 1)
@@ -219,6 +246,21 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(len(records), 1)
             self.assertEqual(len(duplicates), 1)
             self.assertEqual(duplicates[0]["candidate_count"], 2)
+
+
+class EpicAdapterTests(unittest.TestCase):
+    def test_cth_units_masks_and_optional_angles(self) -> None:
+        with test_directory("epic_adapter") as root:
+            path = root / "epic.nc"
+            make_epic_cth(path)
+            result = read_epic_cth(path, "geophysical_data/A-band_Effective_Cloud_Height")
+
+        np.testing.assert_allclose(result["cth_km"][:1], [[1.0, 2.0]])
+        np.testing.assert_array_equal(result["cth_valid"], [[True, True], [False, False]])
+        self.assertEqual(result["cth_conversion"], "m_to_km")
+        self.assertEqual(result["cth_units_standardized"], "km")
+        self.assertTrue(np.isnan(result["epic_vza"]).all())
+        self.assertTrue(np.isnan(result["sza"]).all())
 
 
 class RunDiscoveryTests(unittest.TestCase):

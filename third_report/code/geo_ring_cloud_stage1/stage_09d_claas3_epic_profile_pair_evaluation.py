@@ -11,7 +11,7 @@ import numpy as np
 from scipy.ndimage import uniform_filter
 
 import path_config
-from geo_ring_cloud_epic_pair_diagnostics import (
+from geo_ring_cloud.diagnostics.epic_pair import (
     AGGREGATIONS,
     POLICIES,
     PRIMARY_PAIRS,
