@@ -119,6 +119,14 @@ class EvidencePackBuilderTests(unittest.TestCase):
             rows["07p_b_source_boundary_magnitude_review.py"][:2],
             ["07p-b", "executed"],
         )
+        self.assertEqual(
+            rows["stage_09b_full_overnight/stage_09b_run_full_overnight.py"][:2],
+            ["09b", "present canonical runner"],
+        )
+        self.assertEqual(
+            rows["stage_09c_scaled_batch/stage_09c_run_scaled_batch.py"][:2],
+            ["09c", "present canonical runner"],
+        )
 
 
 class PackageBoundaryTests(unittest.TestCase):
@@ -190,6 +198,95 @@ class PackageBoundaryTests(unittest.TestCase):
         for command in commands:
             completed = subprocess.run(
                 command,
+                cwd=CODE_DIR,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("usage:", completed.stdout.lower())
+
+    def test_stage09b_stage09c_legacy_entrypoints_export_canonical_runners(self) -> None:
+        mappings = {
+            "stage09b_full_overnight.run_stage09b_full_overnight": (
+                "stage_09b_full_overnight.stage_09b_run_full_overnight",
+                "stage_09b",
+            ),
+            "stage09c_scaled_batch.run_stage09c_scaled_batch": (
+                "stage_09c_scaled_batch.stage_09c_run_scaled_batch",
+                "stage_09c",
+            ),
+        }
+        for legacy_name, (canonical_name, stage_id) in mappings.items():
+            legacy = importlib.import_module(legacy_name)
+            canonical = importlib.import_module(canonical_name)
+            self.assertIs(legacy.main, canonical.main, legacy_name)
+            self.assertIs(legacy.write_stage_manifest, canonical.write_stage_manifest, legacy_name)
+            self.assertEqual(legacy.STAGE_ID, stage_id, legacy_name)
+            self.assertEqual(canonical.STAGE_ID, stage_id, canonical_name)
+            source = Path(canonical.__file__).read_text(encoding="utf-8-sig")
+            self.assertNotIn("SCRIPT_DIR", source, canonical_name)
+
+    def test_stage09b_stage09c_write_canonical_lineage_manifests(self) -> None:
+        cases = [
+            (
+                "stage_09b_full_overnight.stage_09b_run_full_overnight",
+                "stage_09b",
+                "stage_09b_full_overnight_manifest.json",
+                SimpleNamespace(
+                    base_stage_root="base",
+                    max_targets=12,
+                    max_run_attempts=2,
+                    conda_env="pytorch",
+                    skip_existing=True,
+                    inventory_only=True,
+                ),
+            ),
+            (
+                "stage_09c_scaled_batch.stage_09c_run_scaled_batch",
+                "stage_09c",
+                "stage_09c_scaled_batch_manifest.json",
+                SimpleNamespace(
+                    base_stage_root="base",
+                    target_count=80,
+                    max_attempts=40,
+                    timeout_seconds=1800,
+                    conda_env="pytorch",
+                    plan_only=True,
+                ),
+            ),
+        ]
+        with test_directory("stage09bc_manifests") as root:
+            for module_name, stage_id, manifest_name, args in cases:
+                module = importlib.import_module(module_name)
+                out_root = root / stage_id
+                report = out_root / "reports" / f"{stage_id}_report.md"
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text("test", encoding="utf-8")
+                manifest_path = module.write_stage_manifest(out_root, args, report)
+                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+                self.assertEqual(manifest_path.name, manifest_name)
+                self.assertEqual(payload["project_id"], "geo_ring_cloud")
+                self.assertEqual(payload["canonical_stage_id"], stage_id)
+                self.assertEqual(Path(payload["generating_script"]).name, Path(module.__file__).name)
+                self.assertTrue(payload["input_paths"])
+                self.assertIn(str(report), payload["output_paths"])
+                self.assertTrue(payload["parameter_summary"])
+                self.assertTrue(payload["timestamp_utc"])
+                self.assertTrue(payload["artifact_naming_schema"].startswith("legacy_stage09"))
+
+    def test_stage09b_stage09c_canonical_and_legacy_cli_paths(self) -> None:
+        scripts = [
+            "stage09b_full_overnight/run_stage09b_full_overnight.py",
+            "stage_09b_full_overnight/stage_09b_run_full_overnight.py",
+            "stage09c_scaled_batch/run_stage09c_scaled_batch.py",
+            "stage_09c_scaled_batch/stage_09c_run_scaled_batch.py",
+        ]
+        for script in scripts:
+            completed = subprocess.run(
+                [sys.executable, script, "--help"],
                 cwd=CODE_DIR,
                 check=False,
                 capture_output=True,

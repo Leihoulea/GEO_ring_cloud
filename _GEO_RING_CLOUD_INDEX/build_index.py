@@ -259,8 +259,10 @@ SCRIPTS = [
     ("08j_prefusion_source_pair_overlap_diagnostics.py", "08j", "预融合源对重叠诊断（RUNS_ROOT=time_runs）"),
     ("08k_consolidate_stage08_report.py", "08k", "Stage08 报告整合（RUNS_ROOT=time_runs）"),
     ("09_stage09_epic_georing_cloud_mask_diagnostics.py", "09", "Stage09 EPIC-Geo-ring 云掩膜诊断（RUNS_ROOT=time_runs）"),
-    ("stage09b_full_overnight/run_stage09b_full_overnight.py", "09b", "Stage09b 全夜批量运行（RUNS_ROOT + BASE_STAGE_ROOT）"),
-    ("stage09c_scaled_batch/run_stage09c_scaled_batch.py", "09c", "Stage09c 扩展批量运行（RUNS_ROOT + BASE_STAGE_ROOT）"),
+    ("stage_09b_full_overnight/stage_09b_run_full_overnight.py", "09b", "Stage 09b canonical 全夜批量运行与 lineage manifest"),
+    ("stage09b_full_overnight/run_stage09b_full_overnight.py", "09b", "Stage 09b 历史嵌套路径兼容入口"),
+    ("stage_09c_scaled_batch/stage_09c_run_scaled_batch.py", "09c", "Stage 09c canonical 扩展批量运行与 lineage manifest"),
+    ("stage09c_scaled_batch/run_stage09c_scaled_batch.py", "09c", "Stage 09c 历史嵌套路径兼容入口"),
     ("download_geo_geometry_samples.py", "下载", "从 AWS S3 下载 GOES-16/18/Himawari-9 几何样本到 geo_geometry_check/"),
     ("rebuild_stage1_evidence_pack.py", "证据包", "重建 Stage1 证据包：汇总 data_check_report/geo_geometry_check/stage1 全部证据到 evidence_pack/"),
     ("run_epic_georing_single_sample.py", "运行器", "EPIC Geo-ring 单时次完整运行流水线（BASE=stage1, RUNS=time_runs）"),
@@ -839,6 +841,30 @@ CODE_MIGRATIONS = (
         "verified_by": "governance AST boundary; canonical/legacy import identity; Python syntax and scientific regression tests",
         "rollback": "restore implementation at legacy_path and remove canonical implementation after reverting registry and tests",
         "notes": "Interpretation package generation now has one canonical stage-owned implementation path.",
+    },
+    {
+        "migration_id": "stage_09b_20260719_full_overnight_runner",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_09b",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage09b_full_overnight/run_stage09b_full_overnight.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_09b_full_overnight/stage_09b_run_full_overnight.py",
+        "compatibility_strategy": "nested_legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; both CLI help paths; canonical lineage manifest test",
+        "rollback": "restore implementation at legacy_path and remove the canonical package only after reverting registry and tests",
+        "notes": "Business paths now use CODE_ROOT; historical artifact names remain a declared resume-compatible schema.",
+    },
+    {
+        "migration_id": "stage_09c_20260719_scaled_batch_runner",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_09c",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage09c_scaled_batch/run_stage09c_scaled_batch.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_09c_scaled_batch/stage_09c_run_scaled_batch.py",
+        "compatibility_strategy": "nested_legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; both CLI help paths; canonical lineage manifest test",
+        "rollback": "restore implementation at legacy_path and remove the canonical package only after reverting registry and tests",
+        "notes": "The canonical runner preserves Stage 09b input compatibility while recording explicit Stage 09c lineage.",
     },
 )
 INDEX_EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", "_tmp"}
@@ -2142,7 +2168,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 
 ## 物理迁移原则
 
-`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。`stage_06c_geometry_audit/`、`stage_06e_geometry_angle_sync/`、`stage_06f_data_asset_audit/`、`stage_07p_overlap_validation/`、`stage_09d_full_pixel_diagnostics/` 与 `stage_09d_interpretation/` 已完成多脚本 canonical 物理归位；历史路径仅保留受治理的薄兼容入口，迁移证据见 `code_migrations.md`。`stage_07p_b` 是独立的边界量级审查阶段，不属于 `stage_07p_overlap_validation/`。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
+`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。`stage_06c_geometry_audit/`、`stage_06e_geometry_angle_sync/`、`stage_06f_data_asset_audit/`、`stage_07p_overlap_validation/`、`stage_09b_full_overnight/`、`stage_09c_scaled_batch/`、`stage_09d_full_pixel_diagnostics/` 与 `stage_09d_interpretation/` 已完成 canonical 物理归位；历史路径仅保留受治理的薄兼容入口，迁移证据见 `code_migrations.md`。`stage_07p_b` 是独立的边界量级审查阶段，不属于 `stage_07p_overlap_validation/`。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
 
 新 stage 若只有一个脚本，可使用 `stage_XX_<purpose>.py`；若有多个脚本，必须放入 `stage_XX_<purpose>/`。跨阶段工具不得伪造组合 stage，必须使用 `geo_ring_cloud_<role>_<purpose>.py`、声明 `COMPONENT_ROLE`，并在 manifest 中记录 `related_stage_ids`。
 """
@@ -2201,6 +2227,7 @@ Generated: `{GENERATED_AT}`
 - Stage 06e 两个实现已迁入 `stage_06e_geometry_angle_sync/`；子进程与报告根分别由 `CODE_ROOT`、`THIRD_REPORT_ROOT` 稳定解析。
 - Stage 06f 三个实现已迁入 `stage_06f_data_asset_audit/`；原路径由 AST 门禁约束为薄兼容入口。
 - Stage 07p 两个实现已迁入 `stage_07p_overlap_validation/`；实验 runner 已切换 canonical 路径，`stage_07p_b` 保持独立。
+- Stage 09b/09c runner 已迁入 `stage_09b_full_overnight/`、`stage_09c_scaled_batch/`；业务路径改用 `CODE_ROOT`，并补充 canonical lineage manifest，历史 artifact schema 保留用于续跑兼容。
 - Stage 09d full-pixel runner 与四个解释实现已迁入 `stage_09d_full_pixel_diagnostics/`、`stage_09d_interpretation/`；历史嵌套路径保留受治理的可执行薄兼容入口。
 - Stage 09d/09e/09f 的 full-pixel 采样、policy 与 workflow support 已进入 `geo_ring_cloud.diagnostics`；后续阶段不再反向导入 Stage 09d 脚本。
 {dynamic_loader_status}

@@ -86,8 +86,10 @@
 | 08j_prefusion_source_pair_overlap_diagnostics.py | geo_ring_cloud | stage_08j |  | 08j | 预融合源对重叠诊断（RUNS_ROOT=time_runs） | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs |
 | 08k_consolidate_stage08_report.py | geo_ring_cloud | stage_08k |  | 08k | Stage08 报告整合（RUNS_ROOT=time_runs） | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs |
 | 09_stage09_epic_georing_cloud_mask_diagnostics.py | geo_ring_cloud | stage_09 |  | 09 | Stage09 EPIC-Geo-ring 云掩膜诊断（RUNS_ROOT=time_runs） | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs |
-| stage09b_full_overnight/run_stage09b_full_overnight.py | geo_ring_cloud | stage_09b |  | 09b | Stage09b 全夜批量运行（RUNS_ROOT + BASE_STAGE_ROOT） |  |
-| stage09c_scaled_batch/run_stage09c_scaled_batch.py | geo_ring_cloud | stage_09c |  | 09c | Stage09c 扩展批量运行（RUNS_ROOT + BASE_STAGE_ROOT） |  |
+| stage_09b_full_overnight/stage_09b_run_full_overnight.py | geo_ring_cloud | stage_09b |  | 09b | Stage 09b canonical 全夜批量运行与 lineage manifest |  |
+| stage09b_full_overnight/run_stage09b_full_overnight.py | geo_ring_cloud | stage_09b | compatibility_entrypoint | 09b | Stage 09b 历史嵌套路径兼容入口 |  |
+| stage_09c_scaled_batch/stage_09c_run_scaled_batch.py | geo_ring_cloud | stage_09c |  | 09c | Stage 09c canonical 扩展批量运行与 lineage manifest |  |
+| stage09c_scaled_batch/run_stage09c_scaled_batch.py | geo_ring_cloud | stage_09c | compatibility_entrypoint | 09c | Stage 09c 历史嵌套路径兼容入口 |  |
 | stage_09d_claas3_epic_profile_pair_evaluation.py | geo_ring_cloud | stage_09d |  | 09d | Matched common-domain EPIC cloud-mask profile-pair metrics and sample-block bootstrap |  |
 | stage_09d_full_pixel_diagnostics/stage_09d_run_full_pixel_diagnostics.py | geo_ring_cloud | stage_09d |  | 09d | Stage 09d canonical full-pixel diagnostic runner |  |
 | stage_09d_geo_visible_control/stage_09d_vis_postprocess.py | geo_ring_cloud | stage_09d |  | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |

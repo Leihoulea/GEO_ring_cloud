@@ -169,6 +169,14 @@ STAGE_COMPATIBILITY_ENTRYPOINTS = {
         "stage_09d_interpretation.stage_09d_build_interpretation_package",
         "stage_09d",
     ),
+    f"{CORE_CODE_PREFIX}stage09b_full_overnight/run_stage09b_full_overnight.py": (
+        "stage_09b_full_overnight.stage_09b_run_full_overnight",
+        "stage_09b",
+    ),
+    f"{CORE_CODE_PREFIX}stage09c_scaled_batch/run_stage09c_scaled_batch.py": (
+        "stage_09c_scaled_batch.stage_09c_run_scaled_batch",
+        "stage_09c",
+    ),
     f"{CORE_CODE_PREFIX}06e_full_geometry_angle_source_sync_patch.py": (
         "stage_06e_geometry_angle_sync.stage_06e_full_geometry_angle_source_sync",
         "stage_06e",

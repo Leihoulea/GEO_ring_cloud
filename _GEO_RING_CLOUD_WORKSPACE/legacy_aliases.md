@@ -276,7 +276,9 @@
 | geo_ring_cloud | stage_08k | stage_08k | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09 | stage_09 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09b | stage_09b | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_09b_full_overnight/stage_09b_run_full_overnight.py | stage_09b | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09c | stage_09c | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_09c_scaled_batch/stage_09c_run_scaled_batch.py | stage_09c | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09d | stage_09d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09d_claas3_epic_profile_pair_evaluation.py | stage_09d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09d_diagnostic_common.py | stage_09d | 1.0 | registry-defined alias |
