@@ -274,7 +274,9 @@
 | geo_ring_cloud | stage_08i | stage_08i | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_08j | stage_08j | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_08k | stage_08k | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_08k_reporting/stage_08k_consolidate_report.py | stage_08k | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09 | stage_09 | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_09/stage_09_run_epic_geo_ring_cloud_mask_diagnostics.py | stage_09 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09b | stage_09b | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09b_full_overnight/stage_09b_run_full_overnight.py | stage_09b | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09c | stage_09c | 1.0 | registry-defined alias |

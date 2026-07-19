@@ -1,14 +1,14 @@
 # GEO-ring Cloud Engineering Status
 
-Generated: `2026-07-19T08:28:42Z`
+Generated: `2026-07-19T08:38:41Z`
 
 ## 当前规模
 
-- 索引脚本：117
+- 索引脚本：119
 - canonical shared modules：22
-- 已登记物理代码迁移：17
+- 已登记物理代码迁移：19
 - canonical stages：43
-- SQLite 详细 artifact 记录：1012
+- SQLite 详细 artifact 记录：1018
 - Markdown 快查 artifact 记录：436
 - data product audits：19
 - time-run 顶层目录：156
@@ -33,6 +33,7 @@ Generated: `2026-07-19T08:28:42Z`
 - Stage 06e 两个实现已迁入 `stage_06e_geometry_angle_sync/`；子进程与报告根分别由 `CODE_ROOT`、`THIRD_REPORT_ROOT` 稳定解析。
 - Stage 06f 三个实现已迁入 `stage_06f_data_asset_audit/`；原路径由 AST 门禁约束为薄兼容入口。
 - Stage 07p 两个实现已迁入 `stage_07p_overlap_validation/`；实验 runner 已切换 canonical 路径，`stage_07p_b` 保持独立。
+- Stage 08k/09 实现已迁入 `stage_08k_reporting/`、`stage_09/`；两者均补充标准 CLI 与 canonical lineage manifest，Stage 09b 复用审计指向 canonical Stage 09 路径。
 - Stage 09b/09c runner 已迁入 `stage_09b_full_overnight/`、`stage_09c_scaled_batch/`；业务路径改用 `CODE_ROOT`，并补充 canonical lineage manifest，历史 artifact schema 保留用于续跑兼容。
 - Stage 09d full-pixel runner 与四个解释实现已迁入 `stage_09d_full_pixel_diagnostics/`、`stage_09d_interpretation/`；历史嵌套路径保留受治理的可执行薄兼容入口。
 - Stage 09d/09e/09f 的 full-pixel 采样、policy 与 workflow support 已进入 `geo_ring_cloud.diagnostics`；后续阶段不再反向导入 Stage 09d 脚本。

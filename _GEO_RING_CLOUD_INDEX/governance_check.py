@@ -129,6 +129,14 @@ COMPATIBILITY_SHIM_PATHS = {
     f"{CORE_CODE_PREFIX}stage1_common.py": "geo_ring_cloud.pipeline_support",
 }
 STAGE_COMPATIBILITY_ENTRYPOINTS = {
+    f"{CORE_CODE_PREFIX}08k_consolidate_stage08_report.py": (
+        "stage_08k_reporting.stage_08k_consolidate_report",
+        "stage_08k",
+    ),
+    f"{CORE_CODE_PREFIX}09_stage09_epic_georing_cloud_mask_diagnostics.py": (
+        "stage_09.stage_09_run_epic_geo_ring_cloud_mask_diagnostics",
+        "stage_09",
+    ),
     f"{CORE_CODE_PREFIX}06c_geometry_parameter_audit.py": (
         "stage_06c_geometry_audit.stage_06c_geometry_parameter_audit",
         "stage_06c",

@@ -120,6 +120,14 @@ class EvidencePackBuilderTests(unittest.TestCase):
             ["07p-b", "executed"],
         )
         self.assertEqual(
+            rows["stage_08k_reporting/stage_08k_consolidate_report.py"][:2],
+            ["08k", "present canonical report builder"],
+        )
+        self.assertEqual(
+            rows["stage_09/stage_09_run_epic_geo_ring_cloud_mask_diagnostics.py"][:2],
+            ["09", "present canonical diagnostics"],
+        )
+        self.assertEqual(
             rows["stage_09b_full_overnight/stage_09b_run_full_overnight.py"][:2],
             ["09b", "present canonical runner"],
         )
@@ -283,6 +291,93 @@ class PackageBoundaryTests(unittest.TestCase):
             "stage_09b_full_overnight/stage_09b_run_full_overnight.py",
             "stage09c_scaled_batch/run_stage09c_scaled_batch.py",
             "stage_09c_scaled_batch/stage_09c_run_scaled_batch.py",
+        ]
+        for script in scripts:
+            completed = subprocess.run(
+                [sys.executable, script, "--help"],
+                cwd=CODE_DIR,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("usage:", completed.stdout.lower())
+
+    def test_stage08k_stage09_legacy_entrypoints_export_canonical_workflows(self) -> None:
+        mappings = {
+            "08k_consolidate_stage08_report": (
+                "stage_08k_reporting.stage_08k_consolidate_report",
+                "stage_08k",
+            ),
+            "09_stage09_epic_georing_cloud_mask_diagnostics": (
+                "stage_09.stage_09_run_epic_geo_ring_cloud_mask_diagnostics",
+                "stage_09",
+            ),
+        }
+        for legacy_name, (canonical_name, stage_id) in mappings.items():
+            legacy = importlib.import_module(legacy_name)
+            canonical = importlib.import_module(canonical_name)
+            self.assertIs(legacy.main, canonical.main, legacy_name)
+            self.assertIs(legacy.write_stage_manifest, canonical.write_stage_manifest, legacy_name)
+            self.assertEqual(legacy.STAGE_ID, stage_id, legacy_name)
+            self.assertEqual(canonical.STAGE_ID, stage_id, canonical_name)
+
+    def test_stage08k_stage09_write_canonical_lineage_manifests(self) -> None:
+        stage08k = importlib.import_module(
+            "stage_08k_reporting.stage_08k_consolidate_report"
+        )
+        stage09 = importlib.import_module(
+            "stage_09.stage_09_run_epic_geo_ring_cloud_mask_diagnostics"
+        )
+        with test_directory("stage08k_stage09_manifests") as root:
+            report08 = root / "stage_08k" / "stage08_report.md"
+            report08.parent.mkdir(parents=True, exist_ok=True)
+            report08.write_text("test", encoding="utf-8")
+            manifest08 = stage08k.write_stage_manifest(report08)
+
+            out09 = root / "stage_09"
+            report09 = out09 / "stage09_report.md"
+            report09.parent.mkdir(parents=True, exist_ok=True)
+            report09.write_text("test", encoding="utf-8")
+            manifest09 = stage09.write_stage_manifest(
+                out09,
+                SimpleNamespace(runs_root="runs", out_dir=str(out09)),
+                report09,
+            )
+
+            for module, stage_id, report, manifest, expected_name in (
+                (
+                    stage08k,
+                    "stage_08k",
+                    report08,
+                    manifest08,
+                    "stage_08k_consolidated_report_manifest.json",
+                ),
+                (
+                    stage09,
+                    "stage_09",
+                    report09,
+                    manifest09,
+                    "stage_09_epic_geo_ring_cloud_mask_diagnostics_manifest.json",
+                ),
+            ):
+                payload = json.loads(manifest.read_text(encoding="utf-8"))
+                self.assertEqual(manifest.name, expected_name)
+                self.assertEqual(payload["project_id"], "geo_ring_cloud")
+                self.assertEqual(payload["canonical_stage_id"], stage_id)
+                self.assertEqual(Path(payload["generating_script"]).name, Path(module.__file__).name)
+                self.assertIn(str(report), payload["output_paths"])
+                self.assertTrue(payload["input_paths"])
+                self.assertTrue(payload["parameter_summary"])
+                self.assertTrue(payload["artifact_naming_schema"].startswith("legacy_stage0"))
+
+    def test_stage08k_stage09_canonical_and_legacy_cli_paths(self) -> None:
+        scripts = [
+            "08k_consolidate_stage08_report.py",
+            "stage_08k_reporting/stage_08k_consolidate_report.py",
+            "09_stage09_epic_georing_cloud_mask_diagnostics.py",
+            "stage_09/stage_09_run_epic_geo_ring_cloud_mask_diagnostics.py",
         ]
         for script in scripts:
             completed = subprocess.run(

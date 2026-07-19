@@ -84,8 +84,10 @@
 | 08h_meteosat_time_offset_control_test.py | geo_ring_cloud | stage_08h |  | 08h | Meteosat 时间偏移控制测试（RUNS_ROOT=time_runs） | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs |
 | 08i_meteosat_source_overlap_diagnostics.py | geo_ring_cloud | stage_08i |  | 08i | Meteosat 源重叠诊断（RUNS_ROOT=time_runs） | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs |
 | 08j_prefusion_source_pair_overlap_diagnostics.py | geo_ring_cloud | stage_08j |  | 08j | 预融合源对重叠诊断（RUNS_ROOT=time_runs） | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs |
-| 08k_consolidate_stage08_report.py | geo_ring_cloud | stage_08k |  | 08k | Stage08 报告整合（RUNS_ROOT=time_runs） | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs |
-| 09_stage09_epic_georing_cloud_mask_diagnostics.py | geo_ring_cloud | stage_09 |  | 09 | Stage09 EPIC-Geo-ring 云掩膜诊断（RUNS_ROOT=time_runs） | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs |
+| stage_08k_reporting/stage_08k_consolidate_report.py | geo_ring_cloud | stage_08k |  | 08k | Stage 08k canonical 综合报告与 lineage manifest | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs |
+| 08k_consolidate_stage08_report.py | geo_ring_cloud | stage_08k | compatibility_entrypoint | 08k | Stage 08k 历史路径兼容入口 |  |
+| stage_09/stage_09_run_epic_geo_ring_cloud_mask_diagnostics.py | geo_ring_cloud | stage_09 |  | 09 | Stage 09 canonical EPIC/GEO-ring 云掩膜诊断与 lineage manifest | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs |
+| 09_stage09_epic_georing_cloud_mask_diagnostics.py | geo_ring_cloud | stage_09 | compatibility_entrypoint | 09 | Stage 09 历史路径兼容入口 |  |
 | stage_09b_full_overnight/stage_09b_run_full_overnight.py | geo_ring_cloud | stage_09b |  | 09b | Stage 09b canonical 全夜批量运行与 lineage manifest |  |
 | stage09b_full_overnight/run_stage09b_full_overnight.py | geo_ring_cloud | stage_09b | compatibility_entrypoint | 09b | Stage 09b 历史嵌套路径兼容入口 |  |
 | stage_09c_scaled_batch/stage_09c_run_scaled_batch.py | geo_ring_cloud | stage_09c |  | 09c | Stage 09c canonical 扩展批量运行与 lineage manifest |  |

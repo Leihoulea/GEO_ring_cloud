@@ -218,6 +218,8 @@ def script_manifest_rows() -> list[list[str]]:
         "stage_07p_claas3_profile_pair_evaluation.py": ("07p", "compatibility entrypoint"),
         "07p_b_source_boundary_magnitude_review.py": ("07p-b", "executed"),
         "07v2_formal_single_time_report.py": ("07v2", "executed"),
+        "stage_08k_reporting/stage_08k_consolidate_report.py": ("08k", "present canonical report builder"),
+        "stage_09/stage_09_run_epic_geo_ring_cloud_mask_diagnostics.py": ("09", "present canonical diagnostics"),
         "stage_09b_full_overnight/stage_09b_run_full_overnight.py": ("09b", "present canonical runner"),
         "stage_09c_scaled_batch/stage_09c_run_scaled_batch.py": ("09c", "present canonical runner"),
         "stage_09d_full_pixel_diagnostics/stage_09d_run_full_pixel_diagnostics.py": ("09d", "present canonical runner"),

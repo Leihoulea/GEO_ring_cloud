@@ -9,8 +9,6 @@
 | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | 08h_meteosat_time_offset_control_test.py | 15 | RUNS_ROOT 多时次运行根 | D盘内 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | 08i_meteosat_source_overlap_diagnostics.py | 14 | RUNS_ROOT 多时次运行根 | D盘内 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | 08j_prefusion_source_pair_overlap_diagnostics.py | 13 | RUNS_ROOT 多时次运行根 | D盘内 |
-| D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | 08k_consolidate_stage08_report.py | 11 | RUNS_ROOT 多时次运行根 | D盘内 |
-| D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | 09_stage09_epic_georing_cloud_mask_diagnostics.py | 21 | RUNS_ROOT 多时次运行根 | D盘内 |
 | D:\AAAresearch_paper\data | data_check_report/check_download_completeness.py | 17 | DATA_ROOT 原始卫星数据根 | D盘内 |
 | D:\AAAresearch_paper\geo_geometry_check | download_geo_geometry_samples.py | 22 | OUT_ROOT 几何样本下载产物根 | D盘内 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1 | geo_ring_cloud/paths.py | 20 | STAGE_ROOT 产物根（可被 GEO_RING_STAGE_ROOT 环境变量覆盖） | D盘内 |
@@ -33,6 +31,8 @@
 | D:\AAAresearch_paper\geo_ring_cloud_stage1\standardized_native | stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py | 37 | INPUT_DIRS 标准化原生产物（由 geo_ring_cloud.paths 解析） | D盘内 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1\reprojected_grid | stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py | 38 | INPUT_DIRS 重投影产物（由 geo_ring_cloud.paths 解析） | D盘内 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1\fused_best_source | stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py | 39 | INPUT_DIRS 融合产物（由 geo_ring_cloud.paths 解析） | D盘内 |
+| D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | stage_08k_reporting/stage_08k_consolidate_report.py | 16 | RUNS_ROOT 多时次运行根 | D盘内 |
+| D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | stage_09/stage_09_run_epic_geo_ring_cloud_mask_diagnostics.py | 21 | RUNS_ROOT 多时次运行根 | D盘内 |
 | E:\GEO_Cloud_2024\CMSAF\DSCOVR_EPIC_L2_CLOUD_03_20240319150052_03.nc4 | 08b_epic_l2_cloud_audit_compare.py | 27 | EPIC_L2_FILE DSCOVR EPIC L2 云产品文件 | E盘 |
 | E:\GEO_Cloud_2024 | data_check_report/check_download_completeness.py | 18 | GEO_ROOT 外部数据盘 GEO 云产品存储根 | E盘 |
 | F:\DSCOVR_EPIC_L2_CLOUD_03_2024.03 | time_runs/*/single_sample_run_manifest.json | 5 | DSCOVR EPIC L2 云产品数据根（各批次 manifest 引用具体 .nc4 文件） | F盘 |
