@@ -14,21 +14,24 @@ from typing import Any
 import netCDF4
 import numpy as np
 
+CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
+if str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
 
-WORKSPACE = Path(__file__).resolve().parents[2]
+from geo_ring_cloud.paths import CLAAS3_ROOT, EXTERNAL_GEO_CLOUD_ROOT, THIRD_REPORT_ROOT  # noqa: E402
+
+WORKSPACE = THIRD_REPORT_ROOT
 OUT_DIR = WORKSPACE / "reports" / "claas3_vs_operational_meteosat"
 
-CMSAF_ROOT = Path(r"E:\GEO_Cloud_2024\CMSAF")
-OP_ROOT = Path(r"E:\GEO_Cloud_2024")
+CMSAF_ROOT = CLAAS3_ROOT
+OP_ROOT = EXTERNAL_GEO_CLOUD_ROOT
 TARGET_DAY = "20240312"
 TARGET_HHMM = "1200"
 
 
 def ensure_eccodes() -> None:
-    candidates = [
-        Path(sys.prefix) / "Library" / "bin",
-        Path(r"D:\anaconda\envs\pytorch\Library\bin"),
-    ]
+    conda_prefix = Path(os.environ.get("CONDA_PREFIX", sys.prefix))
+    candidates = [conda_prefix / "Library" / "bin"]
     for candidate in candidates:
         if not candidate.exists():
             continue
@@ -37,7 +40,7 @@ def ensure_eccodes() -> None:
             os.add_dll_directory(str(candidate))
         except (AttributeError, FileNotFoundError, OSError):
             pass
-    lib_root = Path(r"D:\anaconda\envs\pytorch\Library")
+    lib_root = conda_prefix / "Library"
     if lib_root.exists():
         os.environ.setdefault("ECCODES_DIR", str(lib_root))
 

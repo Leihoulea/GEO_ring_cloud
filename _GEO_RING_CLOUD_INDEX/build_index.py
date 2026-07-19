@@ -382,9 +382,21 @@ MODULE_REGISTRY = (
         "legacy_module": "path_config",
         "legacy_path": "third_report/code/geo_ring_cloud_stage1/path_config.py",
         "migration_status": "canonical_with_compatibility_shim",
-        "public_api": "env_path and project/data/output root constants",
+        "public_api": "env_path and project/data/output/credential root constants",
         "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests",
-        "notes": "Only canonical location allowed to contain default absolute project paths.",
+        "notes": "Canonical Python location allowed to contain default machine-local paths.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.path_configuration_powershell",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud_path_configuration.ps1",
+        "component_role": "path_configuration",
+        "legacy_module": "",
+        "legacy_path": "",
+        "migration_status": "canonical",
+        "public_api": "GeoRing project/data/output/credential/tool path variables for PowerShell orchestration",
+        "test_evidence": "_GEO_RING_CLOUD_INDEX/tests/test_governance_check.py::PathEnforcementTests",
+        "notes": "PowerShell companion to geo_ring_cloud.paths; uses the same GEO_RING_* environment-variable contract.",
     },
     {
         "project_id": PROJECT_ID,
@@ -1722,7 +1734,7 @@ def export_workspace_reports(db_path: Path = DB_PATH) -> None:
 
     repo_paths, _ = governance_check.all_repo_candidate_paths()
     absolute_path_warning_count = sum(
-        "contains absolute D:/AAAresearch_paper path" in finding.message
+        "machine-local absolute path" in finding.message
         for finding in governance_check.check_paths(repo_paths, set(), baseline_mode=True)
     )
 
@@ -1783,7 +1795,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 
 | layer | ownership | examples |
 | --- | --- | --- |
-| configuration | 路径、数据源 ID、环境覆盖、依赖契约 | `geo_ring_cloud.paths`, `geo_ring_cloud.pipeline_layout`, `geo_ring_cloud.sources`, `environment.yml` |
+| configuration | 路径、数据源 ID、环境覆盖、依赖契约 | `geo_ring_cloud.paths`, `geo_ring_cloud_path_configuration.ps1`, `geo_ring_cloud.pipeline_layout`, `geo_ring_cloud.sources`, `environment.yml` |
 | lineage | manifest、commit、输入输出追踪 | `geo_ring_cloud.lineage` |
 | adapters | 产品读取、格式适配、变量解码 | `geo_ring_cloud.adapters.claas3`, `geo_ring_cloud.adapters.epic`, `geo_data_audit/` |
 | semantics | 云代码含义、display/fusion 有效性与质量规则 | `geo_ring_cloud.cloud_semantics` |
@@ -1807,6 +1819,12 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
         1 for path in (ROOT / "geo_ring_cloud_stage1_time_runs").iterdir()
         if path.is_dir()
     ) if (ROOT / "geo_ring_cloud_stage1_time_runs").exists() else 0
+    if absolute_path_warning_count:
+        path_debt_status = "- 仍有机器本地绝对路径和非 canonical 命名；普通模式保留 warning，新增污染会被 hook 阻断。"
+        path_debt_priority = "2. P1：逐批参数化仍活跃脚本中的机器本地绝对路径，并保持默认路径行为不变。"
+    else:
+        path_debt_status = "- 活跃项目代码中的机器本地绝对路径 warning 已清零；历史非 canonical 命名继续由 alias/baseline 吸收。"
+        path_debt_priority = "2. P1：保持机器本地绝对路径 warning 为零，并为新增 Python/PowerShell 路径执行治理门禁。"
     engineering_status = f"""# GEO-ring Cloud Engineering Status
 
 Generated: `{GENERATED_AT}`
@@ -1827,7 +1845,7 @@ Generated: `{GENERATED_AT}`
 
 - Git 仓库、远端、`.gitignore`、`.gitattributes` 与本地 pre-commit hook。
 - canonical stage taxonomy、artifact index、data product audit index 和跨项目 collision guard。
-- `geo_ring_cloud.paths` 环境变量覆盖、统一 lineage manifest helper 与 staged governance check。
+- Python `geo_ring_cloud.paths` 与 PowerShell `geo_ring_cloud_path_configuration.ps1` 共享环境变量契约；统一 lineage manifest helper 与 staged governance check。
 - `geo_ring_cloud` package、`pyproject.toml`、module registry 与旧 import compatibility shims。
 - 已验证直接依赖基线、统一 `ci_check.py` 入口与 GitHub 轻量 CI 门禁。
 - 大数据、time-run、图片、Office 文件和生成数据库默认不进入 Git。
@@ -1835,14 +1853,14 @@ Generated: `{GENERATED_AT}`
 ## 尚未达到的目标
 
 - `stage1_common.py` 已降为 compatibility shim；`pipeline_support` 已降为纯兼容 facade，layout、cloud semantics、产品读取、quicklook、artifact IO 与数组摘要统计均已拆入专责模块。
-- 仍有历史绝对路径和非 canonical 命名；普通模式保留 warning，新增污染会被 hook 阻断。
+{path_debt_status}
 - `environment.yml` 已固定已验证的直接依赖；跨平台传递依赖锁仍应在正式实验发布时按平台生成。
 - 一部分旧 time-run 使用 `stage0910` 等组合标签；为保障续跑暂保留，只作为 legacy alias，不得用于新组件命名。
 
 ## 优先级
 
 1. P0：任何新增 governance error 必须在提交前清零。
-2. P1：逐批参数化仍活跃脚本中的历史绝对路径，并保持默认路径行为不变。
+{path_debt_priority}
 3. P1：逐批清理阶段脚本通过动态加载彼此实现的编排耦合。
 4. P2：为正式实验发布生成平台化传递依赖锁；大数据集成测试继续本地运行。
 5. P2：按依赖审计结果渐进迁移扁平脚本，禁止一次性大搬迁。
@@ -1936,8 +1954,8 @@ It applies to humans and AI agents.
 
 ## Path and artifact rules
 
-- Core code MUST use `geo_ring_cloud.paths` or environment-variable overrides for project paths; `path_config.py` is legacy-import compatibility only.
-- New core code MUST NOT hard-code `D:\\AAAresearch_paper\\...` unless explicitly allowlisted.
+- Python code MUST use `geo_ring_cloud.paths`; PowerShell orchestration MUST dot-source `geo_ring_cloud_path_configuration.ps1` or use the same `GEO_RING_*` environment-variable contract.
+- Active project code MUST NOT hard-code any machine-local drive path unless it is one of the two explicitly allowlisted canonical path-configuration files.
 - Core code MUST NOT depend on `_NON_GEO_ARCHIVE`, `second_report`, `forth`, or EPIC-CERES code/output paths.
 - Raw data, time runs, evidence packs, SQLite/XLSX indexes, PPTX, images, NetCDF/HDF/HDF5, NPZ, and other large generated artifacts MUST stay out of Git by default.
 - GitHub CI MUST remain independent of local large-data paths; real-data integration tests are explicit local checks.

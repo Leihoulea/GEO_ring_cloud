@@ -14,9 +14,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-DATA_ROOT = Path(r"D:\AAAresearch_paper\data")
-GEO_ROOT = Path(r"E:\GEO_Cloud_2024")
-OUT_DIR = Path(r"D:\AAAresearch_paper\data_check_report")
+CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
+if str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
+
+from geo_ring_cloud.paths import DATA_CHECK_ROOT, DATA_ROOT, EXTERNAL_GEO_CLOUD_ROOT  # noqa: E402
+
+GEO_ROOT = EXTERNAL_GEO_CLOUD_ROOT
+OUT_DIR = DATA_CHECK_ROOT
 MANIFEST_DIR = GEO_ROOT / "manifests"
 
 TOO_SMALL_BYTES = 1024
@@ -936,7 +941,7 @@ def himawari_segment_completeness(cross: list[dict]) -> list[dict]:
                 "product_context": row["present_products"],
                 "expected_segments": "1 full-disk NetCDF per product",
                 "observed_segment_status": "OK_FULL_DISK_FILE" if row["status"] == "COMPLETE_CORE" else "NEED_CHECK_PRODUCTS",
-                "notes": "No HSD segment files were found in E:\\GEO_Cloud_2024; downloaded NOAA L2 products are full-disk NetCDF bundles.",
+                "notes": f"No HSD segment files were found in {GEO_ROOT}; downloaded NOAA L2 products are full-disk NetCDF bundles.",
             }
         )
     return rows
@@ -1181,10 +1186,10 @@ def main() -> int:
     write_md(
         OUT_DIR / "needs_manual_confirmation.md",
         "# Needs Manual Confirmation\n\n"
-        "- GOES: ACMF/ACHAF plus recently downloaded ACTPF/ACHTF/CTPF/CODF/CPSF are parsed when present in E:\\GEO_Cloud_2024; RadF is not present unless stored elsewhere.\n"
-        "- Himawari: NOAA AHI-L2-FLDK-Clouds CMSK/CHGT files are full-disk NetCDF bundles, not HSD segmented L1 files; HSD/L1 auxiliary products are not present in E:\\GEO_Cloud_2024.\n"
+        f"- GOES: ACMF/ACHAF plus recently downloaded ACTPF/ACHTF/CTPF/CODF/CPSF are parsed when present in {GEO_ROOT}; RadF is not present unless stored elsewhere.\n"
+        f"- Himawari: NOAA AHI-L2-FLDK-Clouds CMSK/CHGT files are full-disk NetCDF bundles, not HSD segmented L1 files; HSD/L1 auxiliary products are not present in {GEO_ROOT}.\n"
         "- Meteosat: Downloaded EUMETSAT ZIP products contain CLM/CTH entries and metadata. L1.5 .nat, CMA/CT/CTTH/OCA/CMIC products beyond CLM/CTH are not present in the current download tree.\n"
-        "- FY4B: D:\\AAAresearch_paper\\data currently exposes CLM/CLT/CTH/CTT and FY4B_Data folders; CTP/CLP/COT/CER/FDI/GEO availability depends on files parsed in reports.\n",
+        f"- FY4B: {DATA_ROOT} currently exposes CLM/CLT/CTH/CTT and FY4B_Data folders; CTP/CLP/COT/CER/FDI/GEO availability depends on files parsed in reports.\n",
     )
 
     statuses = {

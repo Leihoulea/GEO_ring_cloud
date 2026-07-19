@@ -6,6 +6,7 @@ import csv
 import json
 import os
 import re
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -18,11 +19,21 @@ import requests
 from botocore import UNSIGNED
 from botocore.config import Config
 
+CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
+if str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
 
-OUT_DIR = Path(r"D:\AAAresearch_paper\data_check_report\priority_download_run_goes_meteosat")
-ROOT = Path(r"E:\GEO_Cloud_2024")
-PARSED = Path(r"D:\AAAresearch_paper\data_check_report\parsed_file_metadata.csv")
-CRED_FILE = Path(r"D:\AAAresearch_paper\third_report\eumetsat_dataservices_API.txt")
+from geo_ring_cloud.paths import (  # noqa: E402
+    DATA_CHECK_ROOT,
+    EUMETSAT_CREDENTIALS_FILE,
+    EXTERNAL_GEO_CLOUD_ROOT,
+)
+
+
+OUT_DIR = DATA_CHECK_ROOT / "priority_download_run_goes_meteosat"
+ROOT = EXTERNAL_GEO_CLOUD_ROOT
+PARSED = DATA_CHECK_ROOT / "parsed_file_metadata.csv"
+CRED_FILE = EUMETSAT_CREDENTIALS_FILE
 EUM_SEARCH_URL = "https://api.eumetsat.int/data/search-products/1.0.0/os"
 EUM_TOKEN_URL = "https://api.eumetsat.int/token"
 FIELDS = [

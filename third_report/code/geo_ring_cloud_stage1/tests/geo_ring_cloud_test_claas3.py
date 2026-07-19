@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import collections
 import json
 import os
 import shutil
@@ -37,6 +39,7 @@ from geo_ring_cloud.run_discovery import discover_run_dirs, resolve_run_dir  # n
 from geo_ring_cloud.sources import SOURCE_ID_MAP, tie_order, variable_rules  # noqa: E402
 from geo_ring_cloud_time_run_matrix import REQUIRED_PROFILE_ARTIFACTS, profile_artifacts_complete  # noqa: E402
 from geo_ring_cloud_experiment_profile_pair import reusable_operational_baseline, write_batch_status  # noqa: E402
+import rebuild_stage1_evidence_pack as evidence_pack  # noqa: E402
 from run_epic_georing_single_sample import runtime_environment  # noqa: E402
 from geo_ring_cloud.diagnostics.epic_pair import (  # noqa: E402
     POLICIES,
@@ -48,6 +51,28 @@ from geo_ring_cloud.diagnostics.epic_pair import (  # noqa: E402
     paired_classification_metrics,
 )
 from stage_09d_claas3_epic_profile_pair_evaluation import box_binary, comparison_domains  # noqa: E402
+
+
+class EvidencePackBuilderTests(unittest.TestCase):
+    def test_path_tokens_render_from_canonical_configuration(self) -> None:
+        rendered = evidence_pack.render_path_tokens(evidence_pack.build_stage07())
+
+        self.assertEqual(evidence_pack.COMPONENT_ROLE, "evidence_pack_builder")
+        self.assertIn(str(evidence_pack.STAGE1_ROOT), rendered)
+        self.assertNotIn("@STAGE_ROOT@", rendered)
+        self.assertNotIn("@GEOMETRY_ROOT@", rendered)
+        self.assertNotIn("@DATA_CHECK_ROOT@", rendered)
+
+    def test_top_level_function_definitions_are_unique(self) -> None:
+        source_path = CODE_DIR / "rebuild_stage1_evidence_pack.py"
+        tree = ast.parse(source_path.read_text(encoding="utf-8-sig"))
+        counts = collections.Counter(
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        )
+
+        self.assertEqual({name: count for name, count in counts.items() if count > 1}, {})
 
 
 class PackageBoundaryTests(unittest.TestCase):
@@ -123,18 +148,25 @@ class PipelineLayoutTests(unittest.TestCase):
 
     def test_project_root_override_propagates_in_clean_process(self) -> None:
         with test_directory("path_override") as project_root:
+            external_root = project_root / "external_geo_cloud"
+            credentials_file = project_root / "secrets" / "eumetsat.txt"
             env = os.environ.copy()
             for name in list(env):
                 if name.startswith("GEO_RING_"):
                     env.pop(name)
             env["GEO_RING_PROJECT_ROOT"] = str(project_root)
+            env["GEO_RING_EXTERNAL_GEO_CLOUD_ROOT"] = str(external_root)
+            env["GEO_RING_EUMETSAT_CREDENTIALS_FILE"] = str(credentials_file)
             code = (
                 "import json; from geo_ring_cloud import paths; "
                 "print(json.dumps({"
                 "'project': str(paths.PROJECT_ROOT), "
                 "'code': str(paths.CODE_ROOT), "
                 "'stage': str(paths.STAGE_ROOT), "
-                "'runs': str(paths.RUNS_ROOT)}))"
+                "'runs': str(paths.RUNS_ROOT), "
+                "'data_check': str(paths.DATA_CHECK_ROOT), "
+                "'external': str(paths.EXTERNAL_GEO_CLOUD_ROOT), "
+                "'credentials': str(paths.EUMETSAT_CREDENTIALS_FILE)}))"
             )
             result = subprocess.run(
                 [sys.executable, "-c", code],
@@ -153,6 +185,9 @@ class PipelineLayoutTests(unittest.TestCase):
         )
         self.assertEqual(Path(resolved["stage"]), project_root / "geo_ring_cloud_stage1")
         self.assertEqual(Path(resolved["runs"]), project_root / "geo_ring_cloud_stage1_time_runs")
+        self.assertEqual(Path(resolved["data_check"]), project_root / "data_check_report")
+        self.assertEqual(Path(resolved["external"]), external_root)
+        self.assertEqual(Path(resolved["credentials"]), credentials_file)
 
 
 class CloudProductAdapterTests(unittest.TestCase):

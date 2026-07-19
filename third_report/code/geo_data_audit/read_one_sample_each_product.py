@@ -17,6 +17,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
+if str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
+
+from geo_ring_cloud.paths import DATA_CHECK_ROOT, DATA_ROOT, EXTERNAL_GEO_CLOUD_ROOT  # noqa: E402
+
 import numpy as np
 import pandas as pd
 import yaml
@@ -40,16 +46,15 @@ except Exception as exc:  # pragma: no cover
     plt = exc
 
 
-OUT_DIR = Path(r"D:\AAAresearch_paper\data_check_report")
+OUT_DIR = DATA_CHECK_ROOT
 SCRIPT_DIR = Path(__file__).resolve().parent
 MAPPING_PATH = OUT_DIR / "manual_variable_mapping_by_product.yaml"
 PARSED_METADATA = OUT_DIR / "parsed_file_metadata.csv"
 QUICKLOOK_DIR = OUT_DIR / "quicklooks"
 DATA_ROOTS_EXTRA = [
-    Path(r"D:\AAAresearch_paper\data\FY4B-GEO"),
-    Path(r"D:\AAAresearch_paper\data\FY4B-CTP"),
-    Path(r"D:\AAAresearch_paper\data\FY4B_Data"),
-    Path(r"D:\AAAresearch_paper\second_report\satellitedata\FY4B_Data"),
+    DATA_ROOT / "FY4B-GEO",
+    DATA_ROOT / "FY4B-CTP",
+    DATA_ROOT / "FY4B_Data",
 ]
 MAX_STATS_VALUES = 300_000
 
@@ -765,16 +770,17 @@ def inspect_sample(sample: dict, mapping: dict) -> tuple[list[dict], list[dict],
 
 def priority_confirmation_report(samples: list[dict], results: list[dict], grib_rows: list[dict], anomalies: list[dict]) -> str:
     products_present = {(s.get("satellite_family"), s.get("product")) for s in samples}
+    fy4b_search_roots = ", ".join(f"`{path}`" for path in DATA_ROOTS_EXTRA)
     lines = [
         "# Priority Products To Confirm Or Supplement",
         "",
         f"Generated: {datetime.now().isoformat(timespec='seconds')}",
         "",
         "## Must Confirm / Supplement",
-        "- FY4B GEO 4000M and CTP: searched in `D:\\AAAresearch_paper\\data\\FY4B-GEO`, `D:\\AAAresearch_paper\\data\\FY4B-CTP`, `D:\\AAAresearch_paper\\data\\FY4B_Data`, and `D:\\AAAresearch_paper\\second_report\\satellitedata\\FY4B_Data`; see sample table for whether files were found and readable.",
+        f"- FY4B GEO 4000M and CTP: searched in {fy4b_search_roots}; see sample table for whether files were found and readable.",
         "- FY4B CTP: required for v1 cloud-top pressure; sample is included only if found locally.",
         "- FY4B CLP/cloud phase: required/strongly useful for phase; sample is included only if found locally.",
-        "- GOES ACTPF/CTPF/CTTF: not present in current `E:\\GEO_Cloud_2024` sample set; should be downloaded if phase/pressure/temperature must be independent products rather than ACHAF bundled fields.",
+        f"- GOES ACTPF/CTPF/CTTF: not present in current `{EXTERNAL_GEO_CLOUD_ROOT}` sample set; should be downloaded if phase/pressure/temperature must be independent products rather than ACHAF bundled fields.",
         "- Meteosat GRIB: ZIP members are now read, GRIB sections are parsed, and packed-grid values are decoded with `cfgrib/eccodes` when available.",
         "",
         "## Product Presence In This Sample Run",

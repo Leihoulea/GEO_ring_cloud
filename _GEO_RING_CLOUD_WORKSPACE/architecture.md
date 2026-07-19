@@ -11,7 +11,7 @@
 
 | layer | ownership | examples |
 | --- | --- | --- |
-| configuration | 路径、数据源 ID、环境覆盖、依赖契约 | `geo_ring_cloud.paths`, `geo_ring_cloud.pipeline_layout`, `geo_ring_cloud.sources`, `environment.yml` |
+| configuration | 路径、数据源 ID、环境覆盖、依赖契约 | `geo_ring_cloud.paths`, `geo_ring_cloud_path_configuration.ps1`, `geo_ring_cloud.pipeline_layout`, `geo_ring_cloud.sources`, `environment.yml` |
 | lineage | manifest、commit、输入输出追踪 | `geo_ring_cloud.lineage` |
 | adapters | 产品读取、格式适配、变量解码 | `geo_ring_cloud.adapters.claas3`, `geo_ring_cloud.adapters.epic`, `geo_data_audit/` |
 | semantics | 云代码含义、display/fusion 有效性与质量规则 | `geo_ring_cloud.cloud_semantics` |

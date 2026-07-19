@@ -1,18 +1,30 @@
 param(
   [string]$WatchPattern = 'run_epic_georing_sample_batch.py --role east_asia_priority --max-samples 3',
-  [string]$BatchScript = 'D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\run_epic_georing_sample_batch.py',
-  [string]$CondaExe = 'D:\anaconda\Scripts\conda.exe',
+  [string]$BatchScript,
+  [string]$CondaExe,
   [string]$CondaEnv = 'pytorch',
-  [string]$OutDir = 'D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\epic_202403_overnight_watch',
+  [string]$OutDir,
   [int]$PollSeconds = 120
 )
 
 $ErrorActionPreference = 'Continue'
+. (Join-Path $PSScriptRoot "geo_ring_cloud_path_configuration.ps1")
+
+if (-not $PSBoundParameters.ContainsKey('BatchScript')) {
+  $BatchScript = Join-Path $GeoRingCoreCodeRoot 'run_epic_georing_sample_batch.py'
+}
+if (-not $PSBoundParameters.ContainsKey('CondaExe')) {
+  $CondaExe = $GeoRingCondaExe
+}
+if (-not $PSBoundParameters.ContainsKey('OutDir')) {
+  $OutDir = Join-Path $GeoRingRunsRoot 'epic_202403_overnight_watch'
+}
+
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $watchLog = Join-Path $OutDir 'watch_then_run_meteosat.log'
 $meteosatLog = Join-Path $OutDir 'meteosat_batch_stdout_stderr.log'
 $heartbeat = Join-Path $OutDir 'watcher_heartbeat.txt'
-$eastStatus = 'D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\epic_202403_batch_runs\epic_georing_sample_batch_status.csv'
+$eastStatus = Join-Path $GeoRingRunsRoot 'epic_202403_batch_runs\epic_georing_sample_batch_status.csv'
 
 function Write-WatchLog {
   param([string]$Message)

@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import sys
 import tempfile
 import zipfile
 from collections import defaultdict
@@ -18,12 +19,18 @@ import numpy as np
 import pandas as pd
 import yaml
 
+CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
+if str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
 
-BASE_REPORT_DIR = Path(r"D:\AAAresearch_paper\data_check_report")
+from geo_ring_cloud.paths import DATA_CHECK_ROOT, DATA_ROOT, EXTERNAL_GEO_CLOUD_ROOT  # noqa: E402
+
+
+BASE_REPORT_DIR = DATA_CHECK_ROOT
 OUT_DIR = BASE_REPORT_DIR / "geometry_variable_audit"
 PARSED_METADATA = BASE_REPORT_DIR / "parsed_file_metadata.csv"
 MAPPING_YAML = BASE_REPORT_DIR / "manual_variable_mapping_by_product.yaml"
-DATA_ROOTS = [Path(r"D:\AAAresearch_paper\data"), Path(r"E:\GEO_Cloud_2024")]
+DATA_ROOTS = [DATA_ROOT, EXTERNAL_GEO_CLOUD_ROOT]
 SUPPORTED_SUFFIXES = {".nc", ".hdf", ".h5", ".zip", ".grb", ".grib", ".grib2", ".nat", ".xml"}
 MAX_STATS_VALUES = 250_000
 

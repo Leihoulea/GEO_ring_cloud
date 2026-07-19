@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import re
+import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -12,11 +13,17 @@ import h5py
 import netCDF4
 import numpy as np
 
+CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
+if str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
 
-OUT_DIR = Path(r"D:\AAAresearch_paper\data_check_report\latest_fy4b_goes_structure_probe")
-FY4B_GEO_ROOT = Path(r"D:\AAAresearch_paper\data\FY4B-GEO")
-FY4B_CTP_ROOT = Path(r"D:\AAAresearch_paper\data\FY4B-CTP")
-GOES_ROOT = Path(r"E:\GEO_Cloud_2024")
+from geo_ring_cloud.paths import DATA_CHECK_ROOT, DATA_ROOT, EXTERNAL_GEO_CLOUD_ROOT  # noqa: E402
+
+
+OUT_DIR = DATA_CHECK_ROOT / "latest_fy4b_goes_structure_probe"
+FY4B_GEO_ROOT = DATA_ROOT / "FY4B-GEO"
+FY4B_CTP_ROOT = DATA_ROOT / "FY4B-CTP"
+GOES_ROOT = EXTERNAL_GEO_CLOUD_ROOT
 
 FY4B_TIME_RE = re.compile(r"_(20\d{12})_(20\d{12})_([0-9]+M)_V([0-9A-Z.]+)", re.I)
 GOES_RE = re.compile(r"OR_ABI-(?P<level>L\d\w*)-(?P<product>[A-Z0-9]+)-.*?_(?P<sat>G1[68])_s(?P<stamp>\d{13})", re.I)
@@ -328,7 +335,7 @@ def summarize(file_rows: list[dict[str, Any]], var_rows: list[dict[str, Any]], a
         "",
         f"Generated: {datetime.now(timezone.utc).isoformat()}",
         "",
-        "Scope: newly supplied FY4B GEO/CTP roots plus GOES cloud products currently under E:\\GEO_Cloud_2024. This probe reads first/middle/last samples per satellite/product and does not modify source data.",
+        f"Scope: newly supplied FY4B GEO/CTP roots plus GOES cloud products currently under {GOES_ROOT}. This probe reads first/middle/last samples per satellite/product and does not modify source data.",
         "",
         "## File Counts",
         "",

@@ -4,5 +4,7 @@ $env:HTTPS_PROXY = "http://127.0.0.1:7897"
 $env:http_proxy = "http://127.0.0.1:7897"
 $env:https_proxy = "http://127.0.0.1:7897"
 $env:PRIORITY_DOWNLOAD_WORKERS = "6"
-conda run -n pytorch python "D:\AAAresearch_paper\data_check_report\priority_download_run_goes_meteosat\download_goes_meteosat_missing_data.py"
-conda run -n pytorch python "D:\AAAresearch_paper\data_check_report\priority_download_run_goes_meteosat\verify_goes_meteosat_downloads.py"
+$DownloadScript = Join-Path $PSScriptRoot "download_goes_meteosat_missing_data.py"
+$VerifyScript = Join-Path $PSScriptRoot "verify_goes_meteosat_downloads.py"
+conda run -n pytorch python $DownloadScript
+conda run -n pytorch python $VerifyScript

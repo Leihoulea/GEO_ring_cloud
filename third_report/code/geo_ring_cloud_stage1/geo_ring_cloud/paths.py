@@ -16,6 +16,10 @@ def env_path(name: str, default: str | Path) -> Path:
 PROJECT_ROOT = env_path("GEO_RING_PROJECT_ROOT", r"D:\AAAresearch_paper")
 THIRD_REPORT_ROOT = env_path("GEO_RING_THIRD_REPORT_ROOT", PROJECT_ROOT / "third_report")
 CODE_ROOT = env_path("GEO_RING_CODE_ROOT", THIRD_REPORT_ROOT / "code" / "geo_ring_cloud_stage1")
+EUMETSAT_CREDENTIALS_FILE = env_path(
+    "GEO_RING_EUMETSAT_CREDENTIALS_FILE",
+    THIRD_REPORT_ROOT / "eumetsat_dataservices_API.txt",
+)
 
 STAGE_ROOT = env_path("GEO_RING_STAGE_ROOT", PROJECT_ROOT / "geo_ring_cloud_stage1")
 BASE_STAGE_ROOT = env_path("GEO_RING_BASE_STAGE_ROOT", STAGE_ROOT)
@@ -37,6 +41,10 @@ EXTERNAL_EPIC_L2_ROOT = env_path(
     "GEO_RING_EXTERNAL_EPIC_L2_ROOT",
     r"F:\DSCOVR_EPIC_L2_CLOUD_03_2024.03",
 )
+EXTERNAL_EPIC_COMPOSITE_ROOT = env_path(
+    "GEO_RING_EXTERNAL_EPIC_COMPOSITE_ROOT",
+    r"F:\DSCOVR_EPIC_L2_COMPOSITE_02_2024.01",
+)
 
 __all__ = [
     "BASE_STAGE_ROOT",
@@ -46,7 +54,9 @@ __all__ = [
     "DATA_CHECK_ROOT",
     "DATA_ROOT",
     "EVIDENCE_ROOT",
+    "EUMETSAT_CREDENTIALS_FILE",
     "EXTERNAL_EPIC_L2_ROOT",
+    "EXTERNAL_EPIC_COMPOSITE_ROOT",
     "EXTERNAL_GEO_CLOUD_ROOT",
     "GEOMETRY_ROOT",
     "HIMAWARI_R21_DIR",

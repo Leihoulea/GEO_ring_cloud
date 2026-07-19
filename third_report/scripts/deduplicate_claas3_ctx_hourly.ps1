@@ -1,8 +1,9 @@
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot "..\code\geo_ring_cloud_stage1\geo_ring_cloud_path_configuration.ps1")
 
-$cmsafRoot = 'E:\GEO_Cloud_2024\CMSAF'
+$cmsafRoot = $GeoRingClaas3Root
 $targetDir = Join-Path $cmsafRoot 'CLAAS3_CTX_2024-03-06_to_2024-03-11'
-$workspaceRoot = Split-Path -Parent $PSScriptRoot
+$workspaceRoot = $GeoRingThirdReportRoot
 $reportDir = Join-Path $workspaceRoot 'reports\claas3_cleanup_audit'
 New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
 

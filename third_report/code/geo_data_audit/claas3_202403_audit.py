@@ -4,6 +4,7 @@ import csv
 import json
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass
 from html import unescape
@@ -13,8 +14,14 @@ from urllib.parse import quote
 
 import requests
 
+CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
+if str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
 
-ROOT = Path(r"D:\AAAresearch_paper\third_report")
+from geo_ring_cloud.paths import THIRD_REPORT_ROOT  # noqa: E402
+
+
+ROOT = THIRD_REPORT_ROOT
 REPORT_DIR = ROOT / "reports"
 CRED_FILE = ROOT / "eumetsat_dataservices_API.txt"
 

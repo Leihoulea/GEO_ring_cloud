@@ -252,5 +252,56 @@ class PackageDependencyBoundaryTests(unittest.TestCase):
         self.assertTrue(any("dynamically load stage scripts" in item.message for item in findings))
 
 
+class PathEnforcementTests(unittest.TestCase):
+    def test_machine_local_path_is_rejected_in_active_tooling(self) -> None:
+        relative = "third_report/code/geo_data_audit/new_probe.py"
+        with isolated_root("absolute_local_path") as root:
+            write(root, relative, 'ROOT = r"E:\\local_data"\n')
+            findings = governance_check.check_paths([relative], {relative}, baseline_mode=False)
+
+        self.assertTrue(any(item.severity == "ERROR" for item in findings))
+        self.assertTrue(any("machine-local absolute path" in item.message for item in findings))
+
+    def test_environment_based_path_is_accepted(self) -> None:
+        relative = "third_report/code/geo_data_audit/new_probe.py"
+        with isolated_root("environment_path") as root:
+            write(root, relative, 'from geo_ring_cloud.paths import DATA_ROOT\nROOT = DATA_ROOT / "FY4B"\n')
+            findings = governance_check.check_paths([relative], {relative}, baseline_mode=False)
+
+        self.assertEqual(findings, [])
+
+    def test_canonical_powershell_path_configuration_is_allowlisted(self) -> None:
+        relative = "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud_path_configuration.ps1"
+        with isolated_root("powershell_path_allowlist") as root:
+            write(root, relative, '$GeoRingExternalGeoCloudRoot = "E:\\GEO_Cloud_2024"\n')
+            findings = governance_check.check_paths([relative], {relative}, baseline_mode=False)
+
+        self.assertEqual(findings, [])
+
+
+class PythonStructureTests(unittest.TestCase):
+    def test_duplicate_top_level_functions_are_rejected(self) -> None:
+        relative = "third_report/code/geo_ring_cloud_stage1/duplicate.py"
+        with isolated_root("duplicate_top_level") as root:
+            write(root, relative, "def build():\n    return 1\n\ndef build():\n    return 2\n")
+            findings = governance_check.check_python_structure([relative])
+
+        self.assertEqual(len(findings), 1)
+        self.assertIn("build", findings[0].message)
+
+    def test_nested_methods_with_same_name_are_accepted(self) -> None:
+        relative = "third_report/code/geo_ring_cloud_stage1/classes.py"
+        with isolated_root("nested_method_names") as root:
+            write(
+                root,
+                relative,
+                "class First:\n    def run(self):\n        return 1\n\n"
+                "class Second:\n    def run(self):\n        return 2\n",
+            )
+            findings = governance_check.check_python_structure([relative])
+
+        self.assertEqual(findings, [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import sys
 import zipfile
 from collections import defaultdict
 from pathlib import Path
@@ -11,8 +12,14 @@ import netCDF4
 import numpy as np
 import pandas as pd
 
+CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
+if str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
 
-OUT_DIR = Path(r"D:\AAAresearch_paper\data_check_report\priority_download_run_goes_meteosat")
+from geo_ring_cloud.paths import DATA_CHECK_ROOT  # noqa: E402
+
+
+OUT_DIR = DATA_CHECK_ROOT / "priority_download_run_goes_meteosat"
 MANIFEST = OUT_DIR / "priority_download_manifest_all.csv"
 STATUS_CSV = OUT_DIR / "priority_download_status.csv"
 VERIFY_CSV = OUT_DIR / "priority_download_verification.csv"

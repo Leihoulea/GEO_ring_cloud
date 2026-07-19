@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -72,6 +73,19 @@ def main() -> int:
         "Governance unit tests",
         [sys.executable, "_GEO_RING_CLOUD_INDEX/tests/test_governance_check.py"],
     )
+
+    if os.name == "nt":
+        run(
+            "PowerShell path configuration contract",
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "_GEO_RING_CLOUD_INDEX/tests/test_path_configuration.ps1",
+            ],
+        )
 
     if args.scientific_tests or args.integration_tests:
         run(

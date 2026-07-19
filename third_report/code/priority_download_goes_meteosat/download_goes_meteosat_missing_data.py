@@ -4,6 +4,7 @@ import base64
 import csv
 import os
 import re
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -14,11 +15,17 @@ import eumdac
 from botocore import UNSIGNED
 from botocore.config import Config
 
+CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
+if str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
 
-OUT_DIR = Path(r"D:\AAAresearch_paper\data_check_report\priority_download_run_goes_meteosat")
+from geo_ring_cloud.paths import DATA_CHECK_ROOT, EUMETSAT_CREDENTIALS_FILE  # noqa: E402
+
+
+OUT_DIR = DATA_CHECK_ROOT / "priority_download_run_goes_meteosat"
 MANIFEST = OUT_DIR / "priority_download_manifest_all.csv"
 STATUS_CSV = OUT_DIR / "priority_download_status.csv"
-CRED_FILE = Path(r"D:\AAAresearch_paper\third_report\eumetsat_dataservices_API.txt")
+CRED_FILE = EUMETSAT_CREDENTIALS_FILE
 CHUNK = 1024 * 1024
 MAX_WORKERS = int(os.environ.get("PRIORITY_DOWNLOAD_WORKERS", "6"))
 RETRIES = int(os.environ.get("PRIORITY_DOWNLOAD_RETRIES", "5"))

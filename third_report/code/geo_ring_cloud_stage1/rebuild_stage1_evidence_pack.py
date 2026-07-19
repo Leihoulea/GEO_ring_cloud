@@ -10,7 +10,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-from path_config import CODE_ROOT, DATA_CHECK_ROOT, EVIDENCE_ROOT, GEOMETRY_ROOT, STAGE_ROOT
+from geo_ring_cloud.paths import CODE_ROOT, DATA_CHECK_ROOT, EVIDENCE_ROOT, GEOMETRY_ROOT, STAGE_ROOT
+
+
+COMPONENT_ROLE = "evidence_pack_builder"
 
 STAGE1_ROOT = STAGE_ROOT
 
@@ -28,6 +31,12 @@ AUDIT06F_ROOT = STAGE1_ROOT / "data_asset_audit_06f"
 OVERLAP07_ROOT = STAGE1_ROOT / "overlap_validation"
 OVERLAP07P_ROOT = STAGE1_ROOT / "overlap_validation_07p"
 
+PATH_TOKENS = {
+    "@DATA_CHECK_ROOT@": str(DATA_CHECK_ROOT),
+    "@GEOMETRY_ROOT@": str(GEOMETRY_ROOT),
+    "@STAGE_ROOT@": str(STAGE1_ROOT),
+}
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -41,9 +50,15 @@ def snapshot_stamp(dt: datetime) -> str:
     return dt.strftime("%Y%m%dT%H%M%SZ")
 
 
+def render_path_tokens(text: str) -> str:
+    for token, path in PATH_TOKENS.items():
+        text = text.replace(token, path)
+    return text
+
+
 def write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text.rstrip() + "\n", encoding="utf-8-sig")
+    path.write_text(render_path_tokens(text).rstrip() + "\n", encoding="utf-8-sig")
 
 
 def write_json(path: Path, data: dict) -> None:
@@ -164,63 +179,8 @@ def fused_variables() -> list[str]:
     return out
 
 
-def quicklook_inventory_rows() -> list[list[str]]:
-    dirs = [
-        ("quicklooks_native", STAGE1_ROOT / "quicklooks_native"),
-        ("quicklooks_reprojected", STAGE1_ROOT / "quicklooks_reprojected"),
-        ("fused_best_source/quicklooks", FUSED_ROOT / "quicklooks"),
-        ("reports/fy4b_geo_overlays", REPORTS_ROOT),
-        ("reports/fy4b_dqf_bit_decode_quicklooks", REPORTS_ROOT / "fy4b_dqf_bit_decode_quicklooks"),
-        ("source_selection_diagnostics/quicklooks", SOURCE_DIAG_ROOT / "quicklooks"),
-        ("geometry_angle_sync_06e/quicklooks_angle", GEOM06E_ROOT / "quicklooks_angle"),
-        ("geo_geometry_check/vza_difference_quicklooks", GEOMETRY_ROOT / "vza_difference_quicklooks"),
-        ("overlap_validation/quicklooks", OVERLAP07_ROOT / "quicklooks"),
-        ("overlap_validation_07p/quicklooks", OVERLAP07P_ROOT / "quicklooks"),
-    ]
-    rows: list[list[str]] = []
-    for label, root in dirs:
-        pngs = list_files(root, "*.png")
-        rows.append([label, str(len(pngs)), str(root)])
-    fy4b_overlay_count = len(list(REPORTS_ROOT.glob("fy4b_cloud_geo_overlay_*.png")))
-    fy4b_angle_count = len(list(REPORTS_ROOT.glob("fy4b_*_quicklook.png")))
-    rows.append(["reports/fy4b_cloud_geo_overlay_*.png", str(fy4b_overlay_count), str(REPORTS_ROOT)])
-    rows.append(["reports/fy4b_*_quicklook.png", str(fy4b_angle_count), str(REPORTS_ROOT)])
-    return rows
 
 
-def report_inventory_rows() -> list[list[str]]:
-    rows = []
-    known_stage_map = {
-        "standardized_native_build_report.md": "02",
-        "standardized_native_validate_report.md": "03",
-        "standardized_native_semantic_validation_report.md": "03.5",
-        "fy4b_geo_alignment_report.md": "04",
-        "fy4b_dqf_bit_decode_diagnostics_report.md": "04b",
-        "reproject_cloud_to_grid_report.md": "05",
-        "fuse_best_source_report.md": "06",
-        "source_selection_diagnostics_report.md": "06.5",
-        "06c_geometry_audit_report.md": "06c-legacy",
-        "06e_full_geometry_angle_source_sync_patch_report.md": "06e",
-        "06f_unknown_aware_data_asset_audit_report.md": "06f",
-        "overlap_validation_report.md": "07-original",
-        "overlap_validation_07p_report.md": "07p",
-        "07p_boundary_magnitude_review.md": "07p-b",
-        "07v2_overlap_consistency_validation_report.md": "07v2",
-        "stage1_single_time_acceptance_decision.md": "07-acceptance",
-    }
-    for path in sorted(REPORTS_ROOT.glob("*")):
-        if not path.is_file():
-            continue
-        if path.suffix.lower() not in {".md", ".csv", ".json", ".yaml"}:
-            continue
-        rows.append([path.name, known_stage_map.get(path.name, "supporting"), str(path)])
-    rows.extend(
-        [
-            ["vza_method_comparison_report.md", "06c-final", str(GEOMETRY_ROOT / "vza_method_comparison_report.md")],
-            ["himawari_full_disk_geometry_report.md", "06d", str(GEOMETRY_ROOT / "Himawari-9" / "himawari_full_disk_geometry_report.md")],
-        ]
-    )
-    return rows
 
 
 def script_manifest_rows() -> list[list[str]]:
@@ -255,186 +215,16 @@ def script_manifest_rows() -> list[list[str]]:
     return rows
 
 
-def evidence_sources_by_stage() -> dict[str, list[str]]:
-    return {
-        "01": [
-            str(TIME_INDEX_ROOT / "core_time_index_report.md"),
-            str(TIME_INDEX_ROOT / "core_time_index.csv"),
-            str(TIME_INDEX_ROOT / "usable_times_ranked.csv"),
-        ],
-        "02": [
-            str(REPORTS_ROOT / "standardized_native_build_report.md"),
-            str(STANDARDIZED_ROOT / "standardized_native_inventory.csv"),
-            str(STANDARDIZED_ROOT / "standardized_native_variable_stats.csv"),
-        ],
-        "03": [
-            str(REPORTS_ROOT / "standardized_native_validate_report.md"),
-            str(STANDARDIZED_ROOT / "standardized_native_variable_stats_validated.csv"),
-            str(STANDARDIZED_ROOT / "standardized_native_file_validation.csv"),
-        ],
-        "03.5": [
-            str(REPORTS_ROOT / "standardized_native_semantic_validation_report.md"),
-            str(STANDARDIZED_ROOT / "standardized_native_semantic_issues.csv"),
-            str(STANDARDIZED_ROOT / "standardized_native_code_tables.csv"),
-        ],
-        "04": [
-            str(REPORTS_ROOT / "fy4b_geo_alignment_report.md"),
-            str(REPORTS_ROOT / "fy4b_geo_alignment_shape_check.csv"),
-            str(REPORTS_ROOT / "fy4b_geo_angle_stats.csv"),
-        ],
-        "04b": [
-            str(REPORTS_ROOT / "fy4b_dqf_bit_decode_diagnostics_report.md"),
-            str(REPORTS_ROOT / "fy4b_dqf_bit_decode_summary.csv"),
-            str(REPORTS_ROOT / "fy4b_quality_flag_rules.yaml"),
-        ],
-        "05": [
-            str(REPORTS_ROOT / "reproject_cloud_to_grid_report.md"),
-            str(REPROJECTED_ROOT / "target_grid_definition.json"),
-            str(REPROJECTED_ROOT),
-        ],
-        "06": [
-            str(REPORTS_ROOT / "fuse_best_source_report.md"),
-            str(FUSED_ROOT / "fusion_stats.csv"),
-            str(FUSED_ROOT / "fusion_source_frequency.csv"),
-        ],
-        "06.5": [
-            str(REPORTS_ROOT / "source_selection_diagnostics_report.md"),
-            str(SOURCE_DIAG_ROOT / "selected_vs_min_vza_agreement.csv"),
-            str(SOURCE_DIAG_ROOT / "geometry_driver_summary.csv"),
-            str(SOURCE_DIAG_ROOT / "rating_margin_summary.csv"),
-        ],
-        "06c": [
-            str(GEOMETRY_ROOT / "vza_method_comparison_report.md"),
-            str(GEOMETRY_ROOT / "goes_l1b_vs_l2_projection_check.csv"),
-            str(GEOMETRY_ROOT / "himawari_geometry_metadata_audit.csv"),
-            str(GEOMETRY_ROOT / "meteosat_geometry_metadata_audit.csv"),
-            str(GEOMETRY_ROOT / "vza_method_comparison_by_satellite.csv"),
-        ],
-        "06d": [
-            str(GEOMETRY_ROOT / "Himawari-9" / "himawari_full_disk_geometry_report.md"),
-            str(GEOMETRY_ROOT / "Himawari-9" / "himawari_full_segment_inventory.csv"),
-            str(GEOMETRY_ROOT / "Himawari-9" / "himawari_full_disk_geometry_audit.csv"),
-            str(GEOMETRY_ROOT / "Himawari-9" / "himawari_vza_method_comparison.csv"),
-        ],
-        "06e": [
-            str(REPORTS_ROOT / "06e_full_geometry_angle_source_sync_patch_report.md"),
-            str(GEOM06E_ROOT / "angle_provenance_inventory.csv"),
-            str(GEOM06E_ROOT / "geometry_angle_source_policy.yaml"),
-            str(GEOM06E_ROOT / "official_vs_computed_vza_stats.csv"),
-        ],
-        "06f": [
-            str(REPORTS_ROOT / "06f_unknown_aware_data_asset_audit_report.md"),
-            str(AUDIT06F_ROOT / "audit_summary.json"),
-            str(AUDIT06F_ROOT / "exports" / "high_priority_unknowns.csv"),
-            str(AUDIT06F_ROOT / "exports" / "recommendation_matrix.csv"),
-        ],
-        "07": [
-            str(REPORTS_ROOT / "overlap_validation_report.md"),
-            str(REPORTS_ROOT / "overlap_validation_07p_report.md"),
-            str(REPORTS_ROOT / "07p_boundary_magnitude_review.md"),
-            str(REPORTS_ROOT / "07v2_overlap_consistency_validation_report.md"),
-            str(REPORTS_ROOT / "stage1_single_time_acceptance_decision.md"),
-            str(OVERLAP07P_ROOT / "source_boundary_transition_matrix.csv"),
-        ],
-    }
 
 
-def build_readme(ts: str, snapshot_id: str) -> str:
-    return f"""# GEO-ring Cloud Stage1 证据包
-
-生成时间（UTC）：`{ts}`
-
-本证据包是针对当前 Stage1 实际状态重建的审计索引包。它**不会**复制大体积 `.npz` 或 `.png` 证据本体，而是明确当前 authoritative evidence 的位置，并给出与当前工程状态一致的摘要。
-
-## 当前顶层结论
-
-- 单时次闭环：`PASS_WITH_WARNINGS`
-- 正式单时次 overlap 报告：`07v2 已完成`
-- 多时次扩展：`HOLD`
-- 当前流程**不是** production-closed，也**没有**放行 batch 扩展。
-
-## 覆盖范围
-
-本证据包覆盖：
-
-- Stage 01 至 Stage 06f
-- Stage 07 original、07p hotfix、07p-b boundary review，以及 07v2 正式单时次报告
-- `D:\\AAAresearch_paper\\geo_geometry_check` 下的几何证据
-
-## 编码说明
-
-- 本次重建生成的 `.md`、`.json`、`.csv`、`.yaml` 统一写为 `UTF-8 with BOM`。
-- 文本已改为中文口径；若终端仍出现乱码，应优先检查终端解码设置，而不是怀疑证据包事实链本身。
-
-## 目录说明
-
-{md_table(
-    ["路径", "用途"],
-    [
-        ["stage_registry.md", "当前阶段状态、gate 结果和决策状态总表。"],
-        ["06e_status.md", "06e 几何-角度同步状态摘要。"],
-        ["07_status.md", "07 original / 07p / 07p-b / 07v2 的当前状态摘要。"],
-        ["pipeline_stages/", "按阶段或子阶段组织的摘要页。"],
-        ["cross_cutting/report_inventory.md", "作为证据源使用的报告/统计文件索引。"],
-        ["cross_cutting/script_manifest.md", "流程脚本与补丁脚本清单。"],
-        ["cross_cutting/quicklook_inventory.md", "quicklook 目录与数量统计。"],
-        ["cross_cutting/product_inventory.md", "standardized / reprojected / fused 输出的产品级索引。"],
-        ["cross_cutting/dataset_summary.md", "关键证据目录的文件数和体积摘要。"],
-        ["cross_cutting/evidence_sources_by_stage.md", "按阶段组织的 authoritative source 路径。"],
-        ["cross_cutting/known_mismatches_and_current_authority.md", "已知文档/输出不一致与当前 authority 顺序。"],
-        ["cross_cutting/08_next_steps.md", "当前建议的后续动作。"],
-        ["config/core_product_config.md", "单时次原型链使用的核心产品定义。"],
-    ],
-)}
-
-## Snapshot 策略
-
-- `latest/` 会被刷新到当前状态。
-- 同时会新建一个不可变 snapshot：`snapshots/{snapshot_id}/`
-- 旧 snapshots 保留，作为历史记录，不做覆盖。
-"""
 
 
-def build_stage_registry() -> str:
-    rows = [
-        ["01", "Complete", "PASS", "主原型时次固定为 2024-03-05T00:00:00Z。"],
-        ["02", "Complete", "PASS", "6 个卫星组的 native standardized NPZ 已生成。"],
-        ["03", "Complete", "PASS", "结构性校验已通过。"],
-        ["03.5", "Complete", "PASS_WITH_WARNINGS", "语义问题已记录，但数组可正常读取。"],
-        ["04", "Complete", "PASS_WITH_WARNINGS", "FY4B GEO/L2 同格验证通过，但保留质量相关 warning。"],
-        ["04b", "Complete", "PASS_WITH_WARNINGS", "FY4B DQF 位级诊断已生成，但未作为 rating weight。"],
-        ["05", "Complete", "PASS_WITH_WARNINGS", "重投影产物已存在，但早期 inventory/report 不完整。"],
-        ["06", "Complete", "PASS_WITH_WARNINGS", "主原型时次的 best-source 融合已完成。"],
-        ["06.5", "Complete", "PASS", "source-selection 诊断确认其总体受 min-VZA 逻辑驱动。"],
-        ["06c", "Complete", "PASS_WITH_WARNINGS", "增强版多星几何元数据审计已完成。"],
-        ["06d", "Complete", "PASS_WITH_WARNINGS", "Himawari 全圆盘几何验证已完成。"],
-        ["06e", "Complete", "PASS", "几何与角度源同步已完成，5/5 gate 通过。"],
-        ["06f", "Complete", "PASS_WITH_WARNINGS", "unknown-aware 数据资产审计允许带 warning 进入 07。"],
-        ["07 original", "Complete", "Historical only", "原始 overlap validator 跑通过，但存在实现问题，只保留历史意义。"],
-        ["07p", "Complete", "PASS", "hotfix validator 已完成，5/5 gate 通过。"],
-        ["07p-b", "Complete", "PASS", "边界跳变幅度 review 已完成，并放行正式 07v2。"],
-        ["07v2", "Complete", "PASS_WITH_WARNINGS", "正式单时次 overlap 报告已完成。"],
-        ["Stage 1 acceptance", "Current", "CLOSED_LOOP_PASS_WITH_WARNINGS", "单时次链条已接受，但多时次扩展仍保持 HOLD。"],
-    ]
-    return f"""# 阶段注册表
-
-本注册表记录的是本次重建后 GEO-ring Cloud Stage1 单时次链条的**当前 authoritative state**。
-
-{md_table(["阶段", "状态", "Gate", "当前解释"], rows)}
-
-## 当前决策状态
-
-- 单时次正式验证：`completed`
-- 单时次 acceptance：`PASS_WITH_WARNINGS`
-- 多时次扩展：`HOLD`
-- production-grade blending：`尚不可用`
-"""
 
 
 def build_06e_status() -> str:
     return """# 06e 状态
 
-- 报告：`D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reports\\06e_full_geometry_angle_source_sync_patch_report.md`
+- 报告：`@STAGE_ROOT@\\reports\\06e_full_geometry_angle_source_sync_patch_report.md`
 - 当前状态：`COMPLETE`
 - Gate 摘要：
   - `ANGLE_PROVENANCE_GATE = PASS`
@@ -462,10 +252,10 @@ def build_07_status() -> str:
 
 ## 当前 authoritative files
 
-- `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reports\\07v2_overlap_consistency_validation_report.md`
-- `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reports\\stage1_single_time_acceptance_decision.md`
-- `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reports\\overlap_validation_07p_report.md`
-- `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reports\\07p_boundary_magnitude_review.md`
+- `@STAGE_ROOT@\\reports\\07v2_overlap_consistency_validation_report.md`
+- `@STAGE_ROOT@\\reports\\stage1_single_time_acceptance_decision.md`
+- `@STAGE_ROOT@\\reports\\overlap_validation_07p_report.md`
+- `@STAGE_ROOT@\\reports\\07p_boundary_magnitude_review.md`
 
 ## 继续携带的 warning
 
@@ -500,25 +290,6 @@ def build_core_product_config() -> str:
 """
 
 
-def build_dataset_summary() -> str:
-    dirs = [
-        ("time_index", TIME_INDEX_ROOT),
-        ("standardized_native", STANDARDIZED_ROOT),
-        ("reprojected_grid", REPROJECTED_ROOT),
-        ("fused_best_source", FUSED_ROOT),
-        ("source_selection_diagnostics", SOURCE_DIAG_ROOT),
-        ("geometry_audit_06c", STAGE1_ROOT / "geometry_audit_06c"),
-        ("geometry_angle_sync_06e", GEOM06E_ROOT),
-        ("data_asset_audit_06f", AUDIT06F_ROOT),
-        ("overlap_validation", OVERLAP07_ROOT),
-        ("overlap_validation_07p", OVERLAP07P_ROOT),
-        ("geo_geometry_check", GEOMETRY_ROOT),
-    ]
-    rows = []
-    for label, root in dirs:
-        count, size = file_count_and_size(root)
-        rows.append([label, str(count), human_size(size), str(root)])
-    return "# 数据集摘要\n\n" + md_table(["目录", "文件数", "总体积", "路径"], rows)
 
 
 def build_product_inventory() -> str:
@@ -553,60 +324,8 @@ def build_script_manifest() -> str:
     return "# 脚本清单\n\n" + md_table(["脚本", "阶段", "状态", "路径"], rows)
 
 
-def build_known_mismatches() -> str:
-    return """# 已知不一致与当前 Authority
-
-## Authority 顺序
-
-当不同 artifact 彼此冲突时，采用以下 authority 顺序：
-
-1. 当前最终阶段报告
-2. 当前最终 CSV / JSON 统计文件
-3. 实际输出目录文件集
-4. 较旧的 summary / inventory 文档
-
-## 已知不一致
-
-### 05 重投影阶段
-
-- 早期 05 摘要文档和 `reprojected_variable_inventory.csv` **不能**完整代表实际重投影产物集合。
-- 当前 authority：
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reprojected_grid\\target_grid_definition.json`
-  - actual files under `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reprojected_grid\\`
-  - 以及被 Stage 06 成功消费这一事实链
-
-### 06c 几何审计
-
-- `geo_ring_cloud_stage1/geometry_audit_06c/` 下存在早期 `06c_geometry_parameter_audit.py` 产物。
-- `geo_geometry_check/` 下还存在后续增强版 multi-satellite metadata audit。
-- 06c 结论当前 authority：
-  - `D:\\AAAresearch_paper\\geo_geometry_check\\vza_method_comparison_report.md`
-  - supporting CSVs in `D:\\AAAresearch_paper\\geo_geometry_check\\`
-
-### 06f 数据资产审计
-
-- 06f 经历过额外同步和 patch 脚本修订。
-- 当前 authority：
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reports\\06f_unknown_aware_data_asset_audit_report.md`
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\data_asset_audit_06f\\audit_summary.json`
-
-### 较旧 evidence-pack snapshots 中的 07 状态
-
-- 较旧 evidence-pack snapshot 早于当前 07v2 正式单时次报告。
-- 当前 authority：
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reports\\07v2_overlap_consistency_validation_report.md`
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reports\\stage1_single_time_acceptance_decision.md`
-"""
 
 
-def build_evidence_sources_by_stage() -> str:
-    lines = ["# 分阶段证据源索引", ""]
-    for stage, paths in evidence_sources_by_stage().items():
-        lines.append(f"## {stage}")
-        for path in paths:
-            lines.append(f"- `{path}`")
-        lines.append("")
-    return "\n".join(lines)
 
 
 def build_next_steps() -> str:
@@ -640,9 +359,9 @@ def build_stage01() -> str:
 - Gate：`PASS`
 - 脚本：`01_build_core_time_index.py`
 - 当前 authority：
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\time_index\\core_time_index_report.md`
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\time_index\\core_time_index.csv`
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\time_index\\usable_times_ranked.csv`
+  - `@STAGE_ROOT@\\time_index\\core_time_index_report.md`
+  - `@STAGE_ROOT@\\time_index\\core_time_index.csv`
+  - `@STAGE_ROOT@\\time_index\\usable_times_ranked.csv`
 
 ## 当前事实
 
@@ -790,10 +509,10 @@ def build_stage06() -> str:
 - Gate：`PASS_WITH_WARNINGS`
 - 脚本：`06_fuse_best_source.py`
 - 当前 authority：
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reports\\fuse_best_source_report.md`
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\fused_best_source\\fusion_stats.csv`
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\fused_best_source\\fusion_source_frequency.csv`
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\fused_best_source\\fused_geo_ring_cloud_20240305_0000.npz`
+  - `@STAGE_ROOT@\\reports\\fuse_best_source_report.md`
+  - `@STAGE_ROOT@\\fused_best_source\\fusion_stats.csv`
+  - `@STAGE_ROOT@\\fused_best_source\\fusion_source_frequency.csv`
+  - `@STAGE_ROOT@\\fused_best_source\\fused_geo_ring_cloud_20240305_0000.npz`
 
 ## 当前覆盖率
 
@@ -843,11 +562,11 @@ def build_stage06c() -> str:
   - `06c_geometry_parameter_audit.py`（legacy audit）
   - `06c_multi_satellite_geometry_metadata_audit.py`（增强版 authoritative audit）
 - 当前 authority：
-  - `D:\\AAAresearch_paper\\geo_geometry_check\\vza_method_comparison_report.md`
-  - `D:\\AAAresearch_paper\\geo_geometry_check\\goes_l1b_vs_l2_projection_check.csv`
-  - `D:\\AAAresearch_paper\\geo_geometry_check\\himawari_geometry_metadata_audit.csv`
-  - `D:\\AAAresearch_paper\\geo_geometry_check\\meteosat_geometry_metadata_audit.csv`
-  - `D:\\AAAresearch_paper\\geo_geometry_check\\vza_method_comparison_by_satellite.csv`
+  - `@GEOMETRY_ROOT@\\vza_method_comparison_report.md`
+  - `@GEOMETRY_ROOT@\\goes_l1b_vs_l2_projection_check.csv`
+  - `@GEOMETRY_ROOT@\\himawari_geometry_metadata_audit.csv`
+  - `@GEOMETRY_ROOT@\\meteosat_geometry_metadata_audit.csv`
+  - `@GEOMETRY_ROOT@\\vza_method_comparison_by_satellite.csv`
 
 ## 当前事实
 
@@ -865,10 +584,10 @@ def build_stage06d() -> str:
 - Gate：`PASS_WITH_WARNINGS`
 - 脚本：`06d_himawari_full_disk_geometry_validation.py`
 - 当前 authority：
-  - `D:\\AAAresearch_paper\\geo_geometry_check\\Himawari-9\\himawari_full_disk_geometry_report.md`
-  - `D:\\AAAresearch_paper\\geo_geometry_check\\Himawari-9\\himawari_full_segment_inventory.csv`
-  - `D:\\AAAresearch_paper\\geo_geometry_check\\Himawari-9\\himawari_full_disk_geometry_audit.csv`
-  - `D:\\AAAresearch_paper\\geo_geometry_check\\Himawari-9\\himawari_vza_method_comparison.csv`
+  - `@GEOMETRY_ROOT@\\Himawari-9\\himawari_full_disk_geometry_report.md`
+  - `@GEOMETRY_ROOT@\\Himawari-9\\himawari_full_segment_inventory.csv`
+  - `@GEOMETRY_ROOT@\\Himawari-9\\himawari_full_disk_geometry_audit.csv`
+  - `@GEOMETRY_ROOT@\\Himawari-9\\himawari_vza_method_comparison.csv`
 
 ## 当前事实
 
@@ -891,10 +610,10 @@ def build_stage06e() -> str:
 - Gate：`PASS`
 - 脚本：`06e_full_geometry_angle_source_sync_patch.py`
 - 当前 authority：
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reports\\06e_full_geometry_angle_source_sync_patch_report.md`
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\geometry_angle_sync_06e\\angle_provenance_inventory.csv`
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\geometry_angle_sync_06e\\geometry_angle_source_policy.yaml`
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\geometry_angle_sync_06e\\source_map_change_summary.csv`
+  - `@STAGE_ROOT@\\reports\\06e_full_geometry_angle_source_sync_patch_report.md`
+  - `@STAGE_ROOT@\\geometry_angle_sync_06e\\angle_provenance_inventory.csv`
+  - `@STAGE_ROOT@\\geometry_angle_sync_06e\\geometry_angle_source_policy.yaml`
+  - `@STAGE_ROOT@\\geometry_angle_sync_06e\\source_map_change_summary.csv`
 
 ## 当前事实
 
@@ -1230,7 +949,7 @@ def build_data_check_report_lineage() -> str:
 
 ## 定位
 
-`D:\\AAAresearch_paper\\data_check_report` 记录的是进入 `01–07` 主链之前的大量前序工作，包括：
+`@DATA_CHECK_ROOT@` 记录的是进入 `01–07` 主链之前的大量前序工作，包括：
 
 - 数据下载与完整性审计
 - 一样本一产品真实读取
@@ -1282,7 +1001,7 @@ def build_readme(ts: str, snapshot_id: str) -> str:
 
 本证据包现在覆盖两层证据链：
 
-- `00–00f`：来源于 `D:\\AAAresearch_paper\\data_check_report` 的前序审计、产品识别、几何能力与补下载运行证据
+- `00–00f`：来源于 `@DATA_CHECK_ROOT@` 的前序审计、产品识别、几何能力与补下载运行证据
 - `01–07`：Stage1 单时次标准化、重投影、融合与 overlap 主链
 
 ## 编码说明
@@ -1572,113 +1291,18 @@ def build_stage00f() -> str:
 """
 
 
-def build_evidence_manifest(ts: str, snapshot_id: str) -> dict:
-    source_roots = [STAGE1_ROOT, GEOMETRY_ROOT, CODE_ROOT, DATA_CHECK_ROOT]
-    ext_counts = defaultdict(int)
-    for root in source_roots:
-        for path in list_files(root):
-            suffix = normalized_suffix(path)
-            if suffix is not None:
-                ext_counts[suffix] += 1
-    return {
-        "evidence_pack": {
-            "name": "GEO-ring Cloud Stage1 Evidence Pack",
-            "version": "3.0",
-            "generated_utc": ts,
-            "target_datetime": "2024-03-05T00:00:00Z",
-            "single_time_status": "PASS_WITH_WARNINGS",
-            "multi_time_status": "HOLD",
-            "note": "This pack now covers both pre-stage data_check_report evidence (00-00f) and the Stage1 single-time chain (01-07).",
-            "snapshot_id": snapshot_id,
-        },
-        "stages_covered": [
-            "00_data_download_audit",
-            "00b_one_sample_product_probe",
-            "00c_geometry_variable_audit",
-            "00d_meteosat_catalogue_and_series_audit",
-            "00e_standardized_cloud_v0_prototype",
-            "00f_priority_download_runs",
-            "01_core_time_index",
-            "02_standardized_native",
-            "03_validate_native",
-            "03_5_semantic_validation",
-            "04_fy4b_geo_alignment",
-            "04b_fy4b_dqf_bit_decode",
-            "05_reproject_to_grid",
-            "06_fuse_best_source",
-            "06_5_source_selection_diagnostics",
-            "06c_geometry_audit",
-            "06d_himawari_full_disk_geometry_validation",
-            "06e_geometry_angle_sync",
-            "06f_unknown_aware_data_asset_audit",
-            "07_original_overlap_validation",
-            "07p_hotfix_overlap_validation",
-            "07p_b_boundary_review",
-            "07v2_formal_single_time_overlap_validation",
-            "stage1_single_time_acceptance_decision",
-        ],
-        "input_directories": [str(STAGE1_ROOT), str(GEOMETRY_ROOT), str(CODE_ROOT), str(DATA_CHECK_ROOT)],
-        "output_directories": {
-            "latest": str(LATEST_ROOT),
-            "new_snapshot": str(SNAPSHOTS_ROOT / snapshot_id),
-        },
-        "source_extension_counts": dict(sorted(ext_counts.items())),
-    }
 
 
-def build_pipeline_and_crosscutting(root: Path, ts: str, snapshot_id: str) -> None:
-    write_text(root / "README.md", build_readme(ts, snapshot_id))
-    write_text(root / "stage_registry.md", build_stage_registry())
-    write_json(root / "evidence_manifest.json", build_evidence_manifest(ts, snapshot_id))
-    write_text(root / "06e_status.md", build_06e_status())
-    write_text(root / "07_status.md", build_07_status())
-
-    write_text(root / "config" / "core_product_config.md", build_core_product_config())
-
-    write_text(root / "cross_cutting" / "dataset_summary.md", build_dataset_summary())
-    write_text(root / "cross_cutting" / "product_inventory.md", build_product_inventory())
-    write_text(root / "cross_cutting" / "quicklook_inventory.md", build_quicklook_inventory())
-    write_text(root / "cross_cutting" / "report_inventory.md", build_report_inventory())
-    write_text(root / "cross_cutting" / "script_manifest.md", build_script_manifest())
-    write_text(root / "cross_cutting" / "known_mismatches_and_current_authority.md", build_known_mismatches())
-    write_text(root / "cross_cutting" / "evidence_sources_by_stage.md", build_evidence_sources_by_stage())
-    write_text(root / "cross_cutting" / "data_check_report_inventory.md", build_data_check_report_inventory())
-    write_text(root / "cross_cutting" / "data_check_report_lineage.md", build_data_check_report_lineage())
-    write_text(root / "cross_cutting" / "08_next_steps.md", build_next_steps())
-
-    stage_dir = root / "pipeline_stages"
-    write_text(stage_dir / "00_data_download_audit.md", build_stage00())
-    write_text(stage_dir / "00b_one_sample_product_probe.md", build_stage00b())
-    write_text(stage_dir / "00c_geometry_variable_audit.md", build_stage00c())
-    write_text(stage_dir / "00d_meteosat_catalogue_and_series_audit.md", build_stage00d())
-    write_text(stage_dir / "00e_standardized_cloud_v0_prototype.md", build_stage00e())
-    write_text(stage_dir / "00f_priority_download_runs.md", build_stage00f())
-    write_text(stage_dir / "01_core_time_index.md", build_stage01())
-    write_text(stage_dir / "02_standardized_native.md", build_stage02())
-    write_text(stage_dir / "03_validate_native.md", build_stage03())
-    write_text(stage_dir / "03_5_semantic_validation.md", build_stage03_5())
-    write_text(stage_dir / "04_fy4b_geo_alignment.md", build_stage04())
-    write_text(stage_dir / "04b_fy4b_dqf_bit_decode.md", build_stage04b())
-    write_text(stage_dir / "05_reproject_to_grid.md", build_stage05())
-    write_text(stage_dir / "06_fuse_best_source.md", build_stage06())
-    write_text(stage_dir / "06_5_source_selection_diagnostics.md", build_stage06_5())
-    write_text(stage_dir / "06c_geometry_audit.md", build_stage06c())
-    write_text(stage_dir / "06d_himawari_full_disk_geometry_validation.md", build_stage06d())
-    write_text(stage_dir / "06e_geometry_angle_sync.md", build_stage06e())
-    write_text(stage_dir / "06e_status.md", build_06e_status())
-    write_text(stage_dir / "06f_unknown_aware_data_asset_audit.md", build_stage06f())
-    write_text(stage_dir / "07_overlap_validation.md", build_stage07())
-    write_text(stage_dir / "07_status.md", build_07_status())
 
 def build_stage07() -> str:
     return """# Stage 07 - Overlap 验证
 
 - 状态：`FORMAL_SINGLE_TIME_COMPLETE_WITH_WARNINGS`
 - 当前 authority：
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reports\\07v2_overlap_consistency_validation_report.md`
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reports\\stage1_single_time_acceptance_decision.md`
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reports\\overlap_validation_07p_report.md`
-  - `D:\\AAAresearch_paper\\geo_ring_cloud_stage1\\reports\\07p_boundary_magnitude_review.md`
+  - `@STAGE_ROOT@\\reports\\07v2_overlap_consistency_validation_report.md`
+  - `@STAGE_ROOT@\\reports\\stage1_single_time_acceptance_decision.md`
+  - `@STAGE_ROOT@\\reports\\overlap_validation_07p_report.md`
+  - `@STAGE_ROOT@\\reports\\07p_boundary_magnitude_review.md`
 
 ## 子阶段
 
@@ -1717,89 +1341,8 @@ def build_stage07() -> str:
 """
 
 
-def build_evidence_manifest(ts: str, snapshot_id: str) -> dict:
-    source_roots = [STAGE1_ROOT, GEOMETRY_ROOT, CODE_ROOT, DATA_CHECK_ROOT]
-    ext_counts = defaultdict(int)
-    for root in source_roots:
-        for path in list_files(root):
-            suffix = normalized_suffix(path)
-            if suffix is not None:
-                ext_counts[suffix] += 1
-    return {
-        "evidence_pack": {
-            "name": "GEO-ring Cloud Stage1 Evidence Pack",
-            "version": "2.0",
-            "generated_utc": ts,
-            "target_datetime": "2024-03-05T00:00:00Z",
-            "single_time_status": "PASS_WITH_WARNINGS",
-            "multi_time_status": "HOLD",
-            "note": "This pack reflects the current authoritative state through 07v2 formal single-time validation and the current Stage 1 acceptance decision.",
-            "snapshot_id": snapshot_id,
-        },
-        "stages_covered": [
-            "01_core_time_index",
-            "02_standardized_native",
-            "03_validate_native",
-            "03_5_semantic_validation",
-            "04_fy4b_geo_alignment",
-            "04b_fy4b_dqf_bit_decode",
-            "05_reproject_to_grid",
-            "06_fuse_best_source",
-            "06_5_source_selection_diagnostics",
-            "06c_geometry_audit",
-            "06d_himawari_full_disk_geometry_validation",
-            "06e_geometry_angle_sync",
-            "06f_unknown_aware_data_asset_audit",
-            "07_original_overlap_validation",
-            "07p_hotfix_overlap_validation",
-            "07p_b_boundary_review",
-            "07v2_formal_single_time_overlap_validation",
-            "stage1_single_time_acceptance_decision",
-        ],
-        "input_directories": [str(STAGE1_ROOT), str(GEOMETRY_ROOT), str(CODE_ROOT), str(DATA_CHECK_ROOT)],
-        "output_directories": {
-            "latest": str(LATEST_ROOT),
-            "new_snapshot": str(SNAPSHOTS_ROOT / snapshot_id),
-        },
-        "source_extension_counts": dict(sorted(ext_counts.items())),
-    }
 
 
-def build_pipeline_and_crosscutting(root: Path, ts: str, snapshot_id: str) -> None:
-    write_text(root / "README.md", build_readme(ts, snapshot_id))
-    write_text(root / "stage_registry.md", build_stage_registry())
-    write_json(root / "evidence_manifest.json", build_evidence_manifest(ts, snapshot_id))
-    write_text(root / "06e_status.md", build_06e_status())
-    write_text(root / "07_status.md", build_07_status())
-
-    write_text(root / "config" / "core_product_config.md", build_core_product_config())
-
-    write_text(root / "cross_cutting" / "dataset_summary.md", build_dataset_summary())
-    write_text(root / "cross_cutting" / "product_inventory.md", build_product_inventory())
-    write_text(root / "cross_cutting" / "quicklook_inventory.md", build_quicklook_inventory())
-    write_text(root / "cross_cutting" / "report_inventory.md", build_report_inventory())
-    write_text(root / "cross_cutting" / "script_manifest.md", build_script_manifest())
-    write_text(root / "cross_cutting" / "known_mismatches_and_current_authority.md", build_known_mismatches())
-    write_text(root / "cross_cutting" / "evidence_sources_by_stage.md", build_evidence_sources_by_stage())
-    write_text(root / "cross_cutting" / "08_next_steps.md", build_next_steps())
-
-    stage_dir = root / "pipeline_stages"
-    write_text(stage_dir / "01_core_time_index.md", build_stage01())
-    write_text(stage_dir / "02_standardized_native.md", build_stage02())
-    write_text(stage_dir / "03_validate_native.md", build_stage03())
-    write_text(stage_dir / "03_5_semantic_validation.md", build_stage03_5())
-    write_text(stage_dir / "04_fy4b_geo_alignment.md", build_stage04())
-    write_text(stage_dir / "04b_fy4b_dqf_bit_decode.md", build_stage04b())
-    write_text(stage_dir / "05_reproject_to_grid.md", build_stage05())
-    write_text(stage_dir / "06_fuse_best_source.md", build_stage06())
-    write_text(stage_dir / "06_5_source_selection_diagnostics.md", build_stage06_5())
-    write_text(stage_dir / "06c_geometry_audit.md", build_stage06c())
-    write_text(stage_dir / "06d_himawari_full_disk_geometry_validation.md", build_stage06d())
-    write_text(stage_dir / "06e_geometry_angle_sync.md", build_stage06e())
-    write_text(stage_dir / "06e_status.md", build_06e_status())
-    write_text(stage_dir / "06f_unknown_aware_data_asset_audit.md", build_stage06f())
-    write_text(stage_dir / "07_overlap_validation.md", build_stage07())
-    write_text(stage_dir / "07_status.md", build_07_status())
 
 
 def build_evidence_manifest(ts: str, snapshot_id: str) -> dict:

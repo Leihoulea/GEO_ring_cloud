@@ -4,6 +4,7 @@ import csv
 import json
 import math
 import re
+import sys
 import tempfile
 import zipfile
 from collections import defaultdict
@@ -22,8 +23,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import BoundaryNorm, ListedColormap
 
+CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
+if str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
 
-BASE_DIR = Path(r"D:\AAAresearch_paper\data_check_report")
+from geo_ring_cloud.paths import DATA_CHECK_ROOT  # noqa: E402
+
+
+BASE_DIR = DATA_CHECK_ROOT
 SELECTION_CSV = BASE_DIR / "one_sample_each_product_selection.csv"
 MAPPING_YAML = BASE_DIR / "manual_variable_mapping_by_product.yaml"
 OUT_DIR = BASE_DIR / "standardized_cloud_v0_samples"

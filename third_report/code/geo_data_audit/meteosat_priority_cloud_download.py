@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import tempfile
 import time
 import zipfile
@@ -21,14 +22,24 @@ import netCDF4
 import numpy as np
 import requests
 
+CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
+if str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
+
+from geo_ring_cloud.paths import (  # noqa: E402
+    DATA_CHECK_ROOT,
+    EUMETSAT_CREDENTIALS_FILE,
+    EXTERNAL_GEO_CLOUD_ROOT,
+)
+
 try:
     import eccodes  # type: ignore
 except Exception:
     eccodes = None
 
 
-OUT_DIR = Path(r"D:\AAAresearch_paper\data_check_report\meteosat_priority_cloud_download")
-CRED_FILE = Path(r"D:\AAAresearch_paper\third_report\eumetsat_dataservices_API.txt")
+OUT_DIR = DATA_CHECK_ROOT / "meteosat_priority_cloud_download"
+CRED_FILE = EUMETSAT_CREDENTIALS_FILE
 DEFAULT_PROXY = "http://127.0.0.1:7897"
 SEARCH_URL = "https://api.eumetsat.int/data/search-products/1.0.0/os"
 BROWSE_COLLECTION_URL = "https://api.eumetsat.int/data/browse/1.0.0/collections/{collection}"
@@ -681,7 +692,11 @@ def eligible_collections() -> list[dict[str, Any]]:
 
 
 def target_times_from_existing_meteosat() -> list[datetime]:
-    roots = [Path(r"E:\GEO_Cloud_2024\Meteosat-0deg\CLM"), Path(r"E:\GEO_Cloud_2024\Meteosat-IODC\CLM"), Path(r"E:\GEO_Cloud_2024\Meteosat-0deg\CTH"), Path(r"E:\GEO_Cloud_2024\Meteosat-IODC\CTH")]
+    roots = [
+        EXTERNAL_GEO_CLOUD_ROOT / service / product
+        for service in ("Meteosat-0deg", "Meteosat-IODC")
+        for product in ("CLM", "CTH")
+    ]
     times = set()
     for root in roots:
         if not root.exists():

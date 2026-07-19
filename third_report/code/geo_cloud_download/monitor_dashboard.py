@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -13,9 +14,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
+if str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
 
-PROJECT_ROOT = Path(r"D:\AAAresearch_paper\third_report")
-DOWNLOAD_ROOT = Path(r"E:\GEO_Cloud_2024")
+from geo_ring_cloud.paths import EXTERNAL_GEO_CLOUD_ROOT, THIRD_REPORT_ROOT  # noqa: E402
+
+
+PROJECT_ROOT = THIRD_REPORT_ROOT
+DOWNLOAD_ROOT = EXTERNAL_GEO_CLOUD_ROOT
 CODE_DIR = PROJECT_ROOT / "code" / "geo_cloud_download"
 MANIFEST_DIR = DOWNLOAD_ROOT / "manifests"
 LOG_DIR = DOWNLOAD_ROOT / "logs"

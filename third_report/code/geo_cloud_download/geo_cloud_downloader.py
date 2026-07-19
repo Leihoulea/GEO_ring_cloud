@@ -24,10 +24,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterable, Optional
 
+CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
+if str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
+
+from geo_ring_cloud.paths import EXTERNAL_GEO_CLOUD_ROOT  # noqa: E402
+
 
 DOWNLOAD_MONTHS = [(2024, 1), (2024, 3), (2024, 5)]
 TEST_DAY = "2024-03-12"
-DEFAULT_ROOT = Path(r"E:\GEO_Cloud_2024")
+DEFAULT_ROOT = EXTERNAL_GEO_CLOUD_ROOT
 RETRY_DELAYS_SECONDS = [5, 10, 20, 40, 60, 120, 180, 300]
 S3_CHUNK_SIZE = 1024 * 1024
 EUMETSAT_CHUNK_SIZE = 1024 * 512

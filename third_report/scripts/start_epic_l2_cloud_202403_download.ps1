@@ -1,17 +1,24 @@
 param(
-    [string]$SourceList = 'D:\AAAresearch_paper\third_report\EPIC_L2_cloud_download_script_202403.txt',
-    [string]$TargetDir = 'F:\DSCOVR_EPIC_L2_CLOUD_03_2024.03',
+    [string]$SourceList,
+    [string]$TargetDir,
     [string]$Username = 'kingofkunlun'
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot "..\code\geo_ring_cloud_stage1\geo_ring_cloud_path_configuration.ps1")
+
+if (-not $PSBoundParameters.ContainsKey('SourceList')) {
+    $SourceList = Join-Path $GeoRingThirdReportRoot 'EPIC_L2_cloud_download_script_202403.txt'
+}
+if (-not $PSBoundParameters.ContainsKey('TargetDir')) {
+    $TargetDir = $GeoRingExternalEpicL2Root
+}
 
 if (-not $env:EARTHDATA_PASSWORD) {
     throw 'EARTHDATA_PASSWORD environment variable is required for this run.'
 }
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$workspaceRoot = Split-Path -Parent $scriptDir
+$workspaceRoot = $GeoRingThirdReportRoot
 $reportDir = Join-Path $workspaceRoot 'reports\epic_l2_cloud_download_202403'
 New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
 New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null

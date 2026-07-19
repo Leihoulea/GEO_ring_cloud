@@ -1,6 +1,9 @@
 $ErrorActionPreference = "Stop"
 
-$ProjectRoot = "D:\AAAresearch_paper\third_report"
+$PathConfig = Join-Path $PSScriptRoot "..\geo_ring_cloud_stage1\geo_ring_cloud_path_configuration.ps1"
+. $PathConfig
+
+$ProjectRoot = $GeoRingThirdReportRoot
 $CurrentPidFile = Join-Path $ProjectRoot "code\geo_cloud_download\current_download_pid.txt"
 $RepairScript = Join-Path $ProjectRoot "code\geo_cloud_download\repair_goes_himawari_march2024_low_parallel.ps1"
 $WatcherLog = Join-Path $ProjectRoot "code\geo_cloud_download\goes_himawari_march2024_repair_watcher.log"

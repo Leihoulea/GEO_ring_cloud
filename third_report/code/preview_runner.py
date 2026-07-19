@@ -2,7 +2,7 @@
 
 Run from the project root with the pytorch conda environment, for example:
 
-    D:\\anaconda\\envs\\pytorch\\python.exe code\\preview_runner.py
+    python code\\preview_runner.py
 
 Each preview notebook keeps its own `TARGET_HOUR_UTC` variable. This runner
 executes the notebooks as-is; change the target hour inside each notebook when

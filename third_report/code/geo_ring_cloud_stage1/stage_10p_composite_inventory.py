@@ -15,18 +15,12 @@ from typing import Any
 import netCDF4
 import numpy as np
 
-import sys
-
-CODE_ROOT = Path(__file__).resolve().parent
-if str(CODE_ROOT) not in sys.path:
-    sys.path.insert(0, str(CODE_ROOT))
-
-from path_config import RUNS_ROOT  # noqa: E402
+from geo_ring_cloud.paths import EXTERNAL_EPIC_COMPOSITE_ROOT, RUNS_ROOT
 
 
 STAGE_ID = "stage_10p"
 PROJECT_STAGE_ID = "geo_ring_cloud.stage_10p"
-DEFAULT_INPUT = Path(r"F:\DSCOVR_EPIC_L2_COMPOSITE_02_2024.01")
+DEFAULT_INPUT = EXTERNAL_EPIC_COMPOSITE_ROOT
 DEFAULT_OUT = RUNS_ROOT / "stage_10p_psf_inventory_202401"
 KEYWORDS = [
     "psf",

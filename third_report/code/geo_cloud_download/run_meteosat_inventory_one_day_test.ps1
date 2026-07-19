@@ -1,10 +1,13 @@
 $ErrorActionPreference = "Stop"
 
-$ProjectRoot = "D:\AAAresearch_paper\third_report"
-$DownloadRoot = "E:\GEO_Cloud_2024"
+$PathConfig = Join-Path $PSScriptRoot "..\geo_ring_cloud_stage1\geo_ring_cloud_path_configuration.ps1"
+. $PathConfig
+
+$ProjectRoot = $GeoRingThirdReportRoot
+$DownloadRoot = $GeoRingExternalGeoCloudRoot
 $PythonScript = Join-Path $ProjectRoot "code\geo_cloud_download\geo_cloud_downloader.py"
-$PythonExe = "D:\anaconda\envs\pytorch\python.exe"
-$CredentialFile = Join-Path $ProjectRoot "eumetsat_dataservices_API.txt"
+$PythonExe = $GeoRingPythonExe
+$CredentialFile = $GeoRingEumetsatCredentialsFile
 
 $text = Get-Content -LiteralPath $CredentialFile -Raw
 $keyMatch = [regex]::Match($text, '(?im)^\s*Consumer\s+key\s*[:=]\s*(\S+)\s*$')

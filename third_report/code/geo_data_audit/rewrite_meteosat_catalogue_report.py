@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import csv
 import sys
+from pathlib import Path
 
-sys.path.insert(0, r"D:\AAAresearch_paper\third_report\code\geo_data_audit")
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
 import meteosat_catalogue_discovery as m  # noqa: E402
 
 

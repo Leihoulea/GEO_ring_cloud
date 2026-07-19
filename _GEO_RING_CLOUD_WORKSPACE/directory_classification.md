@@ -6,19 +6,19 @@
 | D:\AAAresearch_paper\geo_ring_cloud_stage1 | 强相关 | Stage1 主产物根目录（STAGE_ROOT） | 819 | 6.3 GB | 是 | 是 | 否 | keep_in_place | standardized_native/reprojected_grid/fused_best_source/overlap_validation/reports 等产物 + scripts 副本 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack | 强相关 | Stage1 证据包（latest + 10 snapshots） | 264 | 471.2 KB | 是 | 是 | 否 | keep_in_place | rebuild_stage1_evidence_pack.py:EVIDENCE_ROOT 产出 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | 强相关 | 多时次运行、跨阶段实验与阶段诊断产物根目录 | 43207 | 228.2 GB | 是 | 是 | 否 | keep_in_place | 运行器与 stage_08 以后诊断脚本通过 RUNS_ROOT 引用；大产物保留原位 |
-| D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 | 强相关 | GEO-ring Cloud 主代码、阶段脚本、共享组件与测试 | 105 | 2.0 MB | 是 | 是 | 否 | keep_in_place | 权威代码源；产物写入配置化的 stage/time-runs 根目录 |
+| D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 | 强相关 | GEO-ring Cloud 主代码、阶段脚本、共享组件与测试 | 106 | 2.0 MB | 是 | 是 | 否 | keep_in_place | 权威代码源；产物写入配置化的 stage/time-runs 根目录 |
 | D:\AAAresearch_paper\third_report\Satellite_Data_20240312 | 上游相关 | 2024-03-12 主数据集快照（六星原生 + standardized_L1 样例 + reprojected 旧版） | 8741 | 122.4 GB | 间接 | 是 | 否 | keep_in_place | 含 channel_mapping/standardized_L1_source 等 |
 | D:\AAAresearch_paper\third_report\code\FY4B | 上游相关 | FY4B/AGRI standardized_L1 builder + 探查/预览 | 25 | 25.1 MB | 间接 | 是 | 否 | keep_in_place | 产出 standardized_L1_source 供 stage1 输入 |
 | D:\AAAresearch_paper\third_report\code\GOES | 上游相关 | GOES-16/18/ABI standardized_L1 builder | 18 | 14.2 MB | 间接 | 是 | 否 | keep_in_place | 同上 |
 | D:\AAAresearch_paper\third_report\code\Himawari | 上游相关 | Himawari-9/AHI standardized_L1 builder | 11 | 8.5 MB | 间接 | 是 | 否 | keep_in_place | 同上 |
 | D:\AAAresearch_paper\third_report\code\L1g | 上游相关 | standardized_L1_source 规范 + 全球 0.05° 网格规范 | 4 | 60.9 KB | 间接 | 是 | 否 | keep_in_place | ring cloud 上游标准化层规范文档 |
 | D:\AAAresearch_paper\third_report\code\Meteosat | 上游相关 | Meteosat-9/10/SEVIRI standardized_L1 builder | 14 | 8.4 MB | 间接 | 是 | 否 | keep_in_place | 同上 |
-| D:\AAAresearch_paper\third_report\code\geo_cloud_download | 上游相关 | GEO 云产品下载器（EUMETSAT API + S3） | 23 | 116.2 KB | 间接 | 是 | 否 | keep_in_place | 下载原始云产品到 data/ 与 E 盘 |
-| D:\AAAresearch_paper\third_report\code\geo_data_audit | 上游相关 | 数据审计脚本（前序审计 00-00f 的执行代码） | 17 | 479.3 KB | 间接 | 是 | 否 | keep_in_place | audit_geometry_and_variables.py 等产出 data_check_report |
+| D:\AAAresearch_paper\third_report\code\geo_cloud_download | 上游相关 | GEO 云产品下载器（EUMETSAT API + S3） | 23 | 117.3 KB | 间接 | 是 | 否 | keep_in_place | 下载原始云产品到 data/ 与 E 盘 |
+| D:\AAAresearch_paper\third_report\code\geo_data_audit | 上游相关 | 数据审计脚本（前序审计 00-00f 的执行代码） | 17 | 482.0 KB | 间接 | 是 | 否 | keep_in_place | audit_geometry_and_variables.py 等产出 data_check_report |
 | D:\AAAresearch_paper\third_report\code\plot_geo_satellite_coverage.py | 上游相关 | 六星地球覆盖边界图 | 1 | 4.2 KB | 间接 | 是 | 否 | keep_in_place |  |
 | D:\AAAresearch_paper\third_report\code\preview_baselines | 上游相关 | 基线预览图索引 | 13 | 20.8 MB | 间接 | 是 | 否 | keep_in_place | 六星基线 quicklook |
-| D:\AAAresearch_paper\third_report\code\preview_runner.py | 上游相关 | 预览批处理入口 | 1 | 2.6 KB | 间接 | 是 | 否 | keep_in_place |  |
-| D:\AAAresearch_paper\third_report\code\priority_download_goes_meteosat | 上游相关 | GOES/Meteosat 优先补下载（00f 阶段） | 4 | 38.9 KB | 间接 | 是 | 否 | keep_in_place | build/download/verify 三件套 |
+| D:\AAAresearch_paper\third_report\code\preview_runner.py | 上游相关 | 预览批处理入口 | 1 | 2.5 KB | 间接 | 是 | 否 | keep_in_place |  |
+| D:\AAAresearch_paper\third_report\code\priority_download_goes_meteosat | 上游相关 | GOES/Meteosat 优先补下载（00f 阶段） | 4 | 39.4 KB | 间接 | 是 | 否 | keep_in_place | build/download/verify 三件套 |
 | D:\AAAresearch_paper\third_report\code\run_standardized_l1_source_batch.py | 上游相关 | 标准化批处理统一入口 | 1 | 2.9 KB | 间接 | 是 | 否 | keep_in_place | 调度各卫星 builder |
 | D:\AAAresearch_paper\third_report\code\standardized_l1_source_satpy.py | 上游相关 | Satpy 共用标准化骨架 | 1 | 15.1 KB | 间接 | 是 | 否 | keep_in_place | 被 Himawari/Meteosat builder 调用 |
 | D:\AAAresearch_paper\third_report\code\validate_standardized_l1_source_samples.py | 上游相关 | 标准化样例自动校验 | 1 | 5.0 KB | 间接 | 是 | 否 | keep_in_place |  |

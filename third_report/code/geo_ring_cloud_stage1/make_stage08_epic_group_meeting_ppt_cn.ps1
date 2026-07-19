@@ -1,10 +1,21 @@
 param(
-  [string]$SummaryRoot = "D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\epic_202403_multisample_summary",
-  [string]$SlideJson = "D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\stage08_epic_group_meeting_slides_cn.json",
-  [string]$OutDir = "D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\epic_202403_multisample_summary\ppt_group_meeting"
+  [string]$SummaryRoot,
+  [string]$SlideJson,
+  [string]$OutDir
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "geo_ring_cloud_path_configuration.ps1")
+
+if (-not $PSBoundParameters.ContainsKey("SummaryRoot")) {
+  $SummaryRoot = Join-Path $GeoRingRunsRoot "epic_202403_multisample_summary"
+}
+if (-not $PSBoundParameters.ContainsKey("SlideJson")) {
+  $SlideJson = Join-Path $GeoRingCoreCodeRoot "stage08_epic_group_meeting_slides_cn.json"
+}
+if (-not $PSBoundParameters.ContainsKey("OutDir")) {
+  $OutDir = Join-Path $SummaryRoot "ppt_group_meeting"
+}
 
 function Ensure-Dir([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) {

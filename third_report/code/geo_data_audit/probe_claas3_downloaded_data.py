@@ -4,6 +4,7 @@ import csv
 import json
 import math
 import re
+import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,14 +12,20 @@ from typing import Any
 
 import numpy as np
 
+CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
+if str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
+
+from geo_ring_cloud.paths import CLAAS3_ROOT, THIRD_REPORT_ROOT  # noqa: E402
+
 try:
     import netCDF4
 except Exception as exc:  # pragma: no cover
     netCDF4 = exc
 
 
-ROOT = Path(r"E:\GEO_Cloud_2024\CMSAF")
-OUT_DIR = Path(r"D:\AAAresearch_paper\third_report\reports\claas3_downloaded_probe")
+ROOT = CLAAS3_ROOT
+OUT_DIR = THIRD_REPORT_ROOT / "reports" / "claas3_downloaded_probe"
 MAX_SAMPLE_VALUES = 300_000
 
 FILE_RE = re.compile(

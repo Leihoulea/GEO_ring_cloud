@@ -36,8 +36,8 @@ It applies to humans and AI agents.
 
 ## Path and artifact rules
 
-- Core code MUST use `geo_ring_cloud.paths` or environment-variable overrides for project paths; `path_config.py` is legacy-import compatibility only.
-- New core code MUST NOT hard-code `D:\AAAresearch_paper\...` unless explicitly allowlisted.
+- Python code MUST use `geo_ring_cloud.paths`; PowerShell orchestration MUST dot-source `geo_ring_cloud_path_configuration.ps1` or use the same `GEO_RING_*` environment-variable contract.
+- Active project code MUST NOT hard-code any machine-local drive path unless it is one of the two explicitly allowlisted canonical path-configuration files.
 - Core code MUST NOT depend on `_NON_GEO_ARCHIVE`, `second_report`, `forth`, or EPIC-CERES code/output paths.
 - Raw data, time runs, evidence packs, SQLite/XLSX indexes, PPTX, images, NetCDF/HDF/HDF5, NPZ, and other large generated artifacts MUST stay out of Git by default.
 - GitHub CI MUST remain independent of local large-data paths; real-data integration tests are explicit local checks.

@@ -94,16 +94,23 @@ DANGEROUS_PATH_PATTERNS = [
     re.compile(r"(^|[\\/])forth([\\/]|$)", re.IGNORECASE),
 ]
 
-ABSOLUTE_PROJECT_PATH = re.compile(
-    r"[A-Za-z]:[\\/]+AAAresearch_paper[\\/]+", re.IGNORECASE
-)
+ABSOLUTE_LOCAL_PATH = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z]:[\\/]+")
 
 ABSOLUTE_PATH_ALLOWLIST = {
     "_GEO_RING_CLOUD_INDEX/build_index.py",
     "_GEO_RING_CLOUD_INDEX/governance_check.py",
     "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/paths.py",
+    "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud_path_configuration.ps1",
     "third_report/code/geo_ring_cloud_stage1/path_config.py",
 }
+
+ABSOLUTE_LOCAL_PATH_ENFORCED_PREFIXES = (
+    "third_report/code/geo_cloud_download/",
+    "third_report/code/geo_data_audit/",
+    "third_report/code/geo_ring_cloud_stage1/",
+    "third_report/code/priority_download_goes_meteosat/",
+    "third_report/scripts/",
+)
 
 PATH_REFERENCE_ENFORCED_PREFIXES = (
     "third_report/code/geo_ring_cloud_stage1/",
@@ -610,6 +617,34 @@ def check_package_dependency_boundaries(paths: list[str]) -> list[Finding]:
     return findings
 
 
+def check_python_structure(paths: list[str]) -> list[Finding]:
+    findings: list[Finding] = []
+    for rel_path in paths:
+        if Path(rel_path).suffix.lower() != ".py":
+            continue
+        text = read_text(rel_path)
+        if text is None:
+            continue
+        try:
+            tree = ast.parse(text, filename=rel_path)
+        except SyntaxError:
+            continue
+        names: dict[str, int] = {}
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                names[node.name] = names.get(node.name, 0) + 1
+        duplicates = sorted(name for name, count in names.items() if count > 1)
+        if duplicates:
+            findings.append(
+                Finding(
+                    "ERROR",
+                    rel_path,
+                    "duplicate top-level function definitions: " + ", ".join(duplicates),
+                )
+            )
+    return findings
+
+
 def check_paths(paths: list[str], added_paths: set[str], baseline_mode: bool) -> list[Finding]:
     findings: list[Finding] = []
     for rel_path in paths:
@@ -632,13 +667,18 @@ def check_paths(paths: list[str], added_paths: set[str], baseline_mode: bool) ->
                         )
                     )
 
-        if suffix in CODE_AND_CONFIG_EXTENSIONS and normalized not in ABSOLUTE_PATH_ALLOWLIST:
-            if ABSOLUTE_PROJECT_PATH.search(text):
+        enforce_absolute_local_paths = normalized.startswith(ABSOLUTE_LOCAL_PATH_ENFORCED_PREFIXES)
+        if (
+            suffix in CODE_AND_CONFIG_EXTENSIONS
+            and enforce_absolute_local_paths
+            and normalized not in ABSOLUTE_PATH_ALLOWLIST
+        ):
+            if ABSOLUTE_LOCAL_PATH.search(text):
                 findings.append(
                     Finding(
-                        severity_for(rel_path, added_paths, baseline_mode),
+                        "WARN" if baseline_mode else "ERROR",
                         rel_path,
-                        "contains absolute D:/AAAresearch_paper path; prefer path_config.py or an environment override",
+                        "contains a machine-local absolute path; use geo_ring_cloud.paths or an environment override",
                     )
                 )
     return findings
@@ -722,6 +762,7 @@ def main() -> int:
     findings.extend(check_compatibility_shims())
     findings.extend(check_package_facades())
     findings.extend(check_package_dependency_boundaries(paths))
+    findings.extend(check_python_structure(paths))
     findings.extend(check_naming(paths, added, baseline_mode=baseline_mode))
     findings.extend(check_stage_contract(paths, added, enforce_index_docs=args.staged))
     if args.staged:

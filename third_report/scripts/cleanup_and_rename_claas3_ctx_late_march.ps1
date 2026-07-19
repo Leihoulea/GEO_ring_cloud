@@ -1,8 +1,9 @@
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot "..\code\geo_ring_cloud_stage1\geo_ring_cloud_path_configuration.ps1")
 
-$cmsafRoot = 'E:\GEO_Cloud_2024\CMSAF'
+$cmsafRoot = $GeoRingClaas3Root
 $ctxLongName = 'CTX, SEVIRI on MSG, Instantaneous, (none), Version 004, Satellite projection MSG-Seviri, METEOSAT disk (CM SAF definition), NetCDF4Default, 2024-03-13 - 2024-03-31'
-$workspaceRoot = Split-Path -Parent $PSScriptRoot
+$workspaceRoot = $GeoRingThirdReportRoot
 $reportDir = Join-Path $workspaceRoot 'reports\claas3_cleanup'
 New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
 

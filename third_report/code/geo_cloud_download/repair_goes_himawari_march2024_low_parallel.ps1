@@ -1,7 +1,10 @@
 $ErrorActionPreference = "Stop"
 
-$ProjectRoot = "D:\AAAresearch_paper\third_report"
-$DownloadRoot = "E:\GEO_Cloud_2024"
+$PathConfig = Join-Path $PSScriptRoot "..\geo_ring_cloud_stage1\geo_ring_cloud_path_configuration.ps1"
+. $PathConfig
+
+$ProjectRoot = $GeoRingThirdReportRoot
+$DownloadRoot = $GeoRingExternalGeoCloudRoot
 $PythonScript = Join-Path $ProjectRoot "code\geo_cloud_download\geo_cloud_downloader.py"
 $RunLog = Join-Path $ProjectRoot "code\geo_cloud_download\goes_himawari_march2024_repair.log"
 $StatusJson = Join-Path $ProjectRoot "code\geo_cloud_download\goes_himawari_march2024_repair_status.json"

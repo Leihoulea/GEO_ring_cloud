@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 
-from geo_ring_cloud.paths import RUNS_ROOT
+from geo_ring_cloud.paths import EXTERNAL_EPIC_L2_ROOT, RUNS_ROOT
 
 
 SUMMARY_ROOT = RUNS_ROOT / "epic_202403_multisample_summary"
@@ -128,7 +128,7 @@ def run() -> Path:
         "",
         "### 2.1 EPIC 数据",
         "",
-        "本阶段使用本地 2024 年 3 月 EPIC L2 Cloud 文件：`F:\\DSCOVR_EPIC_L2_CLOUD_03_2024.03`。已扫描文件数为 395 个。每个 EPIC L2 样本至少读取：",
+        f"本阶段使用本地 2024 年 3 月 EPIC L2 Cloud 文件：`{EXTERNAL_EPIC_L2_ROOT}`。已扫描文件数为 395 个。每个 EPIC L2 样本至少读取：",
         "",
         "- `geophysical_data/Cloud_Mask` 或同义变量；",
         "- `geolocation_data/latitude`；",

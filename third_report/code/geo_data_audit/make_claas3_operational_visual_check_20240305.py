@@ -22,19 +22,23 @@ from matplotlib.colors import BoundaryNorm, ListedColormap, TwoSlopeNorm
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-WORKSPACE = SCRIPT_DIR.parents[1]
-sys.path.insert(0, str(SCRIPT_DIR))
+CORE_CODE_ROOT = SCRIPT_DIR.parent / "geo_ring_cloud_stage1"
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+if str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
 
 from compare_claas3_and_operational_meteosat import compare_cth_grids, ensure_eccodes  # noqa: E402
+from geo_ring_cloud.paths import CLAAS3_ROOT, EXTERNAL_GEO_CLOUD_ROOT, THIRD_REPORT_ROOT  # noqa: E402
 
 
 ensure_eccodes()
 import cfgrib  # noqa: E402
 
 
-OUT_DIR = WORKSPACE / "reports" / "figures" / "claas3_vs_operational_visual_check_20240305T0000"
-CMSAF_ROOT = Path(r"E:\GEO_Cloud_2024\CMSAF")
-OP_ROOT = Path(r"E:\GEO_Cloud_2024")
+OUT_DIR = THIRD_REPORT_ROOT / "reports" / "figures" / "claas3_vs_operational_visual_check_20240305T0000"
+CMSAF_ROOT = CLAAS3_ROOT
+OP_ROOT = EXTERNAL_GEO_CLOUD_ROOT
 TARGET_TIME = datetime(2024, 3, 5, 0, 0, 0, tzinfo=timezone.utc)
 
 
