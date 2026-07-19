@@ -11,7 +11,7 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-import stage_10_run_cth_validation as base
+from geo_ring_cloud.diagnostics import cth_validation as base
 
 
 STAGE_ID = "stage_10"

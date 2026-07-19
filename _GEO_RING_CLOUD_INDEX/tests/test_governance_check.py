@@ -358,7 +358,9 @@ class ModuleRegistryTests(unittest.TestCase):
 
     def test_registered_stage_migration_is_not_treated_as_a_new_stage(self) -> None:
         canonical_module, expected_stage_id = next(
-            iter(governance_check.STAGE_COMPATIBILITY_ENTRYPOINTS.values())
+            value
+            for value in governance_check.STAGE_COMPATIBILITY_ENTRYPOINTS.values()
+            if not value[0].startswith("geo_ring_cloud.")
         )
         script = (
             f"{governance_check.CORE_CODE_PREFIX}"

@@ -647,6 +647,18 @@ MODULE_REGISTRY = (
     },
     {
         "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.diagnostics.cth_validation",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/diagnostics/cth_validation.py",
+        "component_role": "diagnostics_workflow",
+        "legacy_module": "stage_10_run_cth_validation",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage_10_cth_validation/stage_10_run_cth_validation.py",
+        "migration_status": "canonical_with_stage_entrypoint",
+        "public_api": "EPIC/GEO CTH reading, grid sampling, policy mapping, height metrics and Stage 10 workflow",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::CthValidationBoundaryTests; governance stage-entrypoint boundary",
+        "notes": "Stage 10 and Stage 10p2 import one package workflow; the stage path remains a thin executable entrypoint.",
+    },
+    {
+        "project_id": PROJECT_ID,
         "canonical_module": "geo_ring_cloud.diagnostics.full_pixel",
         "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/diagnostics/full_pixel.py",
         "component_role": "diagnostics_library",
@@ -958,6 +970,18 @@ CODE_MIGRATIONS = (
         "verified_by": "focused reference search; PowerShell parser; canonical generator configuration test",
         "rollback": "move the JSON back and restore the default SlideJson path in the Chinese generator",
         "notes": "The configuration had one code caller, so a duplicate historical alias is unnecessary.",
+    },
+    {
+        "migration_id": "stage_10_20260719_cth_validation_workflow",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_10",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage_10_cth_validation/stage_10_run_cth_validation.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/diagnostics/cth_validation.py",
+        "compatibility_strategy": "stage_path_thin_entrypoint_to_package_workflow",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; downstream import audit; Python syntax and scientific regression tests",
+        "rollback": "move the workflow implementation back to the stage path and restore downstream imports only after reverting module registry",
+        "notes": "Removes direct Stage 10 script imports from Stage 10 QC and Stage 10p2 while preserving the historical command.",
     },
 )
 INDEX_EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", "_tmp"}

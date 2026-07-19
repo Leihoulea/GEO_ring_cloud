@@ -29,8 +29,8 @@ for _p in [CODE_ROOT, STAGE10_CODE]:
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from path_config import RUNS_ROOT  # noqa: E402
-import stage_10_run_cth_validation as s10  # noqa: E402
+from geo_ring_cloud.paths import RUNS_ROOT  # noqa: E402
+from geo_ring_cloud.diagnostics import cth_validation as s10  # noqa: E402
 
 
 STAGE_ID = "stage_10p2"

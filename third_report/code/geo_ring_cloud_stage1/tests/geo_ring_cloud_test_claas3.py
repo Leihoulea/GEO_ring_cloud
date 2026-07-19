@@ -163,6 +163,32 @@ class EvidencePackBuilderTests(unittest.TestCase):
         )
 
 
+class CthValidationBoundaryTests(unittest.TestCase):
+    def test_stage_entrypoint_preserves_canonical_workflow_identity(self) -> None:
+        canonical = importlib.import_module("geo_ring_cloud.diagnostics.cth_validation")
+        entrypoint = importlib.import_module(
+            "stage_10_cth_validation.stage_10_run_cth_validation"
+        )
+
+        self.assertEqual(canonical.COMPONENT_ROLE, "diagnostics_workflow")
+        self.assertEqual(entrypoint.STAGE_ID, "stage_10")
+        self.assertEqual(entrypoint.COMPONENT_ROLE, "compatibility_entrypoint")
+        self.assertIs(entrypoint.main, canonical.main)
+        self.assertIs(entrypoint.sample_grid, canonical.sample_grid)
+
+    def test_downstream_stages_import_package_workflow(self) -> None:
+        paths = [
+            CODE_DIR / "stage_10_cth_validation" / "stage_10_qc_audit.py",
+            CODE_DIR
+            / "stage_10p2_approx_fov_aggregation"
+            / "run_stage_10p2_approx_fov.py",
+        ]
+        for path in paths:
+            source = path.read_text(encoding="utf-8-sig")
+            self.assertIn("geo_ring_cloud.diagnostics", source, path.name)
+            self.assertNotIn("import stage_10_run_cth_validation", source, path.name)
+
+
 class PackageBoundaryTests(unittest.TestCase):
     def test_legacy_shims_export_canonical_objects(self) -> None:
         import geo_ring_cloud_lineage as legacy_lineage

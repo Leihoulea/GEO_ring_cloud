@@ -16,6 +16,7 @@
 | geo_ring_cloud/diagnostics/epic_pair.py | geo_ring_cloud |  | diagnostics_library |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/diagnostics/full_pixel.py | geo_ring_cloud |  | diagnostics_library |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/diagnostics/summary.py | geo_ring_cloud |  | diagnostics_library |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud/diagnostics/cth_validation.py | geo_ring_cloud |  | diagnostics_workflow |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/diagnostics/full_pixel_workflow.py | geo_ring_cloud |  | diagnostics_workflow |  | 当前文件系统扫描补充脚本 |  |
 | download_geo_geometry_samples.py | geo_ring_cloud |  | downloader | 下载 | 从 AWS S3 下载 GOES-16/18/Himawari-9 几何样本到 geo_geometry_check/ | D:\AAAresearch_paper\geo_geometry_check |
 | geo_ring_cloud/evidence_pack.py | geo_ring_cloud |  | evidence_pack_builder | 证据包 | canonical 跨阶段证据包构建组件与 lineage manifest | D:\AAAresearch_paper\data_check_report,D:\AAAresearch_paper\geo_geometry_check,D:\AAAresearch_paper\geo_ring_cloud_stage1,D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack,D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 |
@@ -122,6 +123,6 @@
 | stage_10_claas3_epic_relative_height_evaluation.py | geo_ring_cloud | stage_10 |  | 10 | A/B-band EPIC-relative effective-height profile-pair diagnostics with common approximate PSF |  |
 | stage_10_cth_validation/stage_10_qc_audit.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
 | stage_10_cth_validation/stage_10_rewrite_cth_report.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
-| stage_10_cth_validation/stage_10_run_cth_validation.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
+| stage_10_cth_validation/stage_10_run_cth_validation.py | geo_ring_cloud | stage_10 | compatibility_entrypoint | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
 | stage_10p_composite_inventory.py | geo_ring_cloud | stage_10p | data_product_audit | 10p | 当前文件系统扫描补充脚本；推断阶段 10p |  |
 | stage_10p2_approx_fov_aggregation/run_stage_10p2_approx_fov.py | geo_ring_cloud | stage_10p2 |  | 10p2 | 当前文件系统扫描补充脚本；推断阶段 10p2 |  |

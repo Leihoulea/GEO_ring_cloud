@@ -143,6 +143,10 @@ POWERSHELL_COMPATIBILITY_ENTRYPOINTS = {
     ),
 }
 STAGE_COMPATIBILITY_ENTRYPOINTS = {
+    f"{CORE_CODE_PREFIX}stage_10_cth_validation/stage_10_run_cth_validation.py": (
+        "geo_ring_cloud.diagnostics.cth_validation",
+        "stage_10",
+    ),
     f"{CORE_CODE_PREFIX}08k_consolidate_stage08_report.py": (
         "stage_08k_reporting.stage_08k_consolidate_report",
         "stage_08k",
