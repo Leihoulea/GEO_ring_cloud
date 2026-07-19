@@ -1,0 +1,505 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { Presentation, PresentationFile } from "@oai/artifact-tool";
+
+const COMPONENT_ROLE = "presentation_builder";
+const RELATED_STAGE_IDS = ["stage_00d", "stage_09d", "stage_09e", "stage_09f", "stage_10"];
+const ROOT = process.env.GEO_RING_PROJECT_ROOT
+  ? path.resolve(process.env.GEO_RING_PROJECT_ROOT)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../../");
+const DEFAULT_RUN_ID = "geo_ring_cloud_group_meeting_20260719";
+
+const COLORS = {
+  ink: "#132238",
+  muted: "#5F6B7A",
+  rule: "#C9D2DB",
+  paper: "#FBFCFD",
+  teal: "#138A84",
+  blue: "#2E64A7",
+  red: "#C04C48",
+  amber: "#D59637",
+  softTeal: "#E4F3F1",
+  softBlue: "#E8F0FA",
+  softRed: "#F8E8E7",
+  softAmber: "#FBF1DF",
+  pale: "#F2F5F7",
+};
+
+const assets = {
+  stage09Main: ["geo_ring_cloud_stage1_time_runs", "stage_09e_nature_meeting_figures_202403", "figures", "stage_09e_nature_meeting_figures_202403_figure1_main_diagnostic_story.png"],
+  stage09Source: ["geo_ring_cloud_stage1_time_runs", "stage_09e_nature_meeting_figures_202403", "figures", "stage_09e_nature_meeting_figures_202403_figure3_source_family_pair_evidence.png"],
+  stage09Case: ["geo_ring_cloud_stage1_time_runs", "stage_09f_spatial_story_maps_202403", "figures", "stage_09f_spatial_story_maps_202403_figure1_case_20240308_0400.png"],
+  stage10Main: ["geo_ring_cloud_stage1_time_runs", "stage_10_meeting_figures_202403", "figures", "stage_10_group_meeting_fig02_fused_cth_main_metrics.png"],
+  stage10Source: ["geo_ring_cloud_stage1_time_runs", "stage_10_meeting_figures_202403", "figures", "stage_10_group_meeting_fig03_source_error_decomposition.png"],
+  stage10Boundary: ["geo_ring_cloud_stage1_time_runs", "stage_10_meeting_figures_202403", "figures", "stage_10_group_meeting_fig05_regret_high_cloud_boundary.png"],
+};
+
+function assetPath(parts) {
+  return path.join(ROOT, ...parts);
+}
+
+function relativePath(value) {
+  return path.relative(ROOT, value).replaceAll("\\", "/");
+}
+
+async function imageBytes(filePath) {
+  const bytes = await fs.readFile(filePath);
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+}
+
+async function writeBlob(filePath, blob) {
+  await fs.writeFile(filePath, new Uint8Array(await blob.arrayBuffer()));
+}
+
+function addText(slide, value, x, y, w, h, options = {}) {
+  const shape = slide.shapes.add({
+    geometry: "textbox",
+    name: options.name ?? "text",
+    position: { left: x, top: y, width: w, height: h },
+    fill: "none",
+    line: { style: "solid", fill: "none", width: 0 },
+  });
+  shape.text = value;
+  shape.text.style = {
+    fontSize: options.fontSize ?? 24,
+    typeface: options.typeface ?? "Microsoft YaHei",
+    color: options.color ?? COLORS.ink,
+    bold: options.bold ?? false,
+    alignment: options.alignment ?? "left",
+    verticalAlignment: options.verticalAlignment ?? "top",
+    autoFit: "none",
+    wrap: "square",
+    insets: { top: 0, right: 0, bottom: 0, left: 0 },
+  };
+  return shape;
+}
+
+function addRect(slide, x, y, w, h, fill, options = {}) {
+  return slide.shapes.add({
+    geometry: options.geometry ?? "rect",
+    name: options.name ?? "shape",
+    position: { left: x, top: y, width: w, height: h },
+    fill,
+    line: { style: "solid", fill: options.line ?? fill, width: options.lineWidth ?? 0 },
+    ...(options.borderRadius ? { borderRadius: options.borderRadius } : {}),
+  });
+}
+
+function addLine(slide, x1, y1, x2, y2, color = COLORS.rule, width = 1) {
+  const left = Math.min(x1, x2);
+  const top = Math.min(y1, y2);
+  return slide.shapes.add({
+    geometry: "line",
+    name: "rule",
+    position: { left, top, width: Math.abs(x2 - x1), height: Math.abs(y2 - y1) },
+    fill: "none",
+    line: { style: "solid", fill: color, width },
+  });
+}
+
+async function addImage(slide, filePath, x, y, w, h, alt, fit = "contain") {
+  return slide.images.add({
+    blob: await imageBytes(filePath),
+    contentType: "image/png",
+    alt,
+    fit,
+    position: { left: x, top: y, width: w, height: h },
+    geometry: "rect",
+  });
+}
+
+function addBullet(slide, value, x, y, width, accent = COLORS.teal) {
+  addRect(slide, x, y + 8, 6, 6, accent, { geometry: "ellipse" });
+  addText(slide, value, x + 18, y, width - 18, 34, { fontSize: 20, color: COLORS.ink });
+}
+
+function addMetric(slide, value, label, x, y, width, color) {
+  addText(slide, value, x, y, width, 48, { fontSize: 34, color, bold: true, alignment: "center" });
+  addText(slide, label, x, y + 52, width, 40, { fontSize: 16, color: COLORS.muted, alignment: "center" });
+}
+
+function addFooter(slide, slideNo, source) {
+  addLine(slide, 64, 677, 1216, 677, COLORS.rule, 1);
+  addText(slide, source, 64, 688, 980, 18, { fontSize: 11, color: COLORS.muted });
+  addText(slide, String(slideNo).padStart(2, "0"), 1175, 688, 40, 18, { fontSize: 11, color: COLORS.muted, alignment: "right" });
+}
+
+function makeSlide(deck, title, kicker, source, notes) {
+  const slide = deck.slides.add();
+  slide.background.fill = COLORS.paper;
+  addText(slide, kicker, 64, 30, 360, 22, { fontSize: 13, color: COLORS.teal, bold: true });
+  addText(slide, title, 64, 61, 1090, 52, { fontSize: 34, color: COLORS.ink, bold: true });
+  addLine(slide, 64, 125, 1216, 125, COLORS.ink, 1.5);
+  addFooter(slide, deck.slides.items.length, source);
+  slide.speakerNotes.textFrame.setText(notes);
+  slide.speakerNotes.setVisible(true);
+  return slide;
+}
+
+function addPipelineNode(slide, label, sublabel, x, y, width, color) {
+  addRect(slide, x, y, width, 76, "#FFFFFF", { line: color, lineWidth: 2, borderRadius: "rounded-md" });
+  addText(slide, label, x + 12, y + 12, width - 24, 24, { fontSize: 18, color, bold: true, alignment: "center" });
+  addText(slide, sublabel, x + 12, y + 42, width - 24, 22, { fontSize: 13, color: COLORS.muted, alignment: "center" });
+}
+
+function addDecisionRow(slide, variable, evidence, action, y, color) {
+  addText(slide, variable, 92, y, 230, 32, { fontSize: 22, bold: true, color });
+  addText(slide, evidence, 350, y, 470, 42, { fontSize: 18, color: COLORS.ink });
+  addText(slide, action, 870, y, 280, 42, { fontSize: 18, bold: true, color });
+  addLine(slide, 86, y + 56, 1168, y + 56, COLORS.rule, 1);
+}
+
+function getCommit() {
+  try {
+    return execFileSync("git", ["-C", ROOT, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  } catch {
+    return "";
+  }
+}
+
+async function writeSupportFiles(outputDir, finalPptx, allAssets) {
+  const terms = `# 术语表\n\n| 规范术语 | 首次定义/使用规则 |\n| --- | --- |\n| GEO-ring Cloud | 本项目的多 GEO 卫星融合云产品。 |\n| operational Meteosat | 当前生产流程中的 Meteosat 处理流。 |\n| CLAAS-3 CMA | CLAAS-3 cloud mask。 |\n| CLAAS CTX | CLAAS-3 cloud-top height。 |\n| EPIC effective height | EPIC A/B-band 的有效高度；不等同于绝对云顶高。 |\n| EPIC-relative difference | 相对于 EPIC 的诊断差异，不表述为绝对真值误差。 |\n| common-valid domain | 两条 profile 同时有效的共同像元域。 |\n| replacement-active | baseline source 5 与 candidate source 7 真正发生替换的像元域。 |\n`;
+  const ledger = `# 逐页证据账本\n\n| 页码 | 结论 | 主要证据 | 限定语 |\n| --- | --- | --- | --- |\n| 2 | CMA 与 CTX 的结论方向不同 | 53 时次双轨报告 | CTX 为 EPIC-relative 诊断 |\n| 7 | 只替换 Meteosat-0deg 分支 | 双轨运行 manifest | IODC 与其他卫星保持不动 |\n| 10 | CMA 在 replacement-active 域改善 | Stage 09d March 报告 | 10,000 whole-time-block bootstrap |\n| 11 | 来源与空间结构不能由单一 PSF 解释 | Stage 09e/09f 图与 CSV | approximate rectangular FOV |\n| 14 | CTX 在两波段均偏离 EPIC 更远 | Stage 10 March 报告 | 不等同于绝对 CTH 真值 |\n| 16 | 局部域和稀疏样本保持 unresolved | Stage 10 分层/状态报告 | 总体结果不覆盖局部边界 |\n`;
+  const script = `# 30 分钟中文讲稿\n\n正文 19 页，建议 29–30 分钟；备份页仅用于问答。每页 PowerPoint 均嵌入相同的 speaker notes。本稿用于会前排练，数字和限定语以逐页证据账本为准。\n\n| 页码 | 建议时长 | 讲述要点 | 转场/边界 |\n| --- | ---: | --- | --- |\n| 1 | 0:30 | 本轮不是给 CLAAS-3 整体排名，而是回答每个变量是否能进入 GEO-ring Cloud。 | 先说明结论会按变量给出。 |\n| 2 | 1:10 | 先给结论：CMA 有支持接入的证据；CTX 暂无替代依据；其余变量尚未裁决。 | CTX 指标是 EPIC-relative，不是绝对 CTH 真值。 |\n| 3 | 1:20 | 决策对象是可追溯的变量级融合流程，必须同时说明区域、输入与证据条件。 | 不能用单一总体指标给产品族排名。 |\n| 4 | 1:20 | 回顾 GEO-ring Cloud：各 GEO 产品先标准化、重投影和源选择，再按变量融合。 | 后续比较只替换 Meteosat-0deg 分支。 |\n| 5 | 1:10 | CMA 与 CTX 的物理含义和评估参照不同，因此不能互相外推。 | CMA 的改善不证明 CTX 改善。 |\n| 6 | 1:10 | CLAAS-3 的产品边界、区域与时间覆盖决定了本轮只评价已共同覆盖的范围。 | 未覆盖区域不继承结论。 |\n| 7 | 1:40 | 双轨设计固定 EPIC、非 Meteosat 输入、聚合和统计，仅将 source 5 换成 source 7。 | unchanged control 是设计自检，应接近零差异。 |\n| 8 | 1:15 | 53 个时次均完成配对；主分析使用时间块 bootstrap 和共同有效域。 | 这里的样本数不是把像元当独立样本。 |\n| 9 | 1:30 | Stage 09 先建立诊断基线：VIS 与近似 PSF 聚合只能局部改善，一致性差异仍有来源和场景结构。 | 该页解释为何必须做后续双轨实验。 |\n| 10 | 2:10 | replacement-active 域中，CMA macro F1 由 0.612 增至 0.857，差值 +0.245，95% CI [0.230, 0.260]；控制域为零差异。 | 这是 CMA 的接入证据，不是所有云变量的通行证。 |\n| 11 | 1:20 | 来源族分解说明改善不是单一滤波器造成；空间和来源选择仍需保留。 | 近似矩形 FOV 不是官方 PSF。 |\n| 12 | 1:10 | 用自动登记的真实空间案例把总体统计落回云边界和来源切换。 | 案例用于解释，主结论仍来自全时次统计。 |\n| 13 | 0:55 | 转入 CTX 前重申：高度变量需要独立物理参照与独立判据。 | 不能沿用 CMA 的 F1 逻辑。 |\n| 14 | 2:10 | 相对于 EPIC A/B-band effective height，CLAAS CTX 的 MAE 均增大：A +0.234 km、B +0.457 km，区间均为正。 | 只可说相对 EPIC 偏离更大，不能说绝对云顶高更差。 |\n| 15 | 1:25 | 融合前和双方均判云控制域中，CTX 差异仍在；它不是融合后偶然产物。 | 此证据支持暂保留 operational CTX。 |\n| 16 | 1:15 | 高云、局部域与稀疏样本仍是未决边界，不能由总体方向覆盖。 | 需要独立垂直参考才可升级为绝对高度结论。 |\n| 17 | 1:40 | 最终是混合 profile：CMA 可进入生产回归；CTX 保留；其他变量逐项验证。 | 这是可执行的变量矩阵，不是产品标签。 |\n| 18 | 1:05 | 本轮也把比较变成可复现的工程对象：manifest、共同域定义、时间块统计和证据索引。 | 工程化的作用是让下一次变量验证可追溯。 |\n| 19 | 1:15 | 近期执行 CMA 回归；科学验证补 CALIOP/CloudSat/DARDAR；其余云变量逐项进入同一闭环。 | 收束为“有边界地接入”，不作整体替代。 |\n\n## 问答备份页\n\n- 20：数据契约与 53 时次配对规则。\n- 21：Stage 09 扩展诊断图。\n- 22：Stage 10 来源与分层图。\n- 23：运行、资产和证据索引。\n- 24：结论可说与不可说的边界。\n`;
+  const assetsText = allAssets.map((item) => `| ${item.label} | ${relativePath(item.path)} | ${item.slides.join(", ")} | 直接嵌入，保留原图全部必要图例与轴标签 |`).join("\n");
+  const assetManifest = `# 图像资产清单\n\n| 资产 | 来源 | 使用页 | 处理 |\n| --- | --- | --- | --- |\n${assetsText}\n`;
+  const manifest = {
+    project_id: "geo_ring_cloud",
+    canonical_stage_id: "",
+    component_role: COMPONENT_ROLE,
+    related_stage_ids: RELATED_STAGE_IDS,
+    run_id: path.basename(outputDir),
+    generating_script: relativePath(fileURLToPath(import.meta.url)),
+    inputs: allAssets.map((item) => relativePath(item.path)),
+    outputs: ["group_meeting_30min_cn.pptx", "group_meeting_30min_cn.pdf", "speaker_script_cn.md", "terminology_ledger.md", "evidence_ledger.md", "asset_manifest.md", "qa_report.md"],
+    parameter_summary: { slide_size: "16:9", main_slides: 19, appendix_slides: 5, language: "Chinese-first", evidence_mode: "verified existing reports and source figures" },
+    timestamp_utc: new Date().toISOString(),
+    code_commit: getCommit(),
+  };
+  await fs.writeFile(path.join(outputDir, "terminology_ledger.md"), terms, "utf8");
+  await fs.writeFile(path.join(outputDir, "evidence_ledger.md"), ledger, "utf8");
+  await fs.writeFile(path.join(outputDir, "speaker_script_cn.md"), script, "utf8");
+  await fs.writeFile(path.join(outputDir, "asset_manifest.md"), assetManifest, "utf8");
+  await fs.writeFile(path.join(outputDir, "group_meeting_manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
+  await fs.writeFile(path.join(outputDir, "qa_report.md"), `# QA 报告\n\n- PPTX: ${path.basename(finalPptx)}\n- 结构：19 页正文 + 5 页备份页。\n- 证据：仅使用已登记的 Stage 00d/09d/09e/09f/10 运行产物。\n- 待补：由渲染、slides_test 与 PPTX 审计命令回填最终检查结果。\n`, "utf8");
+}
+
+export async function buildGroupMeetingDeck({ outputDir = path.join(ROOT, "geo_ring_cloud_stage1_time_runs", "presentations", DEFAULT_RUN_ID) } = {}) {
+  await fs.mkdir(outputDir, { recursive: true });
+  const deck = Presentation.create({ slideSize: { width: 1280, height: 720 } });
+  const source = "数据：2024-03 已登记运行产物；见本次汇报 evidence ledger";
+  const stage09Main = assetPath(assets.stage09Main);
+  const stage09Source = assetPath(assets.stage09Source);
+  const stage09Case = assetPath(assets.stage09Case);
+  const stage10Main = assetPath(assets.stage10Main);
+  const stage10Source = assetPath(assets.stage10Source);
+  const stage10Boundary = assetPath(assets.stage10Boundary);
+  const allAssets = [
+    { label: "Stage 09 主诊断图", path: stage09Main, slides: [9, 20] },
+    { label: "Stage 09 来源证据图", path: stage09Source, slides: [11] },
+    { label: "Stage 09 空间案例图", path: stage09Case, slides: [12, 22] },
+    { label: "Stage 10 主指标图", path: stage10Main, slides: [14] },
+    { label: "Stage 10 来源分解图", path: stage10Source, slides: [15, 21] },
+    { label: "Stage 10 状态边界图", path: stage10Boundary, slides: [16] },
+  ];
+
+  // 1. Cover
+  {
+    const slide = deck.slides.add();
+    slide.background.fill = COLORS.paper;
+    addRect(slide, 0, 0, 24, 720, COLORS.teal);
+    addText(slide, "Geo Ring Cloud", 78, 148, 620, 56, { fontSize: 48, bold: true, color: COLORS.ink });
+    addText(slide, "从多源融合到 CLAAS-3 的变量级决策", 78, 218, 860, 70, { fontSize: 42, bold: true, color: COLORS.ink });
+    addText(slide, "Stage 09 云掩膜诊断、Stage 10 有效高度诊断与双轨评估", 80, 314, 760, 36, { fontSize: 23, color: COLORS.muted });
+    addLine(slide, 80, 395, 748, 395, COLORS.teal, 3);
+    addText(slide, "2026 年 7 月组会 | 邓浩然", 80, 423, 460, 28, { fontSize: 18, color: COLORS.muted });
+    addText(slide, "核心问题：不同变量能否由同一条新处理流整体替换？", 80, 558, 840, 42, { fontSize: 28, color: COLORS.teal, bold: true });
+    addFooter(slide, 1, source);
+    slide.speakerNotes.textFrame.setText("开场先限定范围：这是一个变量级的产品决策问题，而不是简单比较两个产品谁更好。后面所有结果都回到同一条闭环：比较设计是否公平、证据是否足以支持接入决策。");
+    slide.speakerNotes.setVisible(true);
+  }
+
+  // 2. One-page outcome
+  {
+    const slide = makeSlide(deck, "云掩膜与云高不能按“整套产品”一起决策", "本轮结论", source, "用这一页建立全场导航。随后分别解释 CMA 和 CTX 为何方向不同，以及为什么控制域是因果归因的关键。");
+    addMetric(slide, "53 / 53", "登记时次全部完成", 92, 195, 230, COLORS.teal);
+    addMetric(slide, "49", "进入主分析的时次", 372, 195, 180, COLORS.blue);
+    addMetric(slide, "+0.245", "CMA replacement 域 F1", 622, 195, 220, COLORS.teal);
+    addMetric(slide, "+0.234 / +0.457 km", "CTX 相对 EPIC 的 MAE 差异", 894, 195, 285, COLORS.red);
+    addRect(slide, 92, 372, 490, 144, COLORS.softTeal, { borderRadius: "rounded-md" });
+    addText(slide, "建议进入生产回归", 120, 397, 400, 30, { fontSize: 24, color: COLORS.teal, bold: true });
+    addText(slide, "Meteosat-0deg 的 cloud mask 使用 CLAAS-3 CMA。", 120, 442, 410, 40, { fontSize: 20, color: COLORS.ink });
+    addRect(slide, 636, 372, 505, 144, COLORS.softRed, { borderRadius: "rounded-md" });
+    addText(slide, "暂不替换", 666, 397, 300, 30, { fontSize: 24, color: COLORS.red, bold: true });
+    addText(slide, "cloud-top height 暂保留 operational CTH；结果仅是 EPIC-relative 诊断。", 666, 442, 430, 48, { fontSize: 20, color: COLORS.ink });
+  }
+
+  // 3. Question
+  {
+    const slide = makeSlide(deck, "研究对象聚焦为可追溯的变量级融合决策", "研究问题", source, "解释为什么不能用一个总体指标给整个产品族排名。变量、观测几何、来源和场景都不同，因此必须把问题拆成可审计的处理流比较。");
+    addText(slide, "问题", 90, 184, 130, 30, { fontSize: 20, color: COLORS.teal, bold: true });
+    addText(slide, "当 GEO-ring Cloud 引入 CLAAS-3 时，哪些变量、哪些区域、在什么证据条件下值得接入？", 90, 226, 940, 58, { fontSize: 29, bold: true });
+    addText(slide, "约束", 90, 334, 130, 30, { fontSize: 20, color: COLORS.teal, bold: true });
+    addBullet(slide, "比较同一 EPIC 时次、同一非 Meteosat 输入与同一空间聚合规则", 90, 378, 980);
+    addBullet(slide, "只在共同有效像元域统计；以完整时次做 block bootstrap", 90, 426, 980);
+    addBullet(slide, "将 CMA、CTX 与其他变量分开裁决，不继承彼此的结论", 90, 474, 980);
+  }
+
+  // 4. Work map
+  {
+    const slide = makeSlide(deck, "前期基础工作把“多源融合”变成可验证的处理链", "本轮工作地图", source, "这页只用来交代工作承接关系，不逐个复述历史 Stage。重点是前期已经解决了读数、几何、标准化和来源选择，Stage 09/10 才能回答产品决策问题。");
+    const nodes = [
+      ["数据审计", "产品结构、变量、几何", COLORS.blue],
+      ["标准化", "统一坐标与语义", COLORS.teal],
+      ["融合", "来源选择与追溯", COLORS.amber],
+      ["Stage 09", "云掩膜诊断", COLORS.teal],
+      ["Stage 10", "有效高度诊断", COLORS.red],
+    ];
+    nodes.forEach(([a, b, c], index) => {
+      const x = 74 + index * 226;
+      addPipelineNode(slide, a, b, x, 280, 174, c);
+      if (index < nodes.length - 1) addLine(slide, x + 180, 318, x + 216, 318, COLORS.muted, 2);
+    });
+    addText(slide, "本轮新增：CLAAS-3 产品可读性审计、双轨 runner、共同域统计、来源分解、状态分层、case atlas 与 lineage manifest。", 90, 485, 1020, 48, { fontSize: 22, color: COLORS.ink });
+  }
+
+  // 5. Why CLAAS
+  {
+    const slide = makeSlide(deck, "CLAAS-3 的价值在于补充变量与长期一致性，而非自动获得精度优势", "为什么引入 CLAAS-3", source, "先把动机和结论分开：CLAAS-3 值得评估，因为它补足处理流和变量体系；但可用性、覆盖和相对一致性都必须逐项验证。");
+    addRect(slide, 90, 185, 330, 310, COLORS.softBlue, { borderRadius: "rounded-md" });
+    addText(slide, "潜在价值", 118, 215, 240, 30, { fontSize: 25, color: COLORS.blue, bold: true });
+    addBullet(slide, "CMA、CTX 与多种云微物理变量", 118, 270, 250, COLORS.blue);
+    addBullet(slide, "连续气候数据记录", 118, 324, 250, COLORS.blue);
+    addBullet(slide, "变量级的候选处理流", 118, 378, 250, COLORS.blue);
+    addRect(slide, 478, 185, 330, 310, COLORS.softAmber, { borderRadius: "rounded-md" });
+    addText(slide, "必须先验证", 506, 215, 240, 30, { fontSize: 25, color: COLORS.amber, bold: true });
+    addBullet(slide, "产品结构与时间覆盖", 506, 270, 250, COLORS.amber);
+    addBullet(slide, "与现有流的可比性", 506, 324, 250, COLORS.amber);
+    addBullet(slide, "不同变量的诊断结果", 506, 378, 250, COLORS.amber);
+    addRect(slide, 866, 185, 270, 310, COLORS.softRed, { borderRadius: "rounded-md" });
+    addText(slide, "不能直接推断", 894, 215, 210, 30, { fontSize: 25, color: COLORS.red, bold: true });
+    addBullet(slide, "CMA 好，不等于 CTX 好", 894, 282, 210, COLORS.red);
+    addBullet(slide, "EPIC 不是绝对 CTH 真值", 894, 352, 210, COLORS.red);
+  }
+
+  // 6. Product boundary
+  {
+    const slide = makeSlide(deck, "CLAAS-3 先作为可核验的数据处理流接入，而非替换整颗卫星", "产品与覆盖边界", source, "说明本次对象是 Meteosat-0deg 位置的处理流替换。这样可以避免把处理算法差异误写成卫星平台差异。");
+    addText(slide, "共享部分", 92, 190, 210, 30, { fontSize: 22, color: COLORS.muted, bold: true });
+    addRect(slide, 92, 236, 1060, 74, COLORS.pale, { borderRadius: "rounded-md" });
+    addText(slide, "目标时次  |  EPIC 文件  |  非 Meteosat 输入  |  空间聚合  |  掩膜与共同域规则", 120, 260, 990, 28, { fontSize: 22, color: COLORS.ink, alignment: "center" });
+    addRect(slide, 92, 365, 480, 148, COLORS.softBlue, { borderRadius: "rounded-md" });
+    addText(slide, "Baseline profile", 122, 395, 400, 30, { fontSize: 25, color: COLORS.blue, bold: true });
+    addText(slide, "operational CLM / operational CTH", 122, 442, 400, 28, { fontSize: 21, color: COLORS.ink });
+    addRect(slide, 672, 365, 480, 148, COLORS.softTeal, { borderRadius: "rounded-md" });
+    addText(slide, "CLAAS-3 candidate profile", 702, 395, 400, 30, { fontSize: 25, color: COLORS.teal, bold: true });
+    addText(slide, "CLAAS-3 CMA / CLAAS CTX", 702, 442, 400, 28, { fontSize: 21, color: COLORS.ink });
+  }
+
+  // 7. Dual track
+  {
+    const slide = makeSlide(deck, "双轨设计把产品差异限制在真正发生替换的 Meteosat-0deg 像元", "公平比较设计", source, "强调 replacement-active 域与 unchanged control 的角色。前者回答替换发生时结果如何，后者检查 runner、缓存和共同域计算没有人为制造差异。");
+    addPipelineNode(slide, "共享输入", "EPIC + 非 Meteosat", 92, 215, 190, COLORS.muted);
+    addPipelineNode(slide, "Baseline", "source 5", 380, 215, 190, COLORS.blue);
+    addPipelineNode(slide, "Candidate", "source 7", 380, 415, 190, COLORS.teal);
+    addPipelineNode(slide, "共同域", "same-pixel metrics", 670, 310, 210, COLORS.amber);
+    addPipelineNode(slide, "变量级决策", "CMA / CTX", 990, 310, 190, COLORS.red);
+    addLine(slide, 282, 253, 370, 253, COLORS.muted, 2);
+    addLine(slide, 282, 253, 370, 453, COLORS.muted, 2);
+    addLine(slide, 570, 253, 660, 348, COLORS.blue, 2);
+    addLine(slide, 570, 453, 660, 348, COLORS.teal, 2);
+    addLine(slide, 880, 348, 980, 348, COLORS.amber, 2);
+    addText(slide, "replacement-active：source 5 → 7；unchanged control：应为 0 差异。", 92, 570, 940, 28, { fontSize: 21, color: COLORS.ink });
+  }
+
+  // 8. Sample/QC
+  {
+    const slide = makeSlide(deck, "样本完成度、时间门限和 bootstrap 单位在运行前锁定", "样本与质量规则", source, "讲清统计单位是完整时次而非数千万独立像元。49 个时次进入主统计，4 个留作时间偏移敏感性分析；这样避免样本量把微小差异夸大成结论。");
+    addMetric(slide, "53", "登记时次", 104, 205, 180, COLORS.blue);
+    addMetric(slide, "49", "主分析：时间差 ≤10 min", 358, 205, 230, COLORS.teal);
+    addMetric(slide, "4", "仅作时间偏移敏感性", 664, 205, 220, COLORS.amber);
+    addMetric(slide, "10,000", "whole-time-block bootstrap", 950, 205, 210, COLORS.red);
+    addRect(slide, 100, 392, 1035, 112, COLORS.pale, { borderRadius: "rounded-md" });
+    addText(slide, "统计规则", 130, 420, 120, 26, { fontSize: 20, color: COLORS.teal, bold: true });
+    addText(slide, "每个时次等权；pooled-pixel 指标只作描述。共同域和状态分层均在比较前固定。", 282, 418, 760, 44, { fontSize: 23, color: COLORS.ink });
+  }
+
+  // 9. Stage09 baseline
+  {
+    const slide = makeSlide(deck, "Stage 09 先确认误差结构：PSF-like 聚合不能消除来源与场景差异", "Stage 09：基础诊断", "数据：Stage 09e Nature meeting figures，2024-03", "图中展示了 VIS 控制、近似 PSF 聚合、边界像元与不同来源族。读图重点不是背下每个数，而是理解：空间聚合只能带来有限提升，Meteosat/source-selection 结构仍存在。");
+    await addImage(slide, stage09Main, 68, 154, 850, 460, "Stage 09 主诊断图");
+    addRect(slide, 957, 185, 224, 260, COLORS.softBlue, { borderRadius: "rounded-md" });
+    addText(slide, "读图结论", 980, 212, 170, 26, { fontSize: 22, color: COLORS.blue, bold: true });
+    addText(slide, "VIS 筛选与 PSF-like 聚合只能局部改善一致性。\n\n来源选择和观测场景仍是主要结构。", 980, 262, 170, 130, { fontSize: 19, color: COLORS.ink });
+    addText(slide, "这为后面的处理流替换比较提供了诊断基线。", 957, 490, 224, 72, { fontSize: 19, color: COLORS.muted });
+  }
+
+  // 10. CMA main
+  {
+    const slide = makeSlide(deck, "在真正发生替换的共同域内，CLAAS-3 CMA 的相对一致性显著提高", "Stage 09：CMA 主结果", "数据：Stage 09d CLAAS-3 March 双轨评估；10,000 whole-time-block bootstrap", "先说范围：这是 Meteosat-0deg replacement-active 域、Policy A、box 7×7 近似聚合的结果。CMA 的改善是可归因的，但不延伸到其他云变量。");
+    addMetric(slide, "0.612 → 0.857", "replacement-active macro F1", 96, 190, 300, COLORS.teal);
+    addMetric(slide, "+0.245", "95% CI [+0.230, +0.260]", 470, 190, 270, COLORS.teal);
+    addMetric(slide, "0.721 → 0.721", "unchanged control F1", 818, 190, 300, COLORS.blue);
+    addRect(slide, 96, 370, 1035, 134, COLORS.softTeal, { borderRadius: "rounded-md" });
+    addText(slide, "为什么这条证据可以用于决策", 126, 399, 320, 28, { fontSize: 23, color: COLORS.teal, bold: true });
+    addText(slide, "两条 profile 共用时次、EPIC、非 Meteosat 输入、共同域和指标；未替换控制域为零差异，排除了 runner 或缓存人为制造结果的解释。", 126, 442, 930, 42, { fontSize: 21, color: COLORS.ink });
+  }
+
+  // 11. Source and robustness
+  {
+    const slide = makeSlide(deck, "CMA 改善既出现在源产品层，也不依赖单一空间聚合核", "Stage 09：来源与稳健性", "数据：Stage 09e/09d 图表与 March 双轨报告", "这里的证据链分三层：prefusion 看源产品差异，replacement 看替换后的融合结果，unchanged control 验证工程过程。不要把它理解为只做了一个总体 F1。");
+    await addImage(slide, stage09Source, 66, 155, 720, 455, "Stage 09 来源与 source-pair 证据");
+    addRect(slide, 834, 182, 325, 300, COLORS.softAmber, { borderRadius: "rounded-md" });
+    addText(slide, "稳健性边界", 862, 212, 250, 28, { fontSize: 23, color: COLORS.amber, bold: true });
+    addBullet(slide, "nearest 到 box 7×7 的方向一致", 862, 262, 250, COLORS.amber);
+    addBullet(slide, "Policy B/C 不改变改善方向", 862, 320, 250, COLORS.amber);
+    addBullet(slide, "碎云/边界的区间跨零，保留 unresolved", 862, 378, 250, COLORS.amber);
+  }
+
+  // 12. Spatial case
+  {
+    const slide = makeSlide(deck, "空间案例把总体指标落回可检查的云结构、边界和来源选择", "Stage 09：空间案例", "数据：Stage 09f 自动选择案例，2024-03-08 04:00", "说明案例不是挑选好看的图，而是由已登记的 case atlas 自动选取。它用于检查差异是否来自边界、来源切换或真实云结构，而不是替代总体统计。");
+    await addImage(slide, stage09Case, 74, 153, 1020, 480, "Stage 09 空间案例图");
+    addText(slide, "案例用于解释，主结论仍来自共同域的全时次统计。", 85, 628, 890, 22, { fontSize: 17, color: COLORS.muted });
+  }
+
+  // 13. Bridge
+  {
+    const slide = makeSlide(deck, "CMA 的改善不能外推到 CTX：同一候选处理流必须接受不同变量的检验", "从 Stage 09 到 Stage 10", source, "这是转场页。强调 cloud mask 与 cloud-top height 的测量对象和误差结构不同，因此不能因为 CMA 成功就默认 CTX 也成功。");
+    addRect(slide, 140, 220, 360, 210, COLORS.softTeal, { borderRadius: "rounded-md" });
+    addText(slide, "CMA", 180, 255, 180, 34, { fontSize: 32, color: COLORS.teal, bold: true });
+    addText(slide, "二值云掩膜\nEPIC-relative agreement\nreplacement-active 域改善", 180, 314, 260, 84, { fontSize: 22, color: COLORS.ink });
+    addRect(slide, 780, 220, 360, 210, COLORS.softRed, { borderRadius: "rounded-md" });
+    addText(slide, "CTX", 820, 255, 180, 34, { fontSize: 32, color: COLORS.red, bold: true });
+    addText(slide, "云高变量\nEPIC effective height 诊断\n不能写成绝对 CTH 真值", 820, 314, 270, 84, { fontSize: 22, color: COLORS.ink });
+    addLine(slide, 520, 325, 760, 325, COLORS.ink, 3);
+    addText(slide, "同一套公平比较框架，不同的物理问题与裁决规则", 386, 470, 520, 34, { fontSize: 23, color: COLORS.ink, alignment: "center", bold: true });
+  }
+
+  // 14. Stage10 main
+  {
+    const slide = makeSlide(deck, "相对于 EPIC A/B-band effective height，CLAAS CTX 的差异在两波段均更大", "Stage 10：CTX 主结果", "数据：Stage 10 March 双轨评估；EPIC-relative difference", "必须先说清：这里不是绝对云顶高误差。我们比较的是 GEO CTH 与 EPIC A/B 有效高度的距离；两个波段方向一致，因此按预设规则暂时 prefer operational。");
+    await addImage(slide, stage10Main, 55, 150, 760, 470, "Stage 10 融合 CTH 主指标");
+    addRect(slide, 853, 184, 300, 330, COLORS.softRed, { borderRadius: "rounded-md" });
+    addText(slide, "replacement-active", 881, 214, 240, 26, { fontSize: 22, color: COLORS.red, bold: true });
+    addText(slide, "A-band\n+0.234 km\n95% CI [+0.181, +0.288]", 881, 270, 230, 86, { fontSize: 22, color: COLORS.ink });
+    addText(slide, "B-band\n+0.457 km\n95% CI [+0.365, +0.545]", 881, 380, 230, 86, { fontSize: 22, color: COLORS.ink });
+    addText(slide, "按预设规则：暂保留 operational CTH。", 881, 535, 235, 48, { fontSize: 20, color: COLORS.red, bold: true });
+  }
+
+  // 15. Stage10 source
+  {
+    const slide = makeSlide(deck, "CTX 差异在融合前已存在，且在双方均判云的控制域中仍然存在", "Stage 10：来源与控制域", "数据：Stage 10 主报告与来源分解图", "这页解决两个常见追问：第一，差异不是融合后偶然产生；第二，不能只用 CMA/CLM 的分类差异解释 CTX 的不利结果。");
+    await addImage(slide, stage10Source, 66, 155, 680, 445, "Stage 10 来源分解图");
+    addRect(slide, 792, 185, 350, 275, COLORS.softBlue, { borderRadius: "rounded-md" });
+    addText(slide, "控制域证据", 820, 214, 250, 26, { fontSize: 22, color: COLORS.blue, bold: true });
+    addBullet(slide, "D1：双方均判云，差异仍在", 820, 267, 270, COLORS.blue);
+    addBullet(slide, "prefusion：差异更大，说明源产品层已存在", 820, 325, 270, COLORS.blue);
+    addBullet(slide, "融合后被其他来源稀释，不等于差异消失", 820, 383, 270, COLORS.blue);
+  }
+
+  // 16. Boundaries
+  {
+    const slide = makeSlide(deck, "高云、边界和高纬度样本要求保留“不确定”，不能被总体结果覆盖", "Stage 10：状态边界", "数据：Stage 10 状态分层与高纬度诊断", "这页是科学边界而不是结果弱点。A/B 方向冲突、置信区间跨零、样本稀疏或 D5 为零样本时，预设规则固定输出 unresolved，而不强行选边。");
+    await addImage(slide, stage10Boundary, 65, 155, 670, 445, "Stage 10 状态边界图");
+    addRect(slide, 790, 180, 350, 310, COLORS.softAmber, { borderRadius: "rounded-md" });
+    addText(slide, "不能得出的结论", 818, 210, 280, 28, { fontSize: 23, color: COLORS.amber, bold: true });
+    addBullet(slide, "EPIC 不能裁决绝对 CTH 真值", 818, 264, 285, COLORS.amber);
+    addBullet(slide, "碎云/边界并非必然更好或更差", 818, 322, 285, COLORS.amber);
+    addBullet(slide, "高纬度与稀疏域不做强判", 818, 380, 285, COLORS.amber);
+  }
+
+  // 17. Decision matrix
+  {
+    const slide = makeSlide(deck, "当前最合理的结果是混合 profile，而不是整套切换", "变量级决策矩阵", source, "把前面结果变成一个可执行的建议。注意这不是永久结论：每个变量保留自己的证据状态和下一步验证门槛。");
+    addText(slide, "变量", 92, 188, 180, 26, { fontSize: 19, color: COLORS.muted, bold: true });
+    addText(slide, "当前证据", 350, 188, 240, 26, { fontSize: 19, color: COLORS.muted, bold: true });
+    addText(slide, "建议", 870, 188, 180, 26, { fontSize: 19, color: COLORS.muted, bold: true });
+    addLine(slide, 86, 222, 1168, 222, COLORS.ink, 1.5);
+    addDecisionRow(slide, "cloud mask\n(CMA)", "replacement-active 域 F1 改善；控制域零差异；空间与敏感性方向一致", "CLAAS-3 CMA\n进入生产回归", 250, COLORS.teal);
+    addDecisionRow(slide, "cloud-top height\n(CTX)", "相对 EPIC A/B effective height 的 MAE 均增大；仅为相对诊断", "保留 operational CTH\n等待独立垂直参考", 360, COLORS.red);
+    addDecisionRow(slide, "CTP/CTT/CPH/\nCOT/CER/CWP", "尚无独立变量级对照证据", "保持候选状态\n逐变量验证", 470, COLORS.amber);
+  }
+
+  // 18. Engineering
+  {
+    const slide = makeSlide(deck, "本轮产出是一套可复跑、可审计的实验体系，而非一次性统计", "工程化与可复现性", source, "说明工作量时不报运行时长，而是说清楚哪些机制让结果可重现：来源身份、双轨矩阵、共同域、checkpoint、checksum、case atlas 和 manifest。");
+    const items = [
+      ["数据契约", "source identity、产品版本、时间/空间门限", COLORS.blue],
+      ["双轨 runner", "baseline 复用、candidate 独立、控制域", COLORS.teal],
+      ["统计与诊断", "共同域、状态分层、whole-time bootstrap", COLORS.amber],
+      ["可追溯输出", "manifest、CSV、case atlas、speaker evidence", COLORS.red],
+    ];
+    items.forEach(([head, body, color], i) => {
+      const x = 86 + (i % 2) * 560;
+      const y = 188 + Math.floor(i / 2) * 178;
+      addRect(slide, x, y, 510, 132, "#FFFFFF", { line: color, lineWidth: 2, borderRadius: "rounded-md" });
+      addText(slide, head, x + 28, y + 25, 230, 28, { fontSize: 23, color, bold: true });
+      addText(slide, body, x + 28, y + 72, 440, 32, { fontSize: 19, color: COLORS.ink });
+    });
+  }
+
+  // 19. Next steps
+  {
+    const slide = makeSlide(deck, "下一步是把变量级决策落实为生产回归，并补足绝对云高证据", "结论与下一步", source, "最后回到开头的问题。给出目前能执行的动作：CMA 进入回归，CTX 暂不切换，其他变量逐个验证；在科学上最关键的是引入有垂直廓线信息的独立参考。");
+    addText(slide, "本轮结论", 92, 188, 230, 30, { fontSize: 23, color: COLORS.teal, bold: true });
+    addText(slide, "CLAAS-3 可以进入 GEO-ring Cloud，但入口必须是变量级、证据驱动、保留边界的。", 92, 232, 980, 48, { fontSize: 29, color: COLORS.ink, bold: true });
+    addRect(slide, 92, 345, 310, 154, COLORS.softTeal, { borderRadius: "rounded-md" });
+    addText(slide, "近期", 120, 375, 180, 26, { fontSize: 22, color: COLORS.teal, bold: true });
+    addText(slide, "CMA 进入 production regression", 120, 421, 230, 36, { fontSize: 20, color: COLORS.ink });
+    addRect(slide, 468, 345, 310, 154, COLORS.softRed, { borderRadius: "rounded-md" });
+    addText(slide, "科学验证", 496, 375, 180, 26, { fontSize: 22, color: COLORS.red, bold: true });
+    addText(slide, "引入 CALIOP / CloudSat / DARDAR 类垂直参考", 496, 421, 240, 46, { fontSize: 20, color: COLORS.ink });
+    addRect(slide, 844, 345, 310, 154, COLORS.softAmber, { borderRadius: "rounded-md" });
+    addText(slide, "变量扩展", 872, 375, 180, 26, { fontSize: 22, color: COLORS.amber, bold: true });
+    addText(slide, "CTP、CTT、CPH、COT、CER、CWP 逐项验证", 872, 421, 240, 46, { fontSize: 20, color: COLORS.ink });
+  }
+
+  // Appendix 20–24
+  {
+    const slide = makeSlide(deck, "备份：Stage 09 的完整诊断图", "备份材料", "数据：Stage 09e Nature meeting figures，2024-03", "根据讨论需要展开 VIS 控制、PSF-like 聚合、边界像元和不同来源族的完整图。主线中只引用其最关键的结构性结论。");
+    await addImage(slide, stage09Main, 70, 155, 920, 500, "Stage 09 完整诊断图");
+  }
+  {
+    const slide = makeSlide(deck, "备份：Stage 10 的来源误差分解", "备份材料", "数据：Stage 10 meeting figures，2024-03", "用于回答来源选择、prefusion 与融合后误差结构的问题。");
+    await addImage(slide, stage10Source, 90, 155, 900, 490, "Stage 10 来源误差分解图");
+  }
+  {
+    const slide = makeSlide(deck, "备份：空间案例的六层检查框架", "备份材料", "数据：Stage 09f 自动选择案例，2024-03-08 04:00", "案例由自动选择规则提供，展示 EPIC 云掩膜、GEO-ring 当前掩膜、mismatch、来源族、有效源数和场景边界六个层面。");
+    await addImage(slide, stage09Case, 66, 155, 1050, 495, "Stage 09 六层空间案例");
+  }
+  {
+    const slide = makeSlide(deck, "备份：本轮数据契约与运行状态", "备份材料", source, "需要审计运行时，用这页说明共有输入、时间门限、空域规则、统计单位、checkpoint/checksum 与运行状态。");
+    addDecisionRow(slide, "时间", "53 个登记时次；49 个 ≤10 min 进入主分析", "whole-time blocks", 220, COLORS.blue);
+    addDecisionRow(slide, "空间", "common-valid same-pixel；box 7×7 为近似矩形 FOV 聚合", "保留 nearest/3×3/5×5 敏感性", 320, COLORS.teal);
+    addDecisionRow(slide, "运行", "pass=53；fail=0；checkpoint、checksum、lineage manifest", "可复跑、可定位", 420, COLORS.amber);
+  }
+  {
+    const slide = makeSlide(deck, "备份：证据与运行产物如何被追溯", "备份材料", source, "最后一页用于说明每张图、每个统计结论都可回到报告、CSV、图索引和 run manifest。这里不在演讲正文展开。");
+    addText(slide, "项目记忆入口", 90, 190, 240, 30, { fontSize: 24, color: COLORS.teal, bold: true });
+    addBullet(slide, "stage registry：阶段语义与历史别名", 90, 246, 620, COLORS.teal);
+    addBullet(slide, "artifact index：关键报告、图表、CSV 与 manifest", 90, 298, 620, COLORS.teal);
+    addBullet(slide, "本次 evidence ledger：逐页结论、统计定义与限定语", 90, 350, 620, COLORS.teal);
+    addRect(slide, 750, 205, 360, 220, COLORS.pale, { borderRadius: "rounded-md" });
+    addText(slide, "本次 run", 780, 240, 250, 30, { fontSize: 26, color: COLORS.ink, bold: true });
+    addText(slide, "presentation_builder\nrelated stages: 00d, 09d/e/f, 10\nPPTX、讲稿、术语表、资产与 QA 均由 manifest 关联", 780, 292, 260, 110, { fontSize: 19, color: COLORS.muted });
+  }
+
+  const finalPptx = path.join(outputDir, "group_meeting_30min_cn.pptx");
+  await writeSupportFiles(outputDir, finalPptx, allAssets);
+  const pptx = await PresentationFile.exportPptx(deck);
+  await pptx.save(finalPptx);
+  await writeBlob(path.join(outputDir, "deck_montage.webp"), await deck.export({ format: "webp", montage: true, scale: 1 }));
+  return finalPptx;
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const outputIndex = process.argv.indexOf("--output");
+  const outputDir = outputIndex >= 0 ? path.resolve(process.argv[outputIndex + 1]) : undefined;
+  buildGroupMeetingDeck({ outputDir }).then((output) => console.log(output)).catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

@@ -270,6 +270,7 @@ SCRIPTS = [
     ("rebuild_stage1_evidence_pack.py", "证据包", "历史命令兼容入口；实现位于 geo_ring_cloud.evidence_pack"),
     ("tools/presentation/geo_ring_cloud_epic_group_meeting.ps1", "演示", "英文 EPIC 组会演示生成器与 component lineage"),
     ("tools/presentation/geo_ring_cloud_epic_group_meeting_cn.ps1", "演示", "中文 EPIC 组会演示生成器与 component lineage"),
+    ("tools/presentation/geo_ring_cloud_presentation_group_meeting_builder.mjs", "演示", "中文 30 分钟 GEO-ring Cloud 组会演示 Artifact-tool 构建器；跨 stage_00d/09d/09e/09f/10 的 presentation_builder"),
     ("tools/presentation/geo_ring_cloud_presentation_manifest.ps1", "演示", "PowerShell 演示产物 lineage helper"),
     ("make_stage08_epic_group_meeting_ppt.ps1", "演示", "英文演示生成器历史命令兼容入口"),
     ("make_stage08_epic_group_meeting_ppt_cn.ps1", "演示", "中文演示生成器历史命令兼容入口"),
@@ -1448,7 +1449,7 @@ def create_schema(conn):
 
 def categorize(name: str, ext: str) -> str:
     e = ext.lower()
-    if e in (".py",):
+    if e in (".py", ".js", ".mjs", ".cjs"):
         return "code"
     if e in (".ipynb",):
         return "notebook"

@@ -24,6 +24,8 @@ TEXT_EXTENSIONS = {
     ".cmd",
     ".csv",
     ".json",
+    ".js",
+    ".mjs",
     ".md",
     ".ps1",
     ".py",
@@ -38,6 +40,8 @@ CODE_AND_CONFIG_EXTENSIONS = {
     ".bat",
     ".cmd",
     ".json",
+    ".js",
+    ".mjs",
     ".ps1",
     ".py",
     ".sh",
@@ -81,7 +85,7 @@ STAGE_ID_ASSIGNMENT = re.compile(
     re.MULTILINE,
 )
 COMPONENT_ROLE_ASSIGNMENT = re.compile(
-    r"^\s*\$?COMPONENT_ROLE\s*=\s*['\"]([a-z][a-z0-9_]*)['\"]",
+    r"^\s*(?:(?:export\s+)?(?:const|let|var)\s+)?\$?COMPONENT_ROLE\s*=\s*['\"]([a-z][a-z0-9_]*)['\"]",
     re.MULTILINE,
 )
 PYTHON_MODULE_FILENAME = re.compile(r"^[a-z][a-z0-9_]*\.py$")

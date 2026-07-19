@@ -31,6 +31,7 @@
 | make_stage08_epic_group_meeting_ppt_cn.ps1 | geo_ring_cloud |  | presentation_builder | 演示 | 中文演示生成器历史命令兼容入口 |  |
 | tools/presentation/geo_ring_cloud_epic_group_meeting.ps1 | geo_ring_cloud |  | presentation_builder | 演示 | 英文 EPIC 组会演示生成器与 component lineage |  |
 | tools/presentation/geo_ring_cloud_epic_group_meeting_cn.ps1 | geo_ring_cloud |  | presentation_builder | 演示 | 中文 EPIC 组会演示生成器与 component lineage |  |
+| tools/presentation/geo_ring_cloud_presentation_group_meeting_builder.mjs | geo_ring_cloud |  | presentation_builder | 演示 | 中文 30 分钟 GEO-ring Cloud 组会演示 Artifact-tool 构建器；跨 stage_00d/09d/09e/09f/10 的 presentation_builder |  |
 | tools/presentation/geo_ring_cloud_presentation_manifest.ps1 | geo_ring_cloud |  | presentation_lineage | 演示 | PowerShell 演示产物 lineage helper |  |
 | geo_ring_cloud/adapters/claas3.py | geo_ring_cloud |  | product_adapter |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/adapters/cloud_products.py | geo_ring_cloud |  | product_adapter |  | 当前文件系统扫描补充脚本 |  |

@@ -228,6 +228,19 @@ class PowerShellCompatibilityEntrypointTests(unittest.TestCase):
         self.assertTrue(any("implementation logic" in item.message for item in findings))
 
 
+class JavaScriptGovernanceTests(unittest.TestCase):
+    def test_exported_const_component_role_is_detected(self) -> None:
+        relative = (
+            "third_report/code/geo_ring_cloud_stage1/"
+            "tools/presentation/geo_ring_cloud_presentation_builder.mjs"
+        )
+        with isolated_root("mjs_component_role") as root:
+            write(root, relative, 'export const COMPONENT_ROLE = "presentation_builder";\n')
+            role = governance_check.component_role_in_script(relative)
+
+        self.assertEqual(role, "presentation_builder")
+
+
 class PackageFacadeTests(unittest.TestCase):
     def test_import_only_facade_is_accepted(self) -> None:
         relative = next(iter(governance_check.PACKAGE_FACADE_PATHS))
