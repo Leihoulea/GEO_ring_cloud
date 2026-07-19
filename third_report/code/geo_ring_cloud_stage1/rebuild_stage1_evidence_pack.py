@@ -197,10 +197,16 @@ def script_manifest_rows() -> list[list[str]]:
         "06c_geometry_parameter_audit.py": ("06c-legacy", "executed"),
         "06c_multi_satellite_geometry_metadata_audit.py": ("06c-final", "executed"),
         "06d_himawari_full_disk_geometry_validation.py": ("06d", "executed"),
-        "06e_full_geometry_angle_source_sync_patch.py": ("06e", "executed"),
-        "06f_unknown_aware_data_asset_audit.py": ("06f", "executed"),
-        "06f_reexport_with_obitype_patch.py": ("06f", "executed patch"),
-        "06f_report_sync_patch.py": ("06f", "executed patch"),
+        "stage_06e_geometry_angle_sync/stage_06e_full_geometry_angle_source_sync.py": ("06e", "executed canonical"),
+        "stage_06e_geometry_angle_sync/stage_06e_vza_ecef_final_audit.py": ("06e", "present canonical audit"),
+        "06e_full_geometry_angle_source_sync_patch.py": ("06e", "compatibility entrypoint"),
+        "06e_vza_ecef_final_audit.py": ("06e", "compatibility entrypoint"),
+        "stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py": ("06f", "executed canonical"),
+        "stage_06f_data_asset_audit/stage_06f_reexport_with_obitype_patch.py": ("06f", "executed canonical patch"),
+        "stage_06f_data_asset_audit/stage_06f_report_sync.py": ("06f", "executed canonical patch"),
+        "06f_unknown_aware_data_asset_audit.py": ("06f", "compatibility entrypoint"),
+        "06f_reexport_with_obitype_patch.py": ("06f", "compatibility entrypoint"),
+        "06f_report_sync_patch.py": ("06f", "compatibility entrypoint"),
         "07_overlap_consistency_validation.py": ("07-original", "executed"),
         "07p_overlap_validator_hotfix.py": ("07p", "executed"),
         "07p_b_source_boundary_magnitude_review.py": ("07p-b", "executed"),
@@ -209,9 +215,13 @@ def script_manifest_rows() -> list[list[str]]:
         "stage1_common.py": ("shared", "support library"),
     }
     rows = []
-    for path in sorted(CODE_ROOT.glob("*.py")):
-        stage, status = script_status.get(path.name, ("unclassified", "present"))
-        rows.append([path.name, stage, status, str(path)])
+    paths = sorted(CODE_ROOT.glob("*.py")) + sorted(CODE_ROOT.glob("stage_*/*.py"))
+    for path in paths:
+        if path.name == "__init__.py":
+            continue
+        relative = path.relative_to(CODE_ROOT).as_posix()
+        stage, status = script_status.get(relative, ("unclassified", "present"))
+        rows.append([relative, stage, status, str(path)])
     return rows
 
 
@@ -608,7 +618,8 @@ def build_stage06e() -> str:
 
 - 状态：`COMPLETE`
 - Gate：`PASS`
-- 脚本：`06e_full_geometry_angle_source_sync_patch.py`
+- canonical 脚本：`stage_06e_geometry_angle_sync/stage_06e_full_geometry_angle_source_sync.py`
+- 历史兼容入口：`06e_full_geometry_angle_source_sync_patch.py`
 - 当前 authority：
   - `@STAGE_ROOT@\\reports\\06e_full_geometry_angle_source_sync_patch_report.md`
   - `@STAGE_ROOT@\\geometry_angle_sync_06e\\angle_provenance_inventory.csv`

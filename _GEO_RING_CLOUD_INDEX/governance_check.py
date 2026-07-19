@@ -128,6 +128,14 @@ COMPATIBILITY_SHIM_PATHS = {
     f"{CORE_CODE_PREFIX}stage1_common.py": "geo_ring_cloud.pipeline_support",
 }
 STAGE_COMPATIBILITY_ENTRYPOINTS = {
+    f"{CORE_CODE_PREFIX}06e_full_geometry_angle_source_sync_patch.py": (
+        "stage_06e_geometry_angle_sync.stage_06e_full_geometry_angle_source_sync",
+        "stage_06e",
+    ),
+    f"{CORE_CODE_PREFIX}06e_vza_ecef_final_audit.py": (
+        "stage_06e_geometry_angle_sync.stage_06e_vza_ecef_final_audit",
+        "stage_06e",
+    ),
     f"{CORE_CODE_PREFIX}06f_unknown_aware_data_asset_audit.py": (
         "stage_06f_data_asset_audit.stage_06f_unknown_aware_data_asset_audit",
         "stage_06f",

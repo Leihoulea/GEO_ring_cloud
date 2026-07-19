@@ -218,8 +218,10 @@ SCRIPTS = [
     ("06c_geometry_parameter_audit.py", "06c", "几何参数审计：提取各卫星子午经度/地球半径/轨道高度等"),
     ("06c_multi_satellite_geometry_metadata_audit.py", "06c", "多卫星几何元数据审计（引用 geo_geometry_check + reprojected_grid + standardized_native）"),
     ("06d_himawari_full_disk_geometry_validation.py", "06d", "Himawari 全圆盘几何验证（引用 geo_geometry_check/Himawari-9 与 vza_method_comparison_by_satellite.csv）"),
-    ("06e_full_geometry_angle_source_sync_patch.py", "06e", "几何角度源同步补丁：将传感器/太阳角度层投影到目标网格并重跑 06 融合"),
-    ("06e_vza_ecef_final_audit.py", "06e", "VZA ECEF 坐标系最终审计（引用 geo_geometry_check）"),
+    ("stage_06e_geometry_angle_sync/stage_06e_full_geometry_angle_source_sync.py", "06e", "Stage 06e canonical 几何角度源同步：将传感器/太阳角度层投影到目标网格并重跑依赖诊断"),
+    ("stage_06e_geometry_angle_sync/stage_06e_vza_ecef_final_audit.py", "06e", "Stage 06e canonical VZA ECEF 坐标系最终审计"),
+    ("06e_full_geometry_angle_source_sync_patch.py", "06e", "Stage 06e 历史路径兼容入口；实现位于 canonical stage package"),
+    ("06e_vza_ecef_final_audit.py", "06e", "Stage 06e 历史路径兼容入口；实现位于 canonical stage package"),
     ("stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py", "06f", "Stage 06f canonical unknown-aware 数据资产审计实现"),
     ("stage_06f_data_asset_audit/stage_06f_reexport_with_obitype_patch.py", "06f", "Stage 06f canonical orbit type 补丁重新导出命令"),
     ("stage_06f_data_asset_audit/stage_06f_report_sync.py", "06f", "Stage 06f canonical 报告同步命令"),
@@ -270,7 +272,7 @@ EXT_REFS = [
     (r"D:\AAAresearch_paper\geo_geometry_check", "06c_multi_satellite_geometry_metadata_audit.py", 27, "GEOMETRY_ROOT 几何样本根", "D盘内"),
     (r"D:\AAAresearch_paper\geo_geometry_check\vza_method_comparison_by_satellite.csv", "06d_himawari_full_disk_geometry_validation.py", 28, "CURRENT06C_VZA_CSV 当前 06c VZA 比较结果", "D盘内"),
     (r"D:\AAAresearch_paper\geo_geometry_check\Himawari-9", "06d_himawari_full_disk_geometry_validation.py", 29, "GEOMETRY_ROOT Himawari 全圆盘段数据", "D盘内"),
-    (r"D:\AAAresearch_paper\geo_geometry_check", "06e_vza_ecef_final_audit.py", 20, "EXTERNAL_GEOMETRY_AUDIT_DIR 几何审计目录", "D盘内"),
+    (r"D:\AAAresearch_paper\geo_geometry_check", "stage_06e_geometry_angle_sync/stage_06e_vza_ecef_final_audit.py", 24, "EXTERNAL_GEOMETRY_AUDIT_DIR 几何审计目录（由 geo_ring_cloud.paths 解析）", "D盘内"),
     # 06f 扫描的多个数据目录
     (r"D:\AAAresearch_paper\data", "stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py", 35, "INPUT_DIRS 原始卫星数据根（由 geo_ring_cloud.paths 解析）", "D盘内"),
     (r"D:\AAAresearch_paper\geo_geometry_check", "stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py", 36, "INPUT_DIRS 几何校验样本（由 geo_ring_cloud.paths 解析）", "D盘内"),
@@ -619,6 +621,30 @@ MODULE_REGISTRY = (
     },
 )
 CODE_MIGRATIONS = (
+    {
+        "migration_id": "stage_06e_20260719_geometry_angle_sync",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_06e",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/06e_full_geometry_angle_source_sync_patch.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_06e_geometry_angle_sync/stage_06e_full_geometry_angle_source_sync.py",
+        "compatibility_strategy": "legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; configured CODE_ROOT subprocess lookup test",
+        "rollback": "restore implementation at legacy_path and remove the canonical package only after reverting registry and tests",
+        "notes": "Canonical Stage 06e synchronization command; sibling stage subprocesses resolve from geo_ring_cloud.paths.CODE_ROOT.",
+    },
+    {
+        "migration_id": "stage_06e_20260719_vza_ecef_audit",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_06e",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/06e_vza_ecef_final_audit.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_06e_geometry_angle_sync/stage_06e_vza_ecef_final_audit.py",
+        "compatibility_strategy": "legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; configured THIRD_REPORT_ROOT report path test",
+        "rollback": "restore implementation at legacy_path and remove the canonical package only after reverting registry and tests",
+        "notes": "Canonical Stage 06e geometry audit; report root no longer depends on __file__ parent depth.",
+    },
     {
         "migration_id": "stage_06f_20260719_unknown_aware_audit",
         "project_id": PROJECT_ID,
@@ -1947,7 +1973,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 
 ## 物理迁移原则
 
-`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。`stage_06f_data_asset_audit/` 是首个完成物理归位的多脚本 canonical stage package；三个历史顶层路径仅保留受治理的薄兼容入口，迁移证据见 `code_migrations.md`。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
+`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。`stage_06e_geometry_angle_sync/` 与 `stage_06f_data_asset_audit/` 已完成多脚本 canonical 物理归位；历史顶层路径仅保留受治理的薄兼容入口，迁移证据见 `code_migrations.md`。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
 
 新 stage 若只有一个脚本，可使用 `stage_XX_<purpose>.py`；若有多个脚本，必须放入 `stage_XX_<purpose>/`。跨阶段工具不得伪造组合 stage，必须使用 `geo_ring_cloud_<role>_<purpose>.py`、声明 `COMPONENT_ROLE`，并在 manifest 中记录 `related_stage_ids`。
 """
@@ -2002,6 +2028,7 @@ Generated: `{GENERATED_AT}`
 ## 尚未达到的目标
 
 - `stage1_common.py` 已降为 compatibility shim；`pipeline_support` 已降为纯兼容 facade，layout、cloud semantics、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、产品读取、quicklook、artifact IO 与数组摘要统计均已拆入专责模块。
+- Stage 06e 两个实现已迁入 `stage_06e_geometry_angle_sync/`；子进程与报告根分别由 `CODE_ROOT`、`THIRD_REPORT_ROOT` 稳定解析。
 - Stage 06f 三个实现已迁入 `stage_06f_data_asset_audit/`；原路径由 AST 门禁约束为薄兼容入口。
 {dynamic_loader_status}
 {path_debt_status}

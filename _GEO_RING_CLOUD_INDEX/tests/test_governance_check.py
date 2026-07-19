@@ -236,14 +236,16 @@ class ModuleRegistryTests(unittest.TestCase):
         self.assertEqual(findings, [])
 
     def test_registered_stage_migration_is_not_treated_as_a_new_stage(self) -> None:
-        script = next(
-            path
-            for path in governance_check.REGISTERED_STAGE_MIGRATION_TARGETS
-            if not path.endswith("/__init__.py")
+        canonical_module, expected_stage_id = next(
+            iter(governance_check.STAGE_COMPATIBILITY_ENTRYPOINTS.values())
+        )
+        script = (
+            f"{governance_check.CORE_CODE_PREFIX}"
+            f"{canonical_module.replace('.', '/')}.py"
         )
         artifact_index = "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md"
         with isolated_root("registered_stage_migration") as root:
-            write(root, script, 'STAGE_ID = "stage_06f"\n')
+            write(root, script, f'STAGE_ID = "{expected_stage_id}"\n')
             write(root, artifact_index, "| path |\n| --- |\n")
             findings = governance_check.check_stage_contract(
                 [script, artifact_index],

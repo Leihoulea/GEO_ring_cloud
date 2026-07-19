@@ -76,6 +76,22 @@ class EvidencePackBuilderTests(unittest.TestCase):
 
         self.assertEqual({name: count for name, count in counts.items() if count > 1}, {})
 
+    def test_script_manifest_prefers_canonical_migrated_stage_paths(self) -> None:
+        rows = {row[0]: row[1:] for row in evidence_pack.script_manifest_rows()}
+
+        self.assertEqual(
+            rows["stage_06e_geometry_angle_sync/stage_06e_full_geometry_angle_source_sync.py"][:2],
+            ["06e", "executed canonical"],
+        )
+        self.assertEqual(
+            rows["06e_full_geometry_angle_source_sync_patch.py"][:2],
+            ["06e", "compatibility entrypoint"],
+        )
+        self.assertEqual(
+            rows["stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py"][:2],
+            ["06f", "executed canonical"],
+        )
+
 
 class PackageBoundaryTests(unittest.TestCase):
     def test_legacy_shims_export_canonical_objects(self) -> None:
@@ -148,6 +164,40 @@ class PackageBoundaryTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertIn("usage:", completed.stdout.lower())
 
+    def test_stage_06e_legacy_entrypoints_and_configured_roots(self) -> None:
+        from geo_ring_cloud.paths import CODE_ROOT, THIRD_REPORT_ROOT
+
+        mappings = {
+            "06e_full_geometry_angle_source_sync_patch": (
+                "stage_06e_geometry_angle_sync.stage_06e_full_geometry_angle_source_sync",
+                "main",
+            ),
+            "06e_vza_ecef_final_audit": (
+                "stage_06e_geometry_angle_sync.stage_06e_vza_ecef_final_audit",
+                "main",
+            ),
+        }
+        imported = {}
+        for legacy_name, (canonical_name, public_name) in mappings.items():
+            legacy = importlib.import_module(legacy_name)
+            canonical = importlib.import_module(canonical_name)
+            imported[canonical_name] = canonical
+            self.assertIs(getattr(legacy, public_name), getattr(canonical, public_name))
+            self.assertEqual(legacy.STAGE_ID, "stage_06e")
+
+        sync = imported[
+            "stage_06e_geometry_angle_sync.stage_06e_full_geometry_angle_source_sync"
+        ]
+        audit = imported[
+            "stage_06e_geometry_angle_sync.stage_06e_vza_ecef_final_audit"
+        ]
+        self.assertEqual(sync.CODE_DIR, CODE_ROOT)
+        self.assertEqual(audit.WORKSPACE_ROOT, THIRD_REPORT_ROOT)
+        self.assertEqual(
+            audit.LOCAL_REPORT_ROOT,
+            THIRD_REPORT_ROOT / "reports" / "geo_ring_cloud_stage1_06e_vza_ecef_final_audit",
+        )
+
     def test_migrated_stage_scripts_use_static_package_dependencies(self) -> None:
         migrated = [
             "05_reproject_cloud_to_grid.py",
@@ -160,6 +210,8 @@ class PackageBoundaryTests(unittest.TestCase):
             "07p_b_source_boundary_magnitude_review.py",
             "06e_full_geometry_angle_source_sync_patch.py",
             "06e_vza_ecef_final_audit.py",
+            "stage_06e_geometry_angle_sync/stage_06e_full_geometry_angle_source_sync.py",
+            "stage_06e_geometry_angle_sync/stage_06e_vza_ecef_final_audit.py",
             "06f_unknown_aware_data_asset_audit.py",
             "06f_reexport_with_obitype_patch.py",
         ]

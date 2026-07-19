@@ -36,6 +36,7 @@
 | run_epic_georing_single_sample.py | geo_ring_cloud |  | runner | 运行器 | EPIC Geo-ring 单时次完整运行流水线（BASE=stage1, RUNS=time_runs） |  |
 | geo_ring_cloud/sources.py | geo_ring_cloud |  | source_registry |  | 当前文件系统扫描补充脚本 |  |
 | summarize_time_run_20240319_1500.py | geo_ring_cloud |  | summary_helper | 汇总 | 汇总 20240319_1500 时次运行结果 |  |
+| stage_06e_geometry_angle_sync/__init__.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | stage_06f_data_asset_audit/__init__.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3_integration.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
@@ -55,8 +56,10 @@
 | 06c_multi_satellite_geometry_metadata_audit.py | geo_ring_cloud | stage_06c |  | 06c | 多卫星几何元数据审计（引用 geo_geometry_check + reprojected_grid + standardized_native） | D:\AAAresearch_paper\geo_geometry_check |
 | stage_06c_claas3_geometry_angle_lineage.py | geo_ring_cloud | stage_06c |  | 06c | CLAAS-3 CF projection and navigation-derived angle lineage gate |  |
 | 06d_himawari_full_disk_geometry_validation.py | geo_ring_cloud | stage_06d |  | 06d | Himawari 全圆盘几何验证（引用 geo_geometry_check/Himawari-9 与 vza_method_comparison_by_satellite.csv） | D:\AAAresearch_paper\geo_geometry_check\Himawari-9,D:\AAAresearch_paper\geo_geometry_check\vza_method_comparison_by_satellite.csv |
-| 06e_full_geometry_angle_source_sync_patch.py | geo_ring_cloud | stage_06e |  | 06e | 几何角度源同步补丁：将传感器/太阳角度层投影到目标网格并重跑 06 融合 |  |
-| 06e_vza_ecef_final_audit.py | geo_ring_cloud | stage_06e |  | 06e | VZA ECEF 坐标系最终审计（引用 geo_geometry_check） | D:\AAAresearch_paper\geo_geometry_check |
+| stage_06e_geometry_angle_sync/stage_06e_full_geometry_angle_source_sync.py | geo_ring_cloud | stage_06e |  | 06e | Stage 06e canonical 几何角度源同步：将传感器/太阳角度层投影到目标网格并重跑依赖诊断 |  |
+| stage_06e_geometry_angle_sync/stage_06e_vza_ecef_final_audit.py | geo_ring_cloud | stage_06e |  | 06e | Stage 06e canonical VZA ECEF 坐标系最终审计 | D:\AAAresearch_paper\geo_geometry_check |
+| 06e_full_geometry_angle_source_sync_patch.py | geo_ring_cloud | stage_06e | compatibility_entrypoint | 06e | Stage 06e 历史路径兼容入口；实现位于 canonical stage package |  |
+| 06e_vza_ecef_final_audit.py | geo_ring_cloud | stage_06e | compatibility_entrypoint | 06e | Stage 06e 历史路径兼容入口；实现位于 canonical stage package |  |
 | stage_06f_data_asset_audit/stage_06f_reexport_with_obitype_patch.py | geo_ring_cloud | stage_06f |  | 06f | Stage 06f canonical orbit type 补丁重新导出命令 |  |
 | stage_06f_data_asset_audit/stage_06f_report_sync.py | geo_ring_cloud | stage_06f |  | 06f | Stage 06f canonical 报告同步命令 |  |
 | stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py | geo_ring_cloud | stage_06f |  | 06f | Stage 06f canonical unknown-aware 数据资产审计实现 | D:\AAAresearch_paper\data,D:\AAAresearch_paper\geo_geometry_check,D:\AAAresearch_paper\geo_ring_cloud_stage1\fused_best_source,D:\AAAresearch_paper\geo_ring_cloud_stage1\reprojected_grid,D:\AAAresearch_paper\geo_ring_cloud_stage1\standardized_native |
