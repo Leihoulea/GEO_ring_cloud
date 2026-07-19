@@ -1,5 +1,7 @@
 # GEO-ring Cloud 任务文件索引报告
 
+> 本文是 2026-07-08 的历史审计快照，不再作为当前路径和模块归属的权威来源。请从 `_GEO_RING_CLOUD_WORKSPACE/README.md` 进入，并以 SQLite、`module_registry.md`、`code_migrations.md` 为准。
+
 > **项目根**：`D:\AAAresearch_paper`
 > **任务正式名称**：GEO-ring Cloud Stage1（多静止卫星统一云产品融合）
 > **生成日期**：2026-07-08

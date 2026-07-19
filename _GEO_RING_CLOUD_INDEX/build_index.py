@@ -147,7 +147,7 @@ TOP_DIRS = [
     # (相对路径, 相关性, 角色, 体积说明, 被代码引用, 备注)
     ("geo_ring_cloud_stage1", "强相关", "Stage1 主产物根目录（STAGE_ROOT）", "约 6.4 GB", "是", "standardized_native/reprojected_grid/fused_best_source/overlap_validation/reports 等产物 + scripts 副本"),
     ("geo_ring_cloud_stage1_time_runs", "强相关", "多时次运行、跨阶段实验与阶段诊断产物根目录", "较大", "是", "运行器与 stage_08 以后诊断脚本通过 RUNS_ROOT 引用；大产物保留原位"),
-    ("geo_ring_cloud_stage1_evidence_pack", "强相关", "Stage1 证据包（latest + 10 snapshots）", "约 1.2 MB", "是", "rebuild_stage1_evidence_pack.py:EVIDENCE_ROOT 产出"),
+    ("geo_ring_cloud_stage1_evidence_pack", "强相关", "Stage1 证据包（latest + 10 snapshots）", "约 1.2 MB", "是", "geo_ring_cloud.evidence_pack:EVIDENCE_ROOT 产出"),
     ("third_report/code/geo_ring_cloud_stage1", "强相关", "GEO-ring Cloud 主代码、阶段脚本、共享组件与测试", "代码目录", "是", "权威代码源；产物写入配置化的 stage/time-runs 根目录"),
     ("data_check_report", "强相关", "前序数据审计报告（REPORT_ROOT，00-00f 阶段证据源）", "约 872 MB / 185 文件", "是", "geo_ring_cloud.paths + pipeline_layout 中的 REPORT_ROOT、PARSED_METADATA、MAPPING_YAML"),
     ("geo_geometry_check", "强相关", "几何校验样本（download_geo_geometry_samples.py 产物 + 06c/06d 审计）", "约 1.34 GB / 50 文件", "是", "download_geo_geometry_samples.py:22 OUT_ROOT；06c/06d/06e 引用"),
@@ -266,7 +266,13 @@ SCRIPTS = [
     ("stage_09c_scaled_batch/stage_09c_run_scaled_batch.py", "09c", "Stage 09c canonical 扩展批量运行与 lineage manifest"),
     ("stage09c_scaled_batch/run_stage09c_scaled_batch.py", "09c", "Stage 09c 历史嵌套路径兼容入口"),
     ("download_geo_geometry_samples.py", "下载", "从 AWS S3 下载 GOES-16/18/Himawari-9 几何样本到 geo_geometry_check/"),
-    ("rebuild_stage1_evidence_pack.py", "证据包", "重建 Stage1 证据包：汇总 data_check_report/geo_geometry_check/stage1 全部证据到 evidence_pack/"),
+    ("geo_ring_cloud/evidence_pack.py", "证据包", "canonical 跨阶段证据包构建组件与 lineage manifest"),
+    ("rebuild_stage1_evidence_pack.py", "证据包", "历史命令兼容入口；实现位于 geo_ring_cloud.evidence_pack"),
+    ("tools/presentation/geo_ring_cloud_epic_group_meeting.ps1", "演示", "英文 EPIC 组会演示生成器与 component lineage"),
+    ("tools/presentation/geo_ring_cloud_epic_group_meeting_cn.ps1", "演示", "中文 EPIC 组会演示生成器与 component lineage"),
+    ("tools/presentation/geo_ring_cloud_presentation_manifest.ps1", "演示", "PowerShell 演示产物 lineage helper"),
+    ("make_stage08_epic_group_meeting_ppt.ps1", "演示", "英文演示生成器历史命令兼容入口"),
+    ("make_stage08_epic_group_meeting_ppt_cn.ps1", "演示", "中文演示生成器历史命令兼容入口"),
     ("run_epic_georing_single_sample.py", "运行器", "EPIC Geo-ring 单时次完整运行流水线（BASE=stage1, RUNS=time_runs）"),
     ("run_epic_georing_sample_batch.py", "运行器", "EPIC Geo-ring 批量样本运行器（RUNS=time_runs）"),
     ("summarize_time_run_20240319_1500.py", "汇总", "汇总 20240319_1500 时次运行结果"),
@@ -298,12 +304,12 @@ EXT_REFS = [
     (r"D:\AAAresearch_paper\geo_ring_cloud_stage1\standardized_native", "stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py", 37, "INPUT_DIRS 标准化原生产物（由 geo_ring_cloud.paths 解析）", "D盘内"),
     (r"D:\AAAresearch_paper\geo_ring_cloud_stage1\reprojected_grid", "stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py", 38, "INPUT_DIRS 重投影产物（由 geo_ring_cloud.paths 解析）", "D盘内"),
     (r"D:\AAAresearch_paper\geo_ring_cloud_stage1\fused_best_source", "stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py", 39, "INPUT_DIRS 融合产物（由 geo_ring_cloud.paths 解析）", "D盘内"),
-    # rebuild_stage1_evidence_pack.py 汇总的所有证据源
-    (r"D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack", "rebuild_stage1_evidence_pack.py", 14, "EVIDENCE_ROOT 证据包输出根", "D盘内"),
-    (r"D:\AAAresearch_paper\geo_ring_cloud_stage1", "rebuild_stage1_evidence_pack.py", 15, "STAGE1_ROOT 主产物根（汇总证据来源）", "D盘内"),
-    (r"D:\AAAresearch_paper\geo_geometry_check", "rebuild_stage1_evidence_pack.py", 16, "GEOMETRY_ROOT 几何证据来源", "D盘内"),
-    (r"D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1", "rebuild_stage1_evidence_pack.py", 17, "CODE_ROOT 主代码来源", "D盘内"),
-    (r"D:\AAAresearch_paper\data_check_report", "rebuild_stage1_evidence_pack.py", 18, "DATA_CHECK_ROOT 前序审计证据来源", "D盘内"),
+    # geo_ring_cloud.evidence_pack 汇总的所有证据源
+    (r"D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack", "geo_ring_cloud/evidence_pack.py", 19, "EVIDENCE_ROOT 证据包输出根（由 geo_ring_cloud.paths 解析）", "D盘内"),
+    (r"D:\AAAresearch_paper\geo_ring_cloud_stage1", "geo_ring_cloud/evidence_pack.py", 19, "STAGE1_ROOT 主产物根（汇总证据来源）", "D盘内"),
+    (r"D:\AAAresearch_paper\geo_geometry_check", "geo_ring_cloud/evidence_pack.py", 19, "GEOMETRY_ROOT 几何证据来源", "D盘内"),
+    (r"D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1", "geo_ring_cloud/evidence_pack.py", 19, "CODE_ROOT 主代码来源", "D盘内"),
+    (r"D:\AAAresearch_paper\data_check_report", "geo_ring_cloud/evidence_pack.py", 19, "DATA_CHECK_ROOT 前序审计证据来源", "D盘内"),
     # time_runs 引用
     (r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs", "08e_summarize_epic_georing_multisample.py", 16, "RUNS_ROOT 多时次运行根", "D盘内"),
     (r"D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs", "08f_geometry_and_prefusion_epic_diagnostics.py", 14, "RUNS_ROOT 多时次运行根", "D盘内"),
@@ -393,6 +399,7 @@ COMPONENT_ROLES = {
     "运行器": "runner",
     "下载": "downloader",
     "证据包": "evidence_pack_builder",
+    "演示": "presentation_builder",
     "汇总": "summary_helper",
     "data_product_audit": "data_product_audit",
     "": "support",
@@ -662,6 +669,18 @@ MODULE_REGISTRY = (
         "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,FullPixelDiagnosticTests",
         "notes": "Manifest callers must provide canonical_stage_id; the legacy module remains a pure shim.",
     },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.evidence_pack",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/evidence_pack.py",
+        "component_role": "evidence_pack_builder",
+        "legacy_module": "rebuild_stage1_evidence_pack",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/rebuild_stage1_evidence_pack.py",
+        "migration_status": "canonical_with_compatibility_entrypoint",
+        "public_api": "evidence inventories, stage status, evidence manifest, snapshot builder and CLI",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::EvidencePackBuilderTests; governance component-entrypoint boundary",
+        "notes": "Cross-stage manifests leave canonical_stage_id empty and record related_stage_ids; the historical command is a thin executable import boundary.",
+    },
 )
 CODE_MIGRATIONS = (
     {
@@ -892,10 +911,58 @@ CODE_MIGRATIONS = (
         "rollback": "restore implementation at legacy_path and remove the canonical package only after reverting registry and tests",
         "notes": "Stage 09b now records the canonical Stage 09 implementation in its reuse audit; historical artifacts remain readable.",
     },
+    {
+        "migration_id": "component_20260719_evidence_pack_builder",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/rebuild_stage1_evidence_pack.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/evidence_pack.py",
+        "compatibility_strategy": "legacy_path_thin_component_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; Python syntax and scientific regression tests",
+        "rollback": "restore implementation at legacy_path only after reverting module registry, tests, and canonical imports",
+        "notes": "Evidence-pack construction is a cross-stage component, not a pipeline stage.",
+    },
+    {
+        "migration_id": "component_20260719_epic_presentation_en",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/make_stage08_epic_group_meeting_ppt.ps1",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/tools/presentation/geo_ring_cloud_epic_group_meeting.ps1",
+        "compatibility_strategy": "powershell_parameter_forwarding_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "PowerShell parser; governance forwarding boundary; component-lineage static contract",
+        "rollback": "restore implementation at legacy_path only after reverting the forwarding registry",
+        "notes": "Presentation ownership is expressed through component_role; Stage 08 relations live in the generated manifest.",
+    },
+    {
+        "migration_id": "component_20260719_epic_presentation_cn",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/make_stage08_epic_group_meeting_ppt_cn.ps1",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/tools/presentation/geo_ring_cloud_epic_group_meeting_cn.ps1",
+        "compatibility_strategy": "powershell_parameter_forwarding_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "PowerShell parser; governance forwarding boundary; component-lineage static contract",
+        "rollback": "restore implementation at legacy_path only after reverting the forwarding registry",
+        "notes": "The Chinese generator consumes the canonical presentation configuration under tools/presentation.",
+    },
+    {
+        "migration_id": "component_20260719_epic_presentation_config",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage08_epic_group_meeting_slides_cn.json",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/tools/presentation/geo_ring_cloud_epic_group_meeting_slides_cn.json",
+        "compatibility_strategy": "move_and_update_single_caller",
+        "status": "migrated_without_compatibility_alias",
+        "verified_by": "focused reference search; PowerShell parser; canonical generator configuration test",
+        "rollback": "move the JSON back and restore the default SlideJson path in the Chinese generator",
+        "notes": "The configuration had one code caller, so a duplicate historical alias is unnecessary.",
+    },
 )
 INDEX_EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", "_tmp"}
 COMPONENT_ROLE_ASSIGNMENT = re.compile(
-    r"^\s*COMPONENT_ROLE\s*=\s*['\"]([a-z][a-z0-9_]*)['\"]",
+    r"^\s*\$?COMPONENT_ROLE\s*=\s*['\"]([a-z][a-z0-9_]*)['\"]",
     re.MULTILINE,
 )
 TIME_RUN_STAGE_ROOT = re.compile(r"^stage_?\d{2}[a-z0-9_]*", re.IGNORECASE)
@@ -2189,7 +2256,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 | stage pipeline | 单一 canonical stage 的科学处理与验证 | `stage_09d_*`, `stage_10_*` |
 | orchestration | 跨阶段实验、批处理、time-run matrix | `geo_ring_cloud_experiment_profile_pair.py`, `geo_ring_cloud_time_run_matrix.py` |
 | diagnostics | 可复用指标、采样、分层统计与 full-pixel workflow | `geo_ring_cloud.diagnostics.epic_pair`, `geo_ring_cloud.diagnostics.full_pixel`, `geo_ring_cloud.diagnostics.full_pixel_workflow` |
-| presentation | 代表性图、组会材料生成 | `stage_10/stage_10_make_*` |
+| presentation | 跨阶段演示配置、生成与 lineage | `tools/presentation/geo_ring_cloud_*` |
 | tests | 轻量单元、smoke 与回归测试；生成物只放 `tests/_tmp` | `tests/` |
 
 ## 物理迁移原则

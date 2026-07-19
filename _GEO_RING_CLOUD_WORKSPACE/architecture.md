@@ -23,7 +23,7 @@
 | stage pipeline | 单一 canonical stage 的科学处理与验证 | `stage_09d_*`, `stage_10_*` |
 | orchestration | 跨阶段实验、批处理、time-run matrix | `geo_ring_cloud_experiment_profile_pair.py`, `geo_ring_cloud_time_run_matrix.py` |
 | diagnostics | 可复用指标、采样、分层统计与 full-pixel workflow | `geo_ring_cloud.diagnostics.epic_pair`, `geo_ring_cloud.diagnostics.full_pixel`, `geo_ring_cloud.diagnostics.full_pixel_workflow` |
-| presentation | 代表性图、组会材料生成 | `stage_10/stage_10_make_*` |
+| presentation | 跨阶段演示配置、生成与 lineage | `tools/presentation/geo_ring_cloud_*` |
 | tests | 轻量单元、smoke 与回归测试；生成物只放 `tests/_tmp` | `tests/` |
 
 ## 物理迁移原则

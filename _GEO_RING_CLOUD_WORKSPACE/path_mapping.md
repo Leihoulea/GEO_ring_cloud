@@ -11,6 +11,11 @@
 | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | 08j_prefusion_source_pair_overlap_diagnostics.py | 13 | RUNS_ROOT 多时次运行根 | D盘内 |
 | D:\AAAresearch_paper\data | data_check_report/check_download_completeness.py | 17 | DATA_ROOT 原始卫星数据根 | D盘内 |
 | D:\AAAresearch_paper\geo_geometry_check | download_geo_geometry_samples.py | 22 | OUT_ROOT 几何样本下载产物根 | D盘内 |
+| D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack | geo_ring_cloud/evidence_pack.py | 19 | EVIDENCE_ROOT 证据包输出根（由 geo_ring_cloud.paths 解析） | D盘内 |
+| D:\AAAresearch_paper\geo_ring_cloud_stage1 | geo_ring_cloud/evidence_pack.py | 19 | STAGE1_ROOT 主产物根（汇总证据来源） | D盘内 |
+| D:\AAAresearch_paper\geo_geometry_check | geo_ring_cloud/evidence_pack.py | 19 | GEOMETRY_ROOT 几何证据来源 | D盘内 |
+| D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 | geo_ring_cloud/evidence_pack.py | 19 | CODE_ROOT 主代码来源 | D盘内 |
+| D:\AAAresearch_paper\data_check_report | geo_ring_cloud/evidence_pack.py | 19 | DATA_CHECK_ROOT 前序审计证据来源 | D盘内 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1 | geo_ring_cloud/paths.py | 20 | STAGE_ROOT 产物根（可被 GEO_RING_STAGE_ROOT 环境变量覆盖） | D盘内 |
 | D:\AAAresearch_paper\data_check_report | geo_ring_cloud/paths.py | 25 | DATA_CHECK_ROOT 前序审计报告根 | D盘内 |
 | D:\AAAresearch_paper\data_check_report\geometry_variable_audit | geo_ring_cloud/paths.py | 26 | DATA_CHECK_GEOMETRY_ROOT 几何审计目录 | D盘内 |
@@ -18,11 +23,6 @@
 | D:\AAAresearch_paper\data_check_report\parsed_file_metadata.csv | geo_ring_cloud/pipeline_layout.py | 14 | PARSED_METADATA 所有卫星文件元数据索引（01 阶段核心输入） | D盘内 |
 | D:\AAAresearch_paper\data_check_report\geometry_variable_audit\product_variable_inventory_full.csv | geo_ring_cloud/pipeline_layout.py | 15 | VARIABLE_INVENTORY 产品变量清单 | D盘内 |
 | D:\AAAresearch_paper\data_check_report\manual_variable_mapping_by_product.yaml | geo_ring_cloud/pipeline_layout.py | 16 | MAPPING_YAML 手动变量映射表（02 直接读取） | D盘内 |
-| D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack | rebuild_stage1_evidence_pack.py | 14 | EVIDENCE_ROOT 证据包输出根 | D盘内 |
-| D:\AAAresearch_paper\geo_ring_cloud_stage1 | rebuild_stage1_evidence_pack.py | 15 | STAGE1_ROOT 主产物根（汇总证据来源） | D盘内 |
-| D:\AAAresearch_paper\geo_geometry_check | rebuild_stage1_evidence_pack.py | 16 | GEOMETRY_ROOT 几何证据来源 | D盘内 |
-| D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 | rebuild_stage1_evidence_pack.py | 17 | CODE_ROOT 主代码来源 | D盘内 |
-| D:\AAAresearch_paper\data_check_report | rebuild_stage1_evidence_pack.py | 18 | DATA_CHECK_ROOT 前序审计证据来源 | D盘内 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\epic_202403_target_selection\recommended_epic_georing_validation_targets.csv | run_epic_georing_sample_batch.py | 15 | DEFAULT_SELECTION_CSV EPIC 验证目标选择清单 | D盘内 |
 | D:\AAAresearch_paper\geo_geometry_check | stage_06c_geometry_audit/stage_06c_multi_satellite_geometry_metadata_audit.py | 30 | GEOMETRY_ROOT 几何样本根（由 geo_ring_cloud.paths 解析） | D盘内 |
 | D:\AAAresearch_paper\geo_geometry_check | stage_06e_geometry_angle_sync/stage_06e_vza_ecef_final_audit.py | 24 | EXTERNAL_GEOMETRY_AUDIT_DIR 几何审计目录（由 geo_ring_cloud.paths 解析） | D盘内 |

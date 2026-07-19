@@ -2,6 +2,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | geo_ring_cloud/artifact_io.py | geo_ring_cloud |  | artifact_io |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/cloud_semantics.py | geo_ring_cloud |  | cloud_semantics |  | 当前文件系统扫描补充脚本 |  |
+| rebuild_stage1_evidence_pack.py | geo_ring_cloud |  | compatibility_entrypoint | 证据包 | 历史命令兼容入口；实现位于 geo_ring_cloud.evidence_pack |  |
 | geo_ring_cloud/pipeline_support.py | geo_ring_cloud |  | compatibility_facade |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud_claas3_adapter.py | geo_ring_cloud |  | compatibility_shim | common | CLAAS-3 recursive discovery, deterministic deduplication, decoding, unit conversion, QA, and per-variable masks |  |
 | geo_ring_cloud_epic_pair_diagnostics.py | geo_ring_cloud |  | compatibility_shim |  | 当前文件系统扫描补充脚本 |  |
@@ -17,7 +18,7 @@
 | geo_ring_cloud/diagnostics/summary.py | geo_ring_cloud |  | diagnostics_library |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/diagnostics/full_pixel_workflow.py | geo_ring_cloud |  | diagnostics_workflow |  | 当前文件系统扫描补充脚本 |  |
 | download_geo_geometry_samples.py | geo_ring_cloud |  | downloader | 下载 | 从 AWS S3 下载 GOES-16/18/Himawari-9 几何样本到 geo_geometry_check/ | D:\AAAresearch_paper\geo_geometry_check |
-| rebuild_stage1_evidence_pack.py | geo_ring_cloud |  | evidence_pack_builder | 证据包 | 重建 Stage1 证据包：汇总 data_check_report/geo_geometry_check/stage1 全部证据到 evidence_pack/ | D:\AAAresearch_paper\data_check_report,D:\AAAresearch_paper\geo_geometry_check,D:\AAAresearch_paper\geo_ring_cloud_stage1,D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack,D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 |
+| geo_ring_cloud/evidence_pack.py | geo_ring_cloud |  | evidence_pack_builder | 证据包 | canonical 跨阶段证据包构建组件与 lineage manifest | D:\AAAresearch_paper\data_check_report,D:\AAAresearch_paper\geo_geometry_check,D:\AAAresearch_paper\geo_ring_cloud_stage1,D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack,D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 |
 | geo_ring_cloud_experiment_profile_pair.py | geo_ring_cloud |  | experiment_runner |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/fusion_support.py | geo_ring_cloud |  | fusion_support |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/geometry.py | geo_ring_cloud |  | geometry |  | 当前文件系统扫描补充脚本 |  |
@@ -25,6 +26,11 @@
 | geo_ring_cloud/overlap.py | geo_ring_cloud |  | overlap_metrics |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/paths.py | geo_ring_cloud |  | path_configuration |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/pipeline_layout.py | geo_ring_cloud |  | pipeline_layout |  | 当前文件系统扫描补充脚本 |  |
+| make_stage08_epic_group_meeting_ppt.ps1 | geo_ring_cloud |  | presentation_builder | 演示 | 英文演示生成器历史命令兼容入口 |  |
+| make_stage08_epic_group_meeting_ppt_cn.ps1 | geo_ring_cloud |  | presentation_builder | 演示 | 中文演示生成器历史命令兼容入口 |  |
+| tools/presentation/geo_ring_cloud_epic_group_meeting.ps1 | geo_ring_cloud |  | presentation_builder | 演示 | 英文 EPIC 组会演示生成器与 component lineage |  |
+| tools/presentation/geo_ring_cloud_epic_group_meeting_cn.ps1 | geo_ring_cloud |  | presentation_builder | 演示 | 中文 EPIC 组会演示生成器与 component lineage |  |
+| tools/presentation/geo_ring_cloud_presentation_manifest.ps1 | geo_ring_cloud |  | presentation_lineage | 演示 | PowerShell 演示产物 lineage helper |  |
 | geo_ring_cloud/adapters/claas3.py | geo_ring_cloud |  | product_adapter |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/adapters/cloud_products.py | geo_ring_cloud |  | product_adapter |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/adapters/epic.py | geo_ring_cloud |  | product_adapter |  | 当前文件系统扫描补充脚本 |  |

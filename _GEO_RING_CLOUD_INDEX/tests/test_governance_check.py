@@ -71,6 +71,33 @@ class CompatibilityShimTests(unittest.TestCase):
         self.assertTrue(all(item.severity == "ERROR" for item in findings))
 
 
+class CommitMessageTests(unittest.TestCase):
+    def test_registered_component_role_is_accepted(self) -> None:
+        TEST_TMP.mkdir(parents=True, exist_ok=True)
+        path = TEST_TMP / "component_commit_message.txt"
+        path.write_text(
+            "Normalize evidence_pack_builder and presentation_builder components\n",
+            encoding="utf-8",
+        )
+        try:
+            findings = governance_check.check_commit_message(path)
+        finally:
+            path.unlink(missing_ok=True)
+
+        self.assertEqual(findings, [])
+
+    def test_unscoped_commit_message_is_rejected(self) -> None:
+        TEST_TMP.mkdir(parents=True, exist_ok=True)
+        path = TEST_TMP / "unscoped_commit_message.txt"
+        path.write_text("Clean things up\n", encoding="utf-8")
+        try:
+            findings = governance_check.check_commit_message(path)
+        finally:
+            path.unlink(missing_ok=True)
+
+        self.assertTrue(any("canonical stage ID or component role" in item.message for item in findings))
+
+
 class StageCompatibilityEntrypointTests(unittest.TestCase):
     @staticmethod
     def write_registered_entrypoints(root: Path) -> None:
@@ -130,6 +157,75 @@ class StageCompatibilityEntrypointTests(unittest.TestCase):
             findings = governance_check.check_stage_compatibility_entrypoints()
 
         self.assertEqual(findings, [])
+
+
+class ComponentCompatibilityEntrypointTests(unittest.TestCase):
+    @staticmethod
+    def write_registered_entrypoints(root: Path) -> None:
+        for relative, (canonical, role) in governance_check.COMPONENT_COMPATIBILITY_ENTRYPOINTS.items():
+            canonical_path = f"{governance_check.CORE_CODE_PREFIX}{canonical.replace('.', '/')}.py"
+            write(root, canonical_path, f'COMPONENT_ROLE = "{role}"\n\ndef main():\n    return 0\n')
+            write(
+                root,
+                relative,
+                f'"""compatibility entrypoint"""\n'
+                f'from {canonical} import *\n'
+                'COMPONENT_ROLE = "compatibility_entrypoint"\n'
+                'if __name__ == "__main__":\n    raise SystemExit(main())\n',
+            )
+
+    def test_registered_component_entrypoints_are_accepted(self) -> None:
+        with isolated_root("component_entrypoint_valid") as root:
+            self.write_registered_entrypoints(root)
+            findings = governance_check.check_component_compatibility_entrypoints()
+
+        self.assertEqual(findings, [])
+
+    def test_component_entrypoint_implementation_is_rejected(self) -> None:
+        with isolated_root("component_entrypoint_logic") as root:
+            self.write_registered_entrypoints(root)
+            target = next(iter(governance_check.COMPONENT_COMPATIBILITY_ENTRYPOINTS))
+            with (root / target).open("a", encoding="utf-8") as handle:
+                handle.write("\ndef implementation():\n    return 1\n")
+            findings = governance_check.check_component_compatibility_entrypoints()
+
+        self.assertTrue(any("implementation logic" in item.message for item in findings))
+
+
+class PowerShellCompatibilityEntrypointTests(unittest.TestCase):
+    @staticmethod
+    def write_registered_entrypoints(root: Path) -> None:
+        for relative, canonical in governance_check.POWERSHELL_COMPATIBILITY_ENTRYPOINTS.items():
+            write(
+                root,
+                f"{governance_check.CORE_CODE_PREFIX}{canonical}",
+                '$COMPONENT_ROLE = "presentation_builder"\n'
+                '. "geo_ring_cloud_path_configuration.ps1"\n'
+                '. "geo_ring_cloud_presentation_manifest.ps1"\n',
+            )
+            target = canonical.replace("/", "\\")
+            write(
+                root,
+                relative,
+                f'$target = Join-Path $PSScriptRoot "{target}"\n& $target @PSBoundParameters\n',
+            )
+
+    def test_parameter_forwarding_entrypoints_are_accepted(self) -> None:
+        with isolated_root("powershell_entrypoint_valid") as root:
+            self.write_registered_entrypoints(root)
+            findings = governance_check.check_powershell_compatibility_entrypoints()
+
+        self.assertEqual(findings, [])
+
+    def test_powershell_implementation_is_rejected(self) -> None:
+        with isolated_root("powershell_entrypoint_logic") as root:
+            self.write_registered_entrypoints(root)
+            target = next(iter(governance_check.POWERSHELL_COMPATIBILITY_ENTRYPOINTS))
+            with (root / target).open("a", encoding="utf-8") as handle:
+                handle.write("function Bad { return 1 }\n")
+            findings = governance_check.check_powershell_compatibility_entrypoints()
+
+        self.assertTrue(any("implementation logic" in item.message for item in findings))
 
 
 class PackageFacadeTests(unittest.TestCase):

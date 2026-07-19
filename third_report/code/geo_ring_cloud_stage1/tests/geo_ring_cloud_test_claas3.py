@@ -45,7 +45,7 @@ from geo_ring_cloud_experiment_profile_pair import (  # noqa: E402
     reusable_operational_baseline,
     write_batch_status,
 )
-import rebuild_stage1_evidence_pack as evidence_pack  # noqa: E402
+from geo_ring_cloud import evidence_pack  # noqa: E402
 from run_epic_georing_single_sample import runtime_environment  # noqa: E402
 from geo_ring_cloud.diagnostics.epic_pair import (  # noqa: E402
     POLICIES,
@@ -69,8 +69,34 @@ class EvidencePackBuilderTests(unittest.TestCase):
         self.assertNotIn("@GEOMETRY_ROOT@", rendered)
         self.assertNotIn("@DATA_CHECK_ROOT@", rendered)
 
+    def test_historical_command_is_a_thin_identity_preserving_entrypoint(self) -> None:
+        legacy = importlib.import_module("rebuild_stage1_evidence_pack")
+
+        self.assertEqual(legacy.COMPONENT_ROLE, "compatibility_entrypoint")
+        self.assertIs(legacy.main, evidence_pack.main)
+        self.assertIs(legacy.script_manifest_rows, evidence_pack.script_manifest_rows)
+
+    def test_evidence_manifest_uses_cross_stage_component_lineage(self) -> None:
+        original_list_files = evidence_pack.list_files
+        evidence_pack.list_files = lambda root, pattern="*": []
+        try:
+            payload = evidence_pack.build_evidence_manifest(
+                "2026-07-19T00:00:00Z", "20260719T000000Z"
+            )
+        finally:
+            evidence_pack.list_files = original_list_files
+
+        self.assertEqual(payload["project_id"], "geo_ring_cloud")
+        self.assertEqual(payload["canonical_stage_id"], "")
+        self.assertEqual(payload["component_role"], "evidence_pack_builder")
+        self.assertIn("stage_07v2", payload["related_stage_ids"])
+        generating_script = payload["generating_script"].replace("\\", "/")
+        self.assertTrue(generating_script.endswith("geo_ring_cloud/evidence_pack.py"))
+        self.assertEqual(payload["timestamp_utc"], "2026-07-19T00:00:00Z")
+        self.assertIn("code_commit", payload)
+
     def test_top_level_function_definitions_are_unique(self) -> None:
-        source_path = CODE_DIR / "rebuild_stage1_evidence_pack.py"
+        source_path = CODE_DIR / "geo_ring_cloud" / "evidence_pack.py"
         tree = ast.parse(source_path.read_text(encoding="utf-8-sig"))
         counts = collections.Counter(
             node.name

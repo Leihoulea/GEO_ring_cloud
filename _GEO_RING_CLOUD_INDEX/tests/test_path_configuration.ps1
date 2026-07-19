@@ -11,7 +11,7 @@ $scriptRoots = @(
     (Join-Path $ProjectRoot "third_report\scripts")
 )
 foreach ($scriptRoot in $scriptRoots) {
-    foreach ($script in Get-ChildItem -LiteralPath $scriptRoot -Filter "*.ps1" -File) {
+    foreach ($script in Get-ChildItem -LiteralPath $scriptRoot -Filter "*.ps1" -File -Recurse) {
         $tokens = $null
         $parseErrors = $null
         [void][System.Management.Automation.Language.Parser]::ParseFile(

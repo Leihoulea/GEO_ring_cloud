@@ -81,7 +81,7 @@ STAGE_ID_ASSIGNMENT = re.compile(
     re.MULTILINE,
 )
 COMPONENT_ROLE_ASSIGNMENT = re.compile(
-    r"^\s*COMPONENT_ROLE\s*=\s*['\"]([a-z][a-z0-9_]*)['\"]",
+    r"^\s*\$?COMPONENT_ROLE\s*=\s*['\"]([a-z][a-z0-9_]*)['\"]",
     re.MULTILINE,
 )
 PYTHON_MODULE_FILENAME = re.compile(r"^[a-z][a-z0-9_]*\.py$")
@@ -127,6 +127,20 @@ COMPATIBILITY_SHIM_PATHS = {
     f"{CORE_CODE_PREFIX}geo_ring_cloud_epic_pair_diagnostics.py": "geo_ring_cloud.diagnostics.epic_pair",
     f"{CORE_CODE_PREFIX}stage_09d_diagnostic_common.py": "geo_ring_cloud.diagnostics.full_pixel_workflow",
     f"{CORE_CODE_PREFIX}stage1_common.py": "geo_ring_cloud.pipeline_support",
+}
+COMPONENT_COMPATIBILITY_ENTRYPOINTS = {
+    f"{CORE_CODE_PREFIX}rebuild_stage1_evidence_pack.py": (
+        "geo_ring_cloud.evidence_pack",
+        "evidence_pack_builder",
+    ),
+}
+POWERSHELL_COMPATIBILITY_ENTRYPOINTS = {
+    f"{CORE_CODE_PREFIX}make_stage08_epic_group_meeting_ppt.ps1": (
+        "tools/presentation/geo_ring_cloud_epic_group_meeting.ps1"
+    ),
+    f"{CORE_CODE_PREFIX}make_stage08_epic_group_meeting_ppt_cn.ps1": (
+        "tools/presentation/geo_ring_cloud_epic_group_meeting_cn.ps1"
+    ),
 }
 STAGE_COMPATIBILITY_ENTRYPOINTS = {
     f"{CORE_CODE_PREFIX}08k_consolidate_stage08_report.py": (
@@ -260,6 +274,23 @@ REQUIRED_ENGINEERING_FILES = {
 }
 COMMIT_MESSAGE_TOKEN = re.compile(
     r"\b(stage_\d{2}(?:_[0-9]+|[a-z0-9]+|_[a-z0-9]+)?|geo_ring_cloud|governance|index|artifact|skill|path_config|data_audit|research_tracker)\b",
+    re.IGNORECASE,
+)
+COMMIT_COMPONENT_ROLES = {
+    "compatibility_entrypoint",
+    "data_product_audit",
+    "downloader",
+    "evidence_pack_builder",
+    "experiment_runner",
+    "path_configuration",
+    "presentation_builder",
+    "presentation_lineage",
+    "runner",
+    "shared_library",
+    "summary_helper",
+}
+COMMIT_COMPONENT_ROLE_TOKEN = re.compile(
+    r"\b(?:" + "|".join(sorted(map(re.escape, COMMIT_COMPONENT_ROLES))) + r")\b",
     re.IGNORECASE,
 )
 
@@ -406,9 +437,16 @@ def check_naming(paths: list[str], added_paths: set[str], baseline_mode: bool) -
     findings: list[Finding] = []
     for rel_path in paths:
         normalized = normalize_path(rel_path)
+        if not (ROOT / normalized).is_file():
+            continue
         if ".git/" in normalized:
             continue
-        if normalized in COMPATIBILITY_SHIM_PATHS or normalized in STAGE_COMPATIBILITY_ENTRYPOINTS:
+        if (
+            normalized in COMPATIBILITY_SHIM_PATHS
+            or normalized in COMPONENT_COMPATIBILITY_ENTRYPOINTS
+            or normalized in POWERSHELL_COMPATIBILITY_ENTRYPOINTS
+            or normalized in STAGE_COMPATIBILITY_ENTRYPOINTS
+        ):
             continue
         name_only = Path(normalized).name
         has_ambiguous = any(pattern.search(name_only) for pattern in AMBIGUOUS_STAGE_PATTERNS)
@@ -435,7 +473,14 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
 
     for rel_path in paths:
         normalized = normalize_path(rel_path)
-        if normalized in COMPATIBILITY_SHIM_PATHS or normalized in STAGE_COMPATIBILITY_ENTRYPOINTS:
+        if not (ROOT / normalized).is_file():
+            continue
+        if (
+            normalized in COMPATIBILITY_SHIM_PATHS
+            or normalized in COMPONENT_COMPATIBILITY_ENTRYPOINTS
+            or normalized in POWERSHELL_COMPATIBILITY_ENTRYPOINTS
+            or normalized in STAGE_COMPATIBILITY_ENTRYPOINTS
+        ):
             continue
         if not is_core_code(normalized):
             continue
@@ -770,6 +815,156 @@ def check_stage_compatibility_entrypoints() -> list[Finding]:
     return findings
 
 
+def check_component_compatibility_entrypoints() -> list[Finding]:
+    """Keep historical component commands executable without duplicate implementation."""
+    findings: list[Finding] = []
+    for rel_path, (canonical_module, canonical_role) in sorted(
+        COMPONENT_COMPATIBILITY_ENTRYPOINTS.items()
+    ):
+        canonical_path = f"{CORE_CODE_PREFIX}{canonical_module.replace('.', '/')}.py"
+        if not (ROOT / canonical_path).is_file():
+            findings.append(Finding("ERROR", canonical_path, "registered canonical component is missing"))
+        elif component_role_in_script(canonical_path) != canonical_role:
+            findings.append(
+                Finding(
+                    "ERROR",
+                    canonical_path,
+                    f"canonical component must declare COMPONENT_ROLE='{canonical_role}'",
+                )
+            )
+        text = read_text(rel_path)
+        if text is None:
+            findings.append(
+                Finding("ERROR", rel_path, "registered component compatibility entrypoint is missing")
+            )
+            continue
+        try:
+            tree = ast.parse(text, filename=rel_path)
+        except SyntaxError as exc:
+            findings.append(
+                Finding("ERROR", rel_path, f"component compatibility entrypoint is invalid Python: {exc}")
+            )
+            continue
+        if component_role_in_script(rel_path) != "compatibility_entrypoint":
+            findings.append(
+                Finding(
+                    "ERROR",
+                    rel_path,
+                    "component compatibility entrypoint must declare COMPONENT_ROLE='compatibility_entrypoint'",
+                )
+            )
+        if stage_ids_in_script(rel_path):
+            findings.append(
+                Finding("ERROR", rel_path, "component compatibility entrypoint must not declare a stage ID")
+            )
+
+        imports_canonical = False
+        invalid = False
+        for node in tree.body:
+            if isinstance(node, ast.Expr):
+                if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                    continue
+                invalid = True
+                break
+            if isinstance(node, ast.ImportFrom):
+                if node.module != canonical_module:
+                    invalid = True
+                    break
+                imports_canonical = True
+                continue
+            if isinstance(node, ast.Assign):
+                targets = [target.id for target in node.targets if isinstance(target, ast.Name)]
+                if targets != ["COMPONENT_ROLE"]:
+                    invalid = True
+                    break
+                continue
+            if isinstance(node, ast.If):
+                is_main_guard = (
+                    isinstance(node.test, ast.Compare)
+                    and isinstance(node.test.left, ast.Name)
+                    and node.test.left.id == "__name__"
+                    and len(node.test.ops) == 1
+                    and isinstance(node.test.ops[0], ast.Eq)
+                    and len(node.test.comparators) == 1
+                    and isinstance(node.test.comparators[0], ast.Constant)
+                    and node.test.comparators[0].value == "__main__"
+                    and not node.orelse
+                )
+                statement = node.body[0] if len(node.body) == 1 else None
+                calls_main = (
+                    isinstance(statement, ast.Raise)
+                    and isinstance(statement.exc, ast.Call)
+                    and isinstance(statement.exc.func, ast.Name)
+                    and statement.exc.func.id == "SystemExit"
+                    and len(statement.exc.args) == 1
+                    and isinstance(statement.exc.args[0], ast.Call)
+                    and isinstance(statement.exc.args[0].func, ast.Name)
+                    and statement.exc.args[0].func.id == "main"
+                    and not statement.exc.args[0].args
+                    and not statement.exc.args[0].keywords
+                )
+                if not is_main_guard or not calls_main:
+                    invalid = True
+                    break
+                continue
+            invalid = True
+            break
+        if invalid:
+            findings.append(
+                Finding("ERROR", rel_path, "component compatibility entrypoint contains implementation logic")
+            )
+        if not imports_canonical:
+            findings.append(
+                Finding("ERROR", rel_path, f"component compatibility entrypoint must import {canonical_module}")
+            )
+    return findings
+
+
+def check_powershell_compatibility_entrypoints() -> list[Finding]:
+    """Keep historical PowerShell commands as short parameter-forwarding wrappers."""
+    findings: list[Finding] = []
+    forbidden = re.compile(
+        r"(?im)^\s*function\s|New-Object|ComObject|ConvertFrom-Json|Set-Content|Add-TextBox|PowerPoint"
+    )
+    for rel_path, canonical_relative in sorted(POWERSHELL_COMPATIBILITY_ENTRYPOINTS.items()):
+        canonical_path = f"{CORE_CODE_PREFIX}{canonical_relative}"
+        canonical_text = read_text(canonical_path)
+        if canonical_text is None:
+            findings.append(Finding("ERROR", canonical_path, "registered canonical PowerShell component is missing"))
+        else:
+            required = (
+                '$COMPONENT_ROLE = "presentation_builder"',
+                "geo_ring_cloud_path_configuration.ps1",
+                "geo_ring_cloud_presentation_manifest.ps1",
+            )
+            for marker in required:
+                if marker not in canonical_text:
+                    findings.append(
+                        Finding("ERROR", canonical_path, f"canonical presentation component missing {marker}")
+                    )
+
+        text = read_text(rel_path)
+        if text is None:
+            findings.append(Finding("ERROR", rel_path, "registered PowerShell compatibility entrypoint is missing"))
+            continue
+        nonblank_lines = [line for line in text.splitlines() if line.strip()]
+        normalized_text = text.replace("/", "\\").lower()
+        expected_target = canonical_relative.replace("/", "\\").lower()
+        if len(nonblank_lines) > 15 or forbidden.search(text):
+            findings.append(
+                Finding("ERROR", rel_path, "PowerShell compatibility entrypoint contains implementation logic")
+            )
+        if expected_target not in normalized_text or "@psboundparameters" not in normalized_text:
+            findings.append(
+                Finding(
+                    "ERROR",
+                    rel_path,
+                    f"PowerShell compatibility entrypoint must forward parameters to {canonical_relative}",
+                )
+            )
+    return findings
+
+
 def check_package_facades() -> list[Finding]:
     """Keep transitional package facades free of implementation responsibilities."""
     findings: list[Finding] = []
@@ -946,7 +1141,7 @@ def check_commit_message(path: Path) -> list[Finding]:
         return [Finding("ERROR", str(path), "commit message is empty")]
     if first_line.startswith(("Merge ", "Revert ", "fixup!", "squash!")):
         return []
-    if COMMIT_MESSAGE_TOKEN.search(first_line):
+    if COMMIT_MESSAGE_TOKEN.search(first_line) or COMMIT_COMPONENT_ROLE_TOKEN.search(first_line):
         return []
     return [
         Finding(
@@ -1012,6 +1207,8 @@ def main() -> int:
     findings: list[Finding] = []
     findings.extend(check_engineering_contract())
     findings.extend(check_compatibility_shims())
+    findings.extend(check_component_compatibility_entrypoints())
+    findings.extend(check_powershell_compatibility_entrypoints())
     findings.extend(check_stage_compatibility_entrypoints())
     findings.extend(check_package_facades())
     findings.extend(check_package_dependency_boundaries(paths))
