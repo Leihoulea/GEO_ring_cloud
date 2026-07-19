@@ -245,6 +245,9 @@
 | geo_ring_cloud | stage_06_5 | stage_06_5 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_06c | stage_06c | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_06c_claas3_geometry_angle_lineage.py | stage_06c | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_06c_geometry_audit/stage_06c_claas3_geometry_angle_lineage.py | stage_06c | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_06c_geometry_audit/stage_06c_geometry_parameter_audit.py | stage_06c | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_06c_geometry_audit/stage_06c_multi_satellite_geometry_metadata_audit.py | stage_06c | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_06d | stage_06d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_06e | stage_06e | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_06e_geometry_angle_sync/stage_06e_full_geometry_angle_source_sync.py | stage_06e | 1.0 | registry-defined alias |

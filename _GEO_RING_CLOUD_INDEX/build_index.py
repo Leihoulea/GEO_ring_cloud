@@ -201,7 +201,8 @@ SCRIPTS = [
     ("geo_ring_cloud_run_discovery.py", "common", "Matrix-manifest-first run discovery with legacy time-tag compatibility"),
     ("geo_ring_cloud_time_run_matrix.py", "runner", "Matched operational_baseline and claas3_candidate runner with SQLite indexing"),
     ("stage_00d_claas3_integration_readiness.py", "00d", "CLAAS-3 March 2024 cadence, structure, QA, projection, and integration readiness gate"),
-    ("stage_06c_claas3_geometry_angle_lineage.py", "06c", "CLAAS-3 CF projection and navigation-derived angle lineage gate"),
+    ("stage_06c_geometry_audit/stage_06c_claas3_geometry_angle_lineage.py", "06c", "Stage 06c canonical CLAAS-3 CF projection and navigation-derived angle lineage gate"),
+    ("stage_06c_claas3_geometry_angle_lineage.py", "06c", "Stage 06c CLAAS-3 lineage 历史路径兼容入口"),
     ("stage_07p_claas3_profile_pair_evaluation.py", "07p", "Common-domain CLAAS-3 versus operational Meteosat consistency and boundary diagnostics"),
     ("stage_09d_claas3_epic_profile_pair_evaluation.py", "09d", "Matched common-domain EPIC cloud-mask profile-pair metrics and sample-block bootstrap"),
     ("stage_10_claas3_epic_relative_height_evaluation.py", "10", "A/B-band EPIC-relative effective-height profile-pair diagnostics with common approximate PSF"),
@@ -215,8 +216,10 @@ SCRIPTS = [
     ("05_reproject_cloud_to_grid.py", "05", "各卫星原生网格重投影到统一 0.05° 全球网格(3600x7200)，KD-tree 最近邻；输出 display/fusion valid_mask"),
     ("06_fuse_best_source.py", "06", "变量级 best-source 融合：基于 VZA/view_weight/time_weight 逐像素选最优源；输出融合数据+source_map+rating_map"),
     ("06_5_source_selection_diagnostics.py", "06.5", "源选择诊断：验证融合是否以 min-VZA 逻辑驱动"),
-    ("06c_geometry_parameter_audit.py", "06c", "几何参数审计：提取各卫星子午经度/地球半径/轨道高度等"),
-    ("06c_multi_satellite_geometry_metadata_audit.py", "06c", "多卫星几何元数据审计（引用 geo_geometry_check + reprojected_grid + standardized_native）"),
+    ("stage_06c_geometry_audit/stage_06c_geometry_parameter_audit.py", "06c", "Stage 06c canonical 几何参数审计：提取各卫星子午经度/地球半径/轨道高度等"),
+    ("stage_06c_geometry_audit/stage_06c_multi_satellite_geometry_metadata_audit.py", "06c", "Stage 06c canonical 多卫星几何元数据审计"),
+    ("06c_geometry_parameter_audit.py", "06c", "Stage 06c 历史路径兼容入口；实现位于 canonical stage package"),
+    ("06c_multi_satellite_geometry_metadata_audit.py", "06c", "Stage 06c 历史路径兼容入口；实现位于 canonical stage package"),
     ("06d_himawari_full_disk_geometry_validation.py", "06d", "Himawari 全圆盘几何验证（引用 geo_geometry_check/Himawari-9 与 vza_method_comparison_by_satellite.csv）"),
     ("stage_06e_geometry_angle_sync/stage_06e_full_geometry_angle_source_sync.py", "06e", "Stage 06e canonical 几何角度源同步：将传感器/太阳角度层投影到目标网格并重跑依赖诊断"),
     ("stage_06e_geometry_angle_sync/stage_06e_vza_ecef_final_audit.py", "06e", "Stage 06e canonical VZA ECEF 坐标系最终审计"),
@@ -269,7 +272,7 @@ EXT_REFS = [
     # download_geo_geometry_samples.py
     (r"D:\AAAresearch_paper\geo_geometry_check", "download_geo_geometry_samples.py", 22, "OUT_ROOT 几何样本下载产物根", "D盘内"),
     # 06c/06d/06e 对 geo_geometry_check 的引用
-    (r"D:\AAAresearch_paper\geo_geometry_check", "06c_multi_satellite_geometry_metadata_audit.py", 27, "GEOMETRY_ROOT 几何样本根", "D盘内"),
+    (r"D:\AAAresearch_paper\geo_geometry_check", "stage_06c_geometry_audit/stage_06c_multi_satellite_geometry_metadata_audit.py", 30, "GEOMETRY_ROOT 几何样本根（由 geo_ring_cloud.paths 解析）", "D盘内"),
     (r"D:\AAAresearch_paper\geo_geometry_check\vza_method_comparison_by_satellite.csv", "06d_himawari_full_disk_geometry_validation.py", 28, "CURRENT06C_VZA_CSV 当前 06c VZA 比较结果", "D盘内"),
     (r"D:\AAAresearch_paper\geo_geometry_check\Himawari-9", "06d_himawari_full_disk_geometry_validation.py", 29, "GEOMETRY_ROOT Himawari 全圆盘段数据", "D盘内"),
     (r"D:\AAAresearch_paper\geo_geometry_check", "stage_06e_geometry_angle_sync/stage_06e_vza_ecef_final_audit.py", 24, "EXTERNAL_GEOMETRY_AUDIT_DIR 几何审计目录（由 geo_ring_cloud.paths 解析）", "D盘内"),
@@ -621,6 +624,42 @@ MODULE_REGISTRY = (
     },
 )
 CODE_MIGRATIONS = (
+    {
+        "migration_id": "stage_06c_20260719_geometry_parameter_audit",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_06c",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/06c_geometry_parameter_audit.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_06c_geometry_audit/stage_06c_geometry_parameter_audit.py",
+        "compatibility_strategy": "legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; Python syntax and scientific regression tests",
+        "rollback": "restore implementation at legacy_path and remove the canonical package only after reverting registry and tests",
+        "notes": "Baseline geometry audit implementation now has a canonical stage-owned path.",
+    },
+    {
+        "migration_id": "stage_06c_20260719_multi_satellite_geometry_audit",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_06c",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/06c_multi_satellite_geometry_metadata_audit.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_06c_geometry_audit/stage_06c_multi_satellite_geometry_metadata_audit.py",
+        "compatibility_strategy": "legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; Python syntax and scientific regression tests",
+        "rollback": "restore implementation at legacy_path and remove the canonical package only after reverting registry and tests",
+        "notes": "Authoritative multi-satellite metadata audit remains available at its historical entrypoint.",
+    },
+    {
+        "migration_id": "stage_06c_20260719_claas3_geometry_lineage",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_06c",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage_06c_claas3_geometry_angle_lineage.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_06c_geometry_audit/stage_06c_claas3_geometry_angle_lineage.py",
+        "compatibility_strategy": "legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; CLI help smoke test; canonical import boundary test",
+        "rollback": "restore implementation at legacy_path and remove the canonical package only after reverting registry and tests",
+        "notes": "Legacy path/source/lineage shim imports were replaced by canonical geo_ring_cloud package APIs.",
+    },
     {
         "migration_id": "stage_06e_20260719_geometry_angle_sync",
         "project_id": PROJECT_ID,
@@ -1973,7 +2012,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 
 ## 物理迁移原则
 
-`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。`stage_06e_geometry_angle_sync/` 与 `stage_06f_data_asset_audit/` 已完成多脚本 canonical 物理归位；历史顶层路径仅保留受治理的薄兼容入口，迁移证据见 `code_migrations.md`。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
+`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。`stage_06c_geometry_audit/`、`stage_06e_geometry_angle_sync/` 与 `stage_06f_data_asset_audit/` 已完成多脚本 canonical 物理归位；历史顶层路径仅保留受治理的薄兼容入口，迁移证据见 `code_migrations.md`。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
 
 新 stage 若只有一个脚本，可使用 `stage_XX_<purpose>.py`；若有多个脚本，必须放入 `stage_XX_<purpose>/`。跨阶段工具不得伪造组合 stage，必须使用 `geo_ring_cloud_<role>_<purpose>.py`、声明 `COMPONENT_ROLE`，并在 manifest 中记录 `related_stage_ids`。
 """
@@ -2028,6 +2067,7 @@ Generated: `{GENERATED_AT}`
 ## 尚未达到的目标
 
 - `stage1_common.py` 已降为 compatibility shim；`pipeline_support` 已降为纯兼容 facade，layout、cloud semantics、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、产品读取、quicklook、artifact IO 与数组摘要统计均已拆入专责模块。
+- Stage 06c 三个实现已迁入 `stage_06c_geometry_audit/`；CLAAS-3 lineage gate 已直接使用 canonical paths、lineage 与 source registry API。
 - Stage 06e 两个实现已迁入 `stage_06e_geometry_angle_sync/`；子进程与报告根分别由 `CODE_ROOT`、`THIRD_REPORT_ROOT` 稳定解析。
 - Stage 06f 三个实现已迁入 `stage_06f_data_asset_audit/`；原路径由 AST 门禁约束为薄兼容入口。
 {dynamic_loader_status}

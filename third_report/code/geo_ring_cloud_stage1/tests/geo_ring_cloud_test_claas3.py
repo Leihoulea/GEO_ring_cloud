@@ -91,6 +91,10 @@ class EvidencePackBuilderTests(unittest.TestCase):
             rows["stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py"][:2],
             ["06f", "executed canonical"],
         )
+        self.assertEqual(
+            rows["stage_06c_geometry_audit/stage_06c_multi_satellite_geometry_metadata_audit.py"][:2],
+            ["06c-final", "executed canonical"],
+        )
 
 
 class PackageBoundaryTests(unittest.TestCase):
@@ -198,6 +202,58 @@ class PackageBoundaryTests(unittest.TestCase):
             THIRD_REPORT_ROOT / "reports" / "geo_ring_cloud_stage1_06e_vza_ecef_final_audit",
         )
 
+    def test_stage_06c_legacy_entrypoints_export_canonical_objects(self) -> None:
+        mappings = {
+            "06c_geometry_parameter_audit": (
+                "stage_06c_geometry_audit.stage_06c_geometry_parameter_audit",
+                "main",
+            ),
+            "06c_multi_satellite_geometry_metadata_audit": (
+                "stage_06c_geometry_audit.stage_06c_multi_satellite_geometry_metadata_audit",
+                "main",
+            ),
+            "stage_06c_claas3_geometry_angle_lineage": (
+                "stage_06c_geometry_audit.stage_06c_claas3_geometry_angle_lineage",
+                "main",
+            ),
+        }
+        for legacy_name, (canonical_name, public_name) in mappings.items():
+            legacy = importlib.import_module(legacy_name)
+            canonical = importlib.import_module(canonical_name)
+            self.assertIs(getattr(legacy, public_name), getattr(canonical, public_name))
+            self.assertEqual(legacy.STAGE_ID, "stage_06c")
+
+    def test_stage_06c_claas3_legacy_and_canonical_help(self) -> None:
+        commands = [
+            [sys.executable, "stage_06c_claas3_geometry_angle_lineage.py", "--help"],
+            [
+                sys.executable,
+                "-m",
+                "stage_06c_geometry_audit.stage_06c_claas3_geometry_angle_lineage",
+                "--help",
+            ],
+        ]
+        for command in commands:
+            completed = subprocess.run(
+                command,
+                cwd=CODE_DIR,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("usage:", completed.stdout.lower())
+
+        source = (
+            CODE_DIR
+            / "stage_06c_geometry_audit"
+            / "stage_06c_claas3_geometry_angle_lineage.py"
+        ).read_text(encoding="utf-8-sig")
+        self.assertNotIn("import path_config", source)
+        self.assertNotIn("from geo_ring_cloud_lineage", source)
+        self.assertNotIn("from geo_ring_cloud_source_registry", source)
+
     def test_migrated_stage_scripts_use_static_package_dependencies(self) -> None:
         migrated = [
             "05_reproject_cloud_to_grid.py",
@@ -205,6 +261,10 @@ class PackageBoundaryTests(unittest.TestCase):
             "06_5_source_selection_diagnostics.py",
             "06c_geometry_parameter_audit.py",
             "06c_multi_satellite_geometry_metadata_audit.py",
+            "stage_06c_claas3_geometry_angle_lineage.py",
+            "stage_06c_geometry_audit/stage_06c_geometry_parameter_audit.py",
+            "stage_06c_geometry_audit/stage_06c_multi_satellite_geometry_metadata_audit.py",
+            "stage_06c_geometry_audit/stage_06c_claas3_geometry_angle_lineage.py",
             "07_overlap_consistency_validation.py",
             "07p_overlap_validator_hotfix.py",
             "07p_b_source_boundary_magnitude_review.py",
@@ -237,7 +297,11 @@ class PackageBoundaryTests(unittest.TestCase):
             (CODE_DIR / "05_reproject_cloud_to_grid.py").read_text(encoding="utf-8-sig")
         )
         stage_06c = ast.parse(
-            (CODE_DIR / "06c_geometry_parameter_audit.py").read_text(encoding="utf-8-sig")
+            (
+                CODE_DIR
+                / "stage_06c_geometry_audit"
+                / "stage_06c_geometry_parameter_audit.py"
+            ).read_text(encoding="utf-8-sig")
         )
         self.assertNotIn(
             "geolocate",

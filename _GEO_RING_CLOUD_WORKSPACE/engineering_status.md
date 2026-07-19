@@ -1,14 +1,14 @@
 # GEO-ring Cloud Engineering Status
 
-Generated: `2026-07-19T06:59:22Z`
+Generated: `2026-07-19T07:34:53Z`
 
 ## 当前规模
 
-- 索引脚本：108
+- 索引脚本：112
 - canonical shared modules：20
-- 已登记物理代码迁移：5
+- 已登记物理代码迁移：8
 - canonical stages：43
-- SQLite 详细 artifact 记录：986
+- SQLite 详细 artifact 记录：991
 - Markdown 快查 artifact 记录：436
 - data product audits：19
 - time-run 顶层目录：156
@@ -29,6 +29,7 @@ Generated: `2026-07-19T06:59:22Z`
 ## 尚未达到的目标
 
 - `stage1_common.py` 已降为 compatibility shim；`pipeline_support` 已降为纯兼容 facade，layout、cloud semantics、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、产品读取、quicklook、artifact IO 与数组摘要统计均已拆入专责模块。
+- Stage 06c 三个实现已迁入 `stage_06c_geometry_audit/`；CLAAS-3 lineage gate 已直接使用 canonical paths、lineage 与 source registry API。
 - Stage 06e 两个实现已迁入 `stage_06e_geometry_angle_sync/`；子进程与报告根分别由 `CODE_ROOT`、`THIRD_REPORT_ROOT` 稳定解析。
 - Stage 06f 三个实现已迁入 `stage_06f_data_asset_audit/`；原路径由 AST 门禁约束为薄兼容入口。
 - 阶段脚本之间的动态实现加载已清零；Stage 05/06/07 主链均使用静态 package API。

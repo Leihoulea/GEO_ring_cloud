@@ -194,8 +194,12 @@ def script_manifest_rows() -> list[list[str]]:
         "05_reproject_cloud_to_grid.py": ("05", "executed"),
         "06_fuse_best_source.py": ("06", "executed"),
         "06_5_source_selection_diagnostics.py": ("06.5", "executed"),
-        "06c_geometry_parameter_audit.py": ("06c-legacy", "executed"),
-        "06c_multi_satellite_geometry_metadata_audit.py": ("06c-final", "executed"),
+        "stage_06c_geometry_audit/stage_06c_geometry_parameter_audit.py": ("06c-legacy", "executed canonical"),
+        "stage_06c_geometry_audit/stage_06c_multi_satellite_geometry_metadata_audit.py": ("06c-final", "executed canonical"),
+        "stage_06c_geometry_audit/stage_06c_claas3_geometry_angle_lineage.py": ("06c", "present canonical gate"),
+        "06c_geometry_parameter_audit.py": ("06c-legacy", "compatibility entrypoint"),
+        "06c_multi_satellite_geometry_metadata_audit.py": ("06c-final", "compatibility entrypoint"),
+        "stage_06c_claas3_geometry_angle_lineage.py": ("06c", "compatibility entrypoint"),
         "06d_himawari_full_disk_geometry_validation.py": ("06d", "executed"),
         "stage_06e_geometry_angle_sync/stage_06e_full_geometry_angle_source_sync.py": ("06e", "executed canonical"),
         "stage_06e_geometry_angle_sync/stage_06e_vza_ecef_final_audit.py": ("06e", "present canonical audit"),
@@ -568,9 +572,11 @@ def build_stage06c() -> str:
 
 - 状态：`COMPLETE`
 - Gate：`PASS_WITH_WARNINGS`
-- 脚本：
-  - `06c_geometry_parameter_audit.py`（legacy audit）
-  - `06c_multi_satellite_geometry_metadata_audit.py`（增强版 authoritative audit）
+- canonical 脚本：
+  - `stage_06c_geometry_audit/stage_06c_geometry_parameter_audit.py`（baseline audit）
+  - `stage_06c_geometry_audit/stage_06c_multi_satellite_geometry_metadata_audit.py`（增强版 authoritative audit）
+  - `stage_06c_geometry_audit/stage_06c_claas3_geometry_angle_lineage.py`（CLAAS-3 lineage gate）
+- 历史顶层路径仅作为 compatibility entrypoint。
 - 当前 authority：
   - `@GEOMETRY_ROOT@\\vza_method_comparison_report.md`
   - `@GEOMETRY_ROOT@\\goes_l1b_vs_l2_projection_check.csv`

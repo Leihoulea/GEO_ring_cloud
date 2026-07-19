@@ -36,6 +36,7 @@
 | run_epic_georing_single_sample.py | geo_ring_cloud |  | runner | 运行器 | EPIC Geo-ring 单时次完整运行流水线（BASE=stage1, RUNS=time_runs） |  |
 | geo_ring_cloud/sources.py | geo_ring_cloud |  | source_registry |  | 当前文件系统扫描补充脚本 |  |
 | summarize_time_run_20240319_1500.py | geo_ring_cloud |  | summary_helper | 汇总 | 汇总 20240319_1500 时次运行结果 |  |
+| stage_06c_geometry_audit/__init__.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | stage_06e_geometry_angle_sync/__init__.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | stage_06f_data_asset_audit/__init__.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
@@ -52,9 +53,12 @@
 | 05_reproject_cloud_to_grid.py | geo_ring_cloud | stage_05 |  | 05 | 各卫星原生网格重投影到统一 0.05° 全球网格(3600x7200)，KD-tree 最近邻；输出 display/fusion valid_mask |  |
 | 06_fuse_best_source.py | geo_ring_cloud | stage_06 |  | 06 | 变量级 best-source 融合：基于 VZA/view_weight/time_weight 逐像素选最优源；输出融合数据+source_map+rating_map |  |
 | 06_5_source_selection_diagnostics.py | geo_ring_cloud | stage_06_5 |  | 06.5 | 源选择诊断：验证融合是否以 min-VZA 逻辑驱动 |  |
-| 06c_geometry_parameter_audit.py | geo_ring_cloud | stage_06c |  | 06c | 几何参数审计：提取各卫星子午经度/地球半径/轨道高度等 |  |
-| 06c_multi_satellite_geometry_metadata_audit.py | geo_ring_cloud | stage_06c |  | 06c | 多卫星几何元数据审计（引用 geo_geometry_check + reprojected_grid + standardized_native） | D:\AAAresearch_paper\geo_geometry_check |
-| stage_06c_claas3_geometry_angle_lineage.py | geo_ring_cloud | stage_06c |  | 06c | CLAAS-3 CF projection and navigation-derived angle lineage gate |  |
+| stage_06c_geometry_audit/stage_06c_claas3_geometry_angle_lineage.py | geo_ring_cloud | stage_06c |  | 06c | Stage 06c canonical CLAAS-3 CF projection and navigation-derived angle lineage gate |  |
+| stage_06c_geometry_audit/stage_06c_geometry_parameter_audit.py | geo_ring_cloud | stage_06c |  | 06c | Stage 06c canonical 几何参数审计：提取各卫星子午经度/地球半径/轨道高度等 |  |
+| stage_06c_geometry_audit/stage_06c_multi_satellite_geometry_metadata_audit.py | geo_ring_cloud | stage_06c |  | 06c | Stage 06c canonical 多卫星几何元数据审计 | D:\AAAresearch_paper\geo_geometry_check |
+| 06c_geometry_parameter_audit.py | geo_ring_cloud | stage_06c | compatibility_entrypoint | 06c | Stage 06c 历史路径兼容入口；实现位于 canonical stage package |  |
+| 06c_multi_satellite_geometry_metadata_audit.py | geo_ring_cloud | stage_06c | compatibility_entrypoint | 06c | Stage 06c 历史路径兼容入口；实现位于 canonical stage package |  |
+| stage_06c_claas3_geometry_angle_lineage.py | geo_ring_cloud | stage_06c | compatibility_entrypoint | 06c | Stage 06c CLAAS-3 lineage 历史路径兼容入口 |  |
 | 06d_himawari_full_disk_geometry_validation.py | geo_ring_cloud | stage_06d |  | 06d | Himawari 全圆盘几何验证（引用 geo_geometry_check/Himawari-9 与 vza_method_comparison_by_satellite.csv） | D:\AAAresearch_paper\geo_geometry_check\Himawari-9,D:\AAAresearch_paper\geo_geometry_check\vza_method_comparison_by_satellite.csv |
 | stage_06e_geometry_angle_sync/stage_06e_full_geometry_angle_source_sync.py | geo_ring_cloud | stage_06e |  | 06e | Stage 06e canonical 几何角度源同步：将传感器/太阳角度层投影到目标网格并重跑依赖诊断 |  |
 | stage_06e_geometry_angle_sync/stage_06e_vza_ecef_final_audit.py | geo_ring_cloud | stage_06e |  | 06e | Stage 06e canonical VZA ECEF 坐标系最终审计 | D:\AAAresearch_paper\geo_geometry_check |
