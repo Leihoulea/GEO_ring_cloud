@@ -185,6 +185,20 @@ class ModuleRegistryTests(unittest.TestCase):
 
         self.assertEqual(findings, [])
 
+    def test_modified_stage_script_accepts_refreshed_engineering_status(self) -> None:
+        script = "third_report/code/geo_ring_cloud_stage1/stage_10_example.py"
+        engineering_status = "_GEO_RING_CLOUD_WORKSPACE/engineering_status.md"
+        with isolated_root("modified_stage_status") as root:
+            write(root, script, 'STAGE_ID = "stage_10"\n')
+            write(root, engineering_status, "Generated: now\n")
+            findings = governance_check.check_stage_contract(
+                [script, engineering_status],
+                set(),
+                enforce_index_docs=True,
+            )
+
+        self.assertEqual(findings, [])
+
     def test_unregistered_package_module_is_rejected(self) -> None:
         relative = (
             "third_report/code/geo_ring_cloud_stage1/"

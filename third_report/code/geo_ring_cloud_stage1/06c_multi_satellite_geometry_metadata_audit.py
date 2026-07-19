@@ -20,14 +20,12 @@ import matplotlib.pyplot as plt
 from satpy.readers.ahi_hsd import AHIHSDFileHandler
 from satpy.readers.seviri_l1b_native import NativeMSGFileHandler
 
+from geo_ring_cloud.lineage import utc_now
+from geo_ring_cloud.paths import CODE_ROOT, GEOMETRY_ROOT, STAGE_ROOT
+from geo_ring_cloud.pipeline_layout import REPORT_DIR as REPORT_ROOT
 
-WORK_ROOT = Path(r"D:\AAAresearch_paper\third_report")
-CODE_ROOT = WORK_ROOT / "code" / "geo_ring_cloud_stage1"
-
-GEOMETRY_ROOT = Path(r"D:\AAAresearch_paper\geo_geometry_check")
-REPROJECT_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1\reprojected_grid")
-STANDARDIZED_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1\standardized_native")
-REPORT_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1\reports")
+REPROJECT_ROOT = STAGE_ROOT / "reprojected_grid"
+STANDARDIZED_ROOT = STAGE_ROOT / "standardized_native"
 
 TIME_TAG = "20240305_0000"
 TARGET_TIME = "2024-03-05T00:00:00Z"
@@ -44,12 +42,6 @@ VZA_REPORT_MD = GEOMETRY_ROOT / "vza_method_comparison_report.md"
 VZA_QUICKLOOK_DIR = GEOMETRY_ROOT / "vza_difference_quicklooks"
 
 ROW_CHUNK = 120
-
-
-def utc_now() -> str:
-    from datetime import datetime, timezone
-
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def normalize_lon(lon: float | np.ndarray) -> float | np.ndarray:

@@ -21,6 +21,8 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+import governance_check
+
 ROOT = Path(r"D:\AAAresearch_paper")
 OUT_DIR = Path(r"D:\AAAresearch_paper\_GEO_RING_CLOUD_INDEX")
 DB_PATH = OUT_DIR / "geo_ring_cloud_index.sqlite"
@@ -1718,6 +1720,12 @@ def export_workspace_reports(db_path: Path = DB_PATH) -> None:
     )
     conn.close()
 
+    repo_paths, _ = governance_check.all_repo_candidate_paths()
+    absolute_path_warning_count = sum(
+        "contains absolute D:/AAAresearch_paper path" in finding.message
+        for finding in governance_check.check_paths(repo_paths, set(), baseline_mode=True)
+    )
+
     compact_artifacts = [
         row for row in artifacts
         if row.get("artifact_type") == "directory_summary"
@@ -1813,6 +1821,7 @@ Generated: `{GENERATED_AT}`
 - data product audits：{len(data_audits)}
 - time-run 顶层目录：{time_run_root_count}
 - 已登记历史命名 warning：{warning_count}
+- 历史绝对路径 warning 文件：{absolute_path_warning_count}
 
 ## 已建立的工程能力
 
@@ -1900,6 +1909,7 @@ It applies to humans and AI agents.
 - MUST reuse existing scripts, manifests, reports, and products when they already answer the task.
 - MUST decide the `project_id + canonical_stage_id` before naming files.
 - MUST run `python _GEO_RING_CLOUD_INDEX\\build_index.py` after adding or changing stage scripts.
+- Existing-stage refactors MUST stage refreshed `artifact_index.md` when artifact semantics change; otherwise refreshed `engineering_status.md` is acceptable. New stages MUST stage the full stage/artifact/audit index set.
 - MUST run `python _GEO_RING_CLOUD_INDEX\\governance_check.py --staged` before commit.
 - MUST use the checked-in `environment.yml` as the default scientific dependency baseline and run `python _GEO_RING_CLOUD_INDEX\\ci_check.py --scientific-tests` for core-code changes.
 

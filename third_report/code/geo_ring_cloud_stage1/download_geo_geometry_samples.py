@@ -18,11 +18,13 @@ import netCDF4
 from botocore import UNSIGNED
 from botocore.config import Config
 
+from geo_ring_cloud.lineage import utc_now
+from geo_ring_cloud.paths import CODE_ROOT, GEOMETRY_ROOT
 
-OUT_ROOT = Path(r"D:\AAAresearch_paper\geo_geometry_check")
+OUT_ROOT = GEOMETRY_ROOT
 REPORT_PATH = OUT_ROOT / "geometry_sample_download_report.md"
 MANIFEST_PATH = OUT_ROOT / "geometry_sample_download_manifest.csv"
-SCRIPT_COPY_DIR = Path(r"D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1")
+SCRIPT_COPY_DIR = CODE_ROOT
 
 TARGET_DT = datetime(2024, 3, 5, 0, 0, tzinfo=timezone.utc)
 TARGET_YJJJHH = "2024/065/00"
@@ -49,10 +51,6 @@ class SampleResult:
     subpoint_lon_extracted: bool
     satellite_height_extracted: bool
     notes: list[str]
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def ensure_dirs() -> None:

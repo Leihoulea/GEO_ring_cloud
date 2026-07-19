@@ -6,11 +6,12 @@ import sqlite3
 from collections import defaultdict
 from pathlib import Path
 
+from geo_ring_cloud.paths import STAGE_ROOT
+from geo_ring_cloud.pipeline_layout import REPORT_DIR
 
-STAGE_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1")
 OUT_DIR = STAGE_ROOT / "data_asset_audit_06f"
 EXPORT_DIR = OUT_DIR / "exports"
-REPORT_PATH = STAGE_ROOT / "reports" / "06f_unknown_aware_data_asset_audit_report.md"
+REPORT_PATH = REPORT_DIR / "06f_unknown_aware_data_asset_audit_report.md"
 SUMMARY_PATH = OUT_DIR / "audit_summary.json"
 SQLITE_PATH = OUT_DIR / "data_asset_audit.sqlite"
 HIGH_UNKNOWNS_CSV = EXPORT_DIR / "high_priority_unknowns.csv"

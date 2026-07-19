@@ -18,6 +18,9 @@ from botocore.config import Config
 from satpy import Scene
 from satpy.readers.ahi_hsd import AHIHSDFileHandler
 
+from geo_ring_cloud.lineage import utc_now
+from geo_ring_cloud.paths import GEOMETRY_ROOT as BASE_GEOMETRY_ROOT, STAGE_ROOT
+
 matplotlib.use("Agg")
 
 
@@ -25,9 +28,9 @@ TARGET_PREFIX = "AHI-L1b-FLDK/2024/03/05/0000/"
 TARGET_TIME = "2024-03-05T00:00:00Z"
 TARGET_BAND = "B13"
 SEGMENTS = list(range(1, 11))
-CURRENT06C_VZA_CSV = Path(r"D:\AAAresearch_paper\geo_geometry_check\vza_method_comparison_by_satellite.csv")
-GEOMETRY_ROOT = Path(r"D:\AAAresearch_paper\geo_geometry_check\Himawari-9")
-REPROJECT_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1\reprojected_grid\Himawari-9")
+CURRENT06C_VZA_CSV = BASE_GEOMETRY_ROOT / "vza_method_comparison_by_satellite.csv"
+GEOMETRY_ROOT = BASE_GEOMETRY_ROOT / "Himawari-9"
+REPROJECT_ROOT = STAGE_ROOT / "reprojected_grid" / "Himawari-9"
 
 INVENTORY_CSV = GEOMETRY_ROOT / "himawari_full_segment_inventory.csv"
 GEOMETRY_AUDIT_CSV = GEOMETRY_ROOT / "himawari_full_disk_geometry_audit.csv"
@@ -35,12 +38,6 @@ VZA_COMPARE_CSV = GEOMETRY_ROOT / "himawari_vza_method_comparison.csv"
 REPORT_MD = GEOMETRY_ROOT / "himawari_full_disk_geometry_report.md"
 
 S3 = boto3.client("s3", config=Config(signature_version=UNSIGNED))
-
-
-def utc_now() -> str:
-    from datetime import datetime, timezone
-
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def normalize_lon(lon: float | np.ndarray) -> float | np.ndarray:

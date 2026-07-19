@@ -5,8 +5,9 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from geo_ring_cloud.paths import CODE_ROOT
 
-MODULE_PATH = Path(r"D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\06f_unknown_aware_data_asset_audit.py")
+MODULE_PATH = CODE_ROOT / "06f_unknown_aware_data_asset_audit.py"
 
 
 def load_module():

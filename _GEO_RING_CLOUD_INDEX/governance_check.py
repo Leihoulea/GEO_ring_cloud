@@ -143,6 +143,10 @@ WORKSPACE_INDEX_DOCS = {
     "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md",
     "_GEO_RING_CLOUD_WORKSPACE/data_product_audits.md",
 }
+MODIFIED_STAGE_INDEX_DOCS = {
+    "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md",
+    "_GEO_RING_CLOUD_WORKSPACE/engineering_status.md",
+}
 MODULE_REGISTRY_DOC = "_GEO_RING_CLOUD_WORKSPACE/module_registry.md"
 REQUIRED_ENGINEERING_FILES = {
     ".github/workflows/geo-ring-cloud-governance.yml",
@@ -435,15 +439,21 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
                 )
 
     if changed_stage_scripts and enforce_index_docs:
-        required_docs = WORKSPACE_INDEX_DOCS if added_stage_scripts else {
-            "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md"
-        }
-        for doc in sorted(required_docs - normalized_paths):
+        if added_stage_scripts:
+            for doc in sorted(WORKSPACE_INDEX_DOCS - normalized_paths):
+                findings.append(
+                    Finding(
+                        "ERROR",
+                        doc,
+                        "new stage code added; run build_index.py and stage the workspace index Markdown",
+                    )
+                )
+        elif not MODIFIED_STAGE_INDEX_DOCS.intersection(normalized_paths):
             findings.append(
                 Finding(
                     "ERROR",
-                    doc,
-                    "stage code changed; run build_index.py and stage the applicable workspace index Markdown",
+                    "_GEO_RING_CLOUD_WORKSPACE",
+                    "stage code changed; run build_index.py and stage artifact_index.md or engineering_status.md",
                 )
             )
     if added_package_modules:

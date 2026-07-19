@@ -15,10 +15,14 @@ import matplotlib.pyplot as plt
 
 from geo_ring_cloud.diagnostics.summary import finite_stats
 from geo_ring_cloud.lineage import utc_now
-from geo_ring_cloud.pipeline_layout import REPORT_DIR, SCRIPT_DIR, ensure_pipeline_directories as ensure_dirs
+from geo_ring_cloud.pipeline_layout import (
+    NATIVE_DIR,
+    REPORT_DIR,
+    SCRIPT_DIR,
+    ensure_pipeline_directories as ensure_dirs,
+)
 
 
-NATIVE_DIR = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1\standardized_native")
 TARGET_TIME = "2024-03-05T00:00:00Z"
 TIME_TAG = "20240305_0000"
 EXPECTED_SHAPE = (2748, 2748)

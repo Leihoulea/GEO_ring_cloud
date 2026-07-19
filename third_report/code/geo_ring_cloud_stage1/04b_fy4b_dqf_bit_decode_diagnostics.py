@@ -16,11 +16,15 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import BoundaryNorm, ListedColormap
 
 from geo_ring_cloud.lineage import utc_now
-from geo_ring_cloud.pipeline_layout import REPORT_DIR, SCRIPT_DIR, ensure_pipeline_directories as ensure_dirs
+from geo_ring_cloud.pipeline_layout import (
+    NATIVE_DIR,
+    REPORT_DIR,
+    SCRIPT_DIR,
+    STAGE_ROOT,
+    ensure_pipeline_directories as ensure_dirs,
+)
 
 
-STAGE_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1")
-NATIVE_DIR = STAGE_ROOT / "standardized_native"
 INTRO_DIR = STAGE_ROOT / "FY4B_DATA_INTRO"
 OUT_DIR = REPORT_DIR / "fy4b_dqf_bit_decode_quicklooks"
 RULES_YAML = REPORT_DIR / "fy4b_quality_flag_rules.yaml"

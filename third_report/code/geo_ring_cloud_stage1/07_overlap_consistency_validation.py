@@ -18,10 +18,14 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import BoundaryNorm, ListedColormap
 
 from geo_ring_cloud.lineage import utc_now
-from geo_ring_cloud.pipeline_layout import REPORT_DIR, SCRIPT_DIR, ensure_pipeline_directories as ensure_dirs
+from geo_ring_cloud.pipeline_layout import (
+    REPORT_DIR,
+    SCRIPT_DIR,
+    STAGE_ROOT,
+    ensure_pipeline_directories as ensure_dirs,
+)
 
 
-STAGE_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1")
 REPROJECT_DIR = STAGE_ROOT / "reprojected_grid"
 FUSED_DIR = STAGE_ROOT / "fused_best_source"
 DIAG_DIR = STAGE_ROOT / "source_selection_diagnostics"

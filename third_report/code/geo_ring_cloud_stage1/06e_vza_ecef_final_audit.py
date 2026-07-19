@@ -11,16 +11,17 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from geo_ring_cloud_source_registry import tie_order, validate_profile
+from geo_ring_cloud.paths import GEOMETRY_ROOT, STAGE_ROOT
+from geo_ring_cloud.sources import tie_order, validate_profile
 
 
 SCRIPT_PATH = Path(__file__).resolve()
 CODE_DIR = SCRIPT_PATH.parent
 WORKSPACE_ROOT = CODE_DIR.parents[1]
 
-EXTERNAL_STAGE_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1")
+EXTERNAL_STAGE_ROOT = STAGE_ROOT
 EXTERNAL_REPROJECT_DIR = EXTERNAL_STAGE_ROOT / "reprojected_grid"
-EXTERNAL_GEOMETRY_AUDIT_DIR = Path(r"D:\AAAresearch_paper\geo_geometry_check")
+EXTERNAL_GEOMETRY_AUDIT_DIR = GEOMETRY_ROOT
 
 LOCAL_REPORT_ROOT = WORKSPACE_ROOT / "reports" / "geo_ring_cloud_stage1_06e_vza_ecef_final_audit"
 LOCAL_REPORT_ROOT.mkdir(parents=True, exist_ok=True)

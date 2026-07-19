@@ -150,7 +150,11 @@ After adding or changing stage scripts, MUST run:
 python _GEO_RING_CLOUD_INDEX\build_index.py
 ```
 
-MUST stage updated workspace Markdown when stage code changes, especially:
+MUST stage refreshed workspace Markdown when stage code changes. New stages
+require the full stage/artifact/audit index set. Existing-stage refactors MUST
+stage `artifact_index.md` when artifact semantics changed; otherwise the
+refreshed `engineering_status.md` is acceptable evidence that indexing ran.
+Relevant project-memory files include:
 
 ```text
 _GEO_RING_CLOUD_WORKSPACE/stage_registry.md

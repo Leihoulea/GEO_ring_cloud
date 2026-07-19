@@ -20,12 +20,11 @@ from geo_ring_cloud.sources import SOURCE_BY_KEY, tie_order, validate_profile
 from geo_ring_cloud.diagnostics.summary import finite_stats
 from geo_ring_cloud.adapters.cloud_products import find_himawari_r21_geometry_file, read_mapping
 from geo_ring_cloud.lineage import utc_now
-from geo_ring_cloud.pipeline_layout import REPORT_DIR, SCRIPT_DIR
+from geo_ring_cloud.pipeline_layout import REPORT_DIR, SCRIPT_DIR, STAGE_ROOT
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-STAGE_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1")
 REPROJECT_DIR = STAGE_ROOT / "reprojected_grid"
 FUSED_DIR = STAGE_ROOT / "fused_best_source"
 SYNC_DIR = STAGE_ROOT / "geometry_angle_sync_06e"

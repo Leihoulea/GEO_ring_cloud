@@ -121,6 +121,39 @@ class PipelineLayoutTests(unittest.TestCase):
         self.assertEqual(PIPELINE_DIRECTORIES[0], STAGE_ROOT)
         self.assertEqual(len(PIPELINE_DIRECTORIES), len(set(PIPELINE_DIRECTORIES)))
 
+    def test_project_root_override_propagates_in_clean_process(self) -> None:
+        with test_directory("path_override") as project_root:
+            env = os.environ.copy()
+            for name in list(env):
+                if name.startswith("GEO_RING_"):
+                    env.pop(name)
+            env["GEO_RING_PROJECT_ROOT"] = str(project_root)
+            code = (
+                "import json; from geo_ring_cloud import paths; "
+                "print(json.dumps({"
+                "'project': str(paths.PROJECT_ROOT), "
+                "'code': str(paths.CODE_ROOT), "
+                "'stage': str(paths.STAGE_ROOT), "
+                "'runs': str(paths.RUNS_ROOT)}))"
+            )
+            result = subprocess.run(
+                [sys.executable, "-c", code],
+                cwd=CODE_DIR,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            resolved = json.loads(result.stdout)
+
+        self.assertEqual(Path(resolved["project"]), project_root)
+        self.assertEqual(
+            Path(resolved["code"]),
+            project_root / "third_report" / "code" / "geo_ring_cloud_stage1",
+        )
+        self.assertEqual(Path(resolved["stage"]), project_root / "geo_ring_cloud_stage1")
+        self.assertEqual(Path(resolved["runs"]), project_root / "geo_ring_cloud_stage1_time_runs")
+
 
 class CloudProductAdapterTests(unittest.TestCase):
     def test_variable_resolution_unit_conversion_and_sentinel_masking(self) -> None:

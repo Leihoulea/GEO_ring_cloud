@@ -24,22 +24,20 @@ from satpy.readers.seviri_l1b_native import NativeMSGFileHandler
 
 from geo_ring_cloud.adapters.cloud_products import attr_to_python, attrs_to_dict, normalize_name
 from geo_ring_cloud.lineage import utc_now
+from geo_ring_cloud.paths import CODE_ROOT, DATA_ROOT, GEOMETRY_ROOT, STAGE_ROOT
+from geo_ring_cloud.pipeline_layout import REPORT_DIR
 
 
-WORK_ROOT = Path(r"D:\AAAresearch_paper\third_report")
-CODE_ROOT = WORK_ROOT / "code" / "geo_ring_cloud_stage1"
-STAGE_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1")
-REPORT_DIR = STAGE_ROOT / "reports"
 OUT_DIR = STAGE_ROOT / "data_asset_audit_06f"
 EXPORT_DIR = OUT_DIR / "exports"
 PARQUET_DIR = OUT_DIR / "parquet"
 
 INPUT_DIRS = [
-    Path(r"D:\AAAresearch_paper\data"),
-    Path(r"D:\AAAresearch_paper\geo_geometry_check"),
-    Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1\standardized_native"),
-    Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1\reprojected_grid"),
-    Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1\fused_best_source"),
+    DATA_ROOT,
+    GEOMETRY_ROOT,
+    STAGE_ROOT / "standardized_native",
+    STAGE_ROOT / "reprojected_grid",
+    STAGE_ROOT / "fused_best_source",
 ]
 
 SQLITE_PATH = OUT_DIR / "data_asset_audit.sqlite"

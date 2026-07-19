@@ -8,11 +8,14 @@ from typing import Any
 import pandas as pd
 
 from geo_ring_cloud.lineage import utc_now
-from geo_ring_cloud.pipeline_layout import SCRIPT_DIR, ensure_pipeline_directories as ensure_dirs
+from geo_ring_cloud.pipeline_layout import (
+    REPORT_DIR,
+    SCRIPT_DIR,
+    STAGE_ROOT,
+    ensure_pipeline_directories as ensure_dirs,
+)
 
 
-STAGE_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1")
-REPORT_DIR = STAGE_ROOT / "reports"
 OVERLAP_07P_DIR = STAGE_ROOT / "overlap_validation_07p"
 REPROJECT_DIR = STAGE_ROOT / "reprojected_grid"
 

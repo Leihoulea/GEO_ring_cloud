@@ -25,11 +25,11 @@ from geo_ring_cloud.lineage import utc_now
 from geo_ring_cloud.pipeline_layout import (
     REPORT_DIR,
     SCRIPT_DIR,
+    STAGE_ROOT,
     ensure_pipeline_directories as ensure_dirs,
 )
 
 
-STAGE_ROOT = Path(r"D:\AAAresearch_paper\geo_ring_cloud_stage1")
 NATIVE_DIR = STAGE_ROOT / "standardized_native"
 REPROJECT_DIR = STAGE_ROOT / "reprojected_grid"
 OUT_DIR = STAGE_ROOT / "geometry_audit_06c"

@@ -9,6 +9,7 @@ It applies to humans and AI agents.
 - MUST reuse existing scripts, manifests, reports, and products when they already answer the task.
 - MUST decide the `project_id + canonical_stage_id` before naming files.
 - MUST run `python _GEO_RING_CLOUD_INDEX\build_index.py` after adding or changing stage scripts.
+- Existing-stage refactors MUST stage refreshed `artifact_index.md` when artifact semantics change; otherwise refreshed `engineering_status.md` is acceptable. New stages MUST stage the full stage/artifact/audit index set.
 - MUST run `python _GEO_RING_CLOUD_INDEX\governance_check.py --staged` before commit.
 - MUST use the checked-in `environment.yml` as the default scientific dependency baseline and run `python _GEO_RING_CLOUD_INDEX\ci_check.py --scientific-tests` for core-code changes.
 
