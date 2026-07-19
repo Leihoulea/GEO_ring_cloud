@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import csv
 import hashlib
 import json
@@ -23,6 +24,7 @@ from satpy.readers.ahi_hsd import AHIHSDFileHandler
 from satpy.readers.seviri_l1b_native import NativeMSGFileHandler
 
 from geo_ring_cloud.adapters.cloud_products import attr_to_python, attrs_to_dict, normalize_name
+from geo_ring_cloud.data_asset_audit import apply_fy4b_obitype_patch
 from geo_ring_cloud.lineage import utc_now
 from geo_ring_cloud.paths import CODE_ROOT, DATA_ROOT, GEOMETRY_ROOT, STAGE_ROOT
 from geo_ring_cloud.pipeline_layout import REPORT_DIR
@@ -2074,7 +2076,46 @@ def build_report(conn: sqlite3.Connection, summary: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def main() -> int:
+
+
+def reexport_with_obitype_patch() -> int:
+    if not SQLITE_PATH.exists():
+        raise FileNotFoundError(f"06f audit database does not exist: {SQLITE_PATH}")
+    conn = sqlite3.connect(SQLITE_PATH)
+    summary: dict[str, Any] | None = None
+    try:
+        patched_count = apply_fy4b_obitype_patch(conn)
+        gates = write_gate_rows(conn)
+        export_views(conn)
+        parquet_paths = maybe_write_parquet(conn)
+        summary = build_summary(conn, gates, parquet_paths)
+        SUMMARY_JSON.write_text(safe_json(summary), encoding="utf-8")
+        REPORT_MD.write_text(build_report(conn, summary), encoding="utf-8")
+    finally:
+        conn.close()
+
+    if summary is None:
+        raise RuntimeError("06f re-export did not produce summary")
+    print(f"patched_obitype_items={patched_count}")
+    print(f"DISCOVERY_GATE={summary['gate_status']['DISCOVERY_GATE']}")
+    print(f"SEMANTIC_GATE={summary['gate_status']['SEMANTIC_GATE']}")
+    print(f"FUSION_READINESS_GATE={summary['gate_status']['FUSION_READINESS_GATE']}")
+    print(f"UNKNOWN_RISK_GATE={summary['gate_status']['UNKNOWN_RISK_GATE']}")
+    print(f"allow_enter_07={summary['allow_enter_07']}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Stage 06f unknown-aware data asset audit")
+    parser.add_argument(
+        "--reexport-with-obitype-patch",
+        action="store_true",
+        help="patch an existing audit database and regenerate exports without rescanning data",
+    )
+    args = parser.parse_args(argv)
+    if args.reexport_with_obitype_patch:
+        return reexport_with_obitype_patch()
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -2090,6 +2131,7 @@ def main() -> int:
         for path in discover_files():
             auditor.process(path)
         auditor.flush()
+        apply_fy4b_obitype_patch(conn)
         gates = write_gate_rows(conn)
         export_views(conn)
         parquet_paths = maybe_write_parquet(conn)

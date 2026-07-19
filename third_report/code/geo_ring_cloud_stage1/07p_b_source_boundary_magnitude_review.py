@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import shutil
-import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from geo_ring_cloud import fusion_support as F06
 from geo_ring_cloud.lineage import utc_now
 from geo_ring_cloud.pipeline_layout import (
     REPORT_DIR,
@@ -49,20 +48,6 @@ RECOMMEND_THRESHOLDS = {
     "cloud_optical_thickness": {"p95": 10.0, "margin_max": 0.08, "edge_min": 5000},
     "cloud_effective_radius_um": {"p95": 20.0, "margin_max": 0.08, "edge_min": 5000},
 }
-
-
-def load_module(script_name: str, module_name: str):
-    path = SCRIPT_DIR / script_name
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load module {script_name}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-F06 = load_module("06_fuse_best_source.py", "stage1_f06_for_07pb")
 
 
 def load_npz_payload(path: Path) -> tuple[dict[str, Any], dict[str, np.ndarray]]:

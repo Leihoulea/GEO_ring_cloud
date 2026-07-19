@@ -10,12 +10,16 @@
 | geo_ring_cloud_source_registry.py | geo_ring_cloud |  | compatibility_shim | common | Stable source IDs, processing streams, products, profiles, tolerances, and variable rules |  |
 | path_config.py | geo_ring_cloud |  | compatibility_shim | common | Central environment-overridable paths including GEO_RING_CLAAS3_ROOT |  |
 | stage1_common.py | geo_ring_cloud |  | compatibility_shim | 公共 | 已登记 compatibility shim；权威 API 见 geo_ring_cloud.pipeline_support、pipeline_layout、cloud_semantics 和 diagnostics.summary |  |
+| geo_ring_cloud/data_asset_audit.py | geo_ring_cloud |  | data_asset_audit |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/diagnostics/epic_pair.py | geo_ring_cloud |  | diagnostics_library |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/diagnostics/summary.py | geo_ring_cloud |  | diagnostics_library |  | 当前文件系统扫描补充脚本 |  |
 | download_geo_geometry_samples.py | geo_ring_cloud |  | downloader | 下载 | 从 AWS S3 下载 GOES-16/18/Himawari-9 几何样本到 geo_geometry_check/ | D:\AAAresearch_paper\geo_geometry_check |
 | rebuild_stage1_evidence_pack.py | geo_ring_cloud |  | evidence_pack_builder | 证据包 | 重建 Stage1 证据包：汇总 data_check_report/geo_geometry_check/stage1 全部证据到 evidence_pack/ | D:\AAAresearch_paper\data_check_report,D:\AAAresearch_paper\geo_geometry_check,D:\AAAresearch_paper\geo_ring_cloud_stage1,D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack,D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 |
 | geo_ring_cloud_experiment_profile_pair.py | geo_ring_cloud |  | experiment_runner |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud/fusion_support.py | geo_ring_cloud |  | fusion_support |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud/geometry.py | geo_ring_cloud |  | geometry |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/lineage.py | geo_ring_cloud |  | lineage |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud/overlap.py | geo_ring_cloud |  | overlap_metrics |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/adapters/__init__.py | geo_ring_cloud |  | package_namespace |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/diagnostics/__init__.py | geo_ring_cloud |  | package_namespace |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/__init__.py | geo_ring_cloud |  | package_root |  | 当前文件系统扫描补充脚本 |  |
@@ -25,6 +29,7 @@
 | geo_ring_cloud/adapters/cloud_products.py | geo_ring_cloud |  | product_adapter |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/adapters/epic.py | geo_ring_cloud |  | product_adapter |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/quicklooks.py | geo_ring_cloud |  | quicklook_renderer |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud/reprojection.py | geo_ring_cloud |  | reprojection |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/run_discovery.py | geo_ring_cloud |  | run_discovery |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud_time_run_matrix.py | geo_ring_cloud |  | runner | runner | Matched operational_baseline and claas3_candidate runner with SQLite indexing |  |
 | run_epic_georing_sample_batch.py | geo_ring_cloud |  | runner | 运行器 | EPIC Geo-ring 批量样本运行器（RUNS=time_runs） | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\epic_202403_target_selection\recommended_epic_georing_validation_targets.csv |

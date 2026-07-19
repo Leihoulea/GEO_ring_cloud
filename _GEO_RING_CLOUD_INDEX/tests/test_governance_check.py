@@ -251,6 +251,46 @@ class PackageDependencyBoundaryTests(unittest.TestCase):
 
         self.assertTrue(any("dynamically load stage scripts" in item.message for item in findings))
 
+    def test_new_stage_to_stage_dynamic_loading_is_rejected(self) -> None:
+        relative = (
+            "third_report/code/geo_ring_cloud_stage1/"
+            "stage_10_bad_loader.py"
+        )
+        with isolated_root("new_dynamic_stage_loader") as root:
+            write(
+                root,
+                relative,
+                "import importlib.util\n"
+                "importlib.util.spec_from_file_location('stage', 'stage_09_run.py')\n",
+            )
+            findings = governance_check.check_dynamic_stage_loading(
+                [relative],
+                baseline_mode=False,
+            )
+
+        self.assertTrue(any(item.severity == "ERROR" for item in findings))
+        self.assertTrue(any("must not dynamically load" in item.message for item in findings))
+
+    def test_migrated_legacy_path_cannot_reintroduce_dynamic_loading(self) -> None:
+        relative = (
+            "third_report/code/geo_ring_cloud_stage1/"
+            "06e_vza_ecef_final_audit.py"
+        )
+        with isolated_root("migrated_dynamic_stage_loader") as root:
+            write(
+                root,
+                relative,
+                "import importlib.util\n"
+                "importlib.util.spec_from_file_location('stage', '06c_geometry_parameter_audit.py')\n",
+            )
+            findings = governance_check.check_dynamic_stage_loading(
+                [relative],
+                baseline_mode=False,
+            )
+
+        self.assertEqual([item.severity for item in findings], ["ERROR"])
+        self.assertTrue(any("must not dynamically load" in item.message for item in findings))
+
 
 class PathEnforcementTests(unittest.TestCase):
     def test_machine_local_path_is_rejected_in_active_tooling(self) -> None:

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import shutil
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +9,8 @@ import numpy as np
 import pandas as pd
 from scipy import ndimage
 
+from geo_ring_cloud import fusion_support as F06
+from geo_ring_cloud import overlap as F07
 from geo_ring_cloud.lineage import utc_now
 from geo_ring_cloud.pipeline_layout import (
     REPORT_DIR,
@@ -85,21 +85,6 @@ RAA_BINS = [0, 30, 60, 90, 120, 180.1]
 RAA_LABELS = ["0-30", "30-60", "60-90", "90-120", "120-180"]
 GLINT_BINS = [0, 20, 40, 60, 90, 180.1]
 GLINT_LABELS = ["0-20", "20-40", "40-60", "60-90", "90-180"]
-
-
-def load_module(script_name: str, module_name: str):
-    path = SCRIPT_DIR / script_name
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load module {script_name}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-F06 = load_module("06_fuse_best_source.py", "stage1_f06_for_07p")
-F07 = load_module("07_overlap_consistency_validation.py", "stage1_f07_base_for_07p")
 
 
 def pair_name(a: str, b: str) -> str:

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import math
 import shutil
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +15,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import BoundaryNorm, ListedColormap
 
+from geo_ring_cloud import fusion_support as F06
+from geo_ring_cloud.overlap import (
+    build_variable_to_product,
+    compute_boundary_mask,
+    confusion_from_binary,
+    make_simple_quicklook,
+    neighbor_edge_arrays,
+)
 from geo_ring_cloud.lineage import utc_now
 from geo_ring_cloud.pipeline_layout import (
     REPORT_DIR,
@@ -90,21 +96,6 @@ SZA_BINS = [0, 60, 75, 90, np.inf]
 SZA_LABELS = ["0-60", "60-75", "75-90", ">90"]
 
 
-def load_module(script_name: str, module_name: str):
-    path = SCRIPT_DIR / script_name
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load module {script_name}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-F06 = load_module("06_fuse_best_source.py", "stage1_f06")
-F06C = load_module("06c_geometry_parameter_audit.py", "stage1_f06c")
-
-
 def pair_name(a: str, b: str) -> str:
     return f"{a}__vs__{b}"
 
@@ -142,17 +133,9 @@ def build_reproject_catalog() -> dict[tuple[str, str, str], Path]:
     return catalog
 
 
-def build_variable_to_product() -> dict[tuple[str, str], str]:
-    mapping: dict[tuple[str, str], str] = {}
-    for variable, rules in F06.VARIABLE_RULES.items():
-        for rule in rules:
-            mapping[(rule["satellite"], variable)] = rule["product"]
-    return mapping
-
-
 def build_target_lon_lat() -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
     grid = F06.target_grid_from_any(F06.load_catalog())
-    lon, lat = F06C.build_target_lon_lat(grid)
+    lon, lat = F06.build_target_lon_lat(grid)
     return lon.astype(np.float32), lat.astype(np.float32), grid
 
 
@@ -216,15 +199,6 @@ def should_skip_pair_variable(a: str, b: str, variable: str) -> str | None:
     if b.startswith("Meteosat") and variable not in METEOSAT_ALLOWED:
         return "meteosat_variable_not_allowed"
     return None
-
-
-def confusion_from_binary(a: np.ndarray, b: np.ndarray) -> dict[str, int]:
-    return {
-        "tn": int(np.count_nonzero((a == 0) & (b == 0))),
-        "fp": int(np.count_nonzero((a == 0) & (b == 1))),
-        "fn": int(np.count_nonzero((a == 1) & (b == 0))),
-        "tp": int(np.count_nonzero((a == 1) & (b == 1))),
-    }
 
 
 def cloud_mask_metrics(a: np.ndarray, b: np.ndarray) -> dict[str, Any]:
@@ -295,45 +269,6 @@ def bin_indices(values: np.ndarray, bins: list[float], labels: list[str]) -> lis
     return results
 
 
-def make_simple_quicklook(data: np.ndarray, out_path: Path, title: str, cmap: str = "viridis", vmin: float | None = None, vmax: float | None = None, categorical_labels: dict[int, str] | None = None) -> None:
-    arr = np.asarray(data)
-    stride = max(1, int(math.ceil(math.sqrt(arr.size / 1_200_000)))) if arr.size > 1_200_000 else 1
-    plot = arr[::stride, ::stride]
-    plt.figure(figsize=(11, 4.8), dpi=150)
-    if categorical_labels is not None:
-        finite = np.isfinite(plot)
-        values = np.sort(np.unique(plot[finite])) if finite.any() else np.asarray([])
-        colors = plt.get_cmap("tab10")(np.linspace(0, 1, max(2, values.size if values.size else 2)))
-        cmap_obj = ListedColormap(colors)
-        cmap_obj.set_bad("#ffffff")
-        if values.size == 0:
-            im = plt.imshow(plot, extent=[-180, 180, -90, 90], origin="lower", cmap=cmap_obj, interpolation="nearest")
-        else:
-            bounds = np.concatenate(([values[0] - 0.5], (values[:-1] + values[1:]) / 2.0, [values[-1] + 0.5])) if values.size > 1 else np.array([values[0] - 0.5, values[0] + 0.5])
-            norm = BoundaryNorm(bounds, cmap_obj.N)
-            im = plt.imshow(plot, extent=[-180, 180, -90, 90], origin="lower", cmap=cmap_obj, norm=norm, interpolation="nearest")
-            cbar = plt.colorbar(im, shrink=0.78, ticks=values)
-            cbar.ax.set_yticklabels([categorical_labels.get(int(v), str(int(v))) for v in values])
-            plt.title(title, fontsize=10)
-            plt.xlabel("Longitude")
-            plt.ylabel("Latitude")
-            plt.tight_layout()
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            plt.savefig(out_path)
-            plt.close()
-            return
-    else:
-        im = plt.imshow(plot, extent=[-180, 180, -90, 90], origin="lower", cmap=cmap, interpolation="nearest", vmin=vmin, vmax=vmax)
-        plt.colorbar(im, shrink=0.78)
-    plt.title(title, fontsize=10)
-    plt.xlabel("Longitude")
-    plt.ylabel("Latitude")
-    plt.tight_layout()
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(out_path)
-    plt.close()
-
-
 def make_difference_quicklook(diff: np.ndarray, out_path: Path, title: str) -> None:
     arr = np.asarray(diff, dtype=np.float32)
     finite = np.isfinite(arr)
@@ -344,43 +279,6 @@ def make_difference_quicklook(diff: np.ndarray, out_path: Path, title: str) -> N
     else:
         vmax = 1.0
     make_simple_quicklook(arr, out_path, title, cmap="coolwarm", vmin=-vmax, vmax=vmax)
-
-
-def neighbor_edge_arrays(values: np.ndarray, valid: np.ndarray, source_map: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    value = np.asarray(values, dtype=np.float32)
-    valid = np.asarray(valid, dtype=bool)
-    source_map = np.asarray(source_map, dtype=np.int16)
-    diffs_boundary: list[np.ndarray] = []
-    diffs_same: list[np.ndarray] = []
-    for axis in [0, 1]:
-        s1 = [slice(None), slice(None)]
-        s2 = [slice(None), slice(None)]
-        s1[axis] = slice(1, None)
-        s2[axis] = slice(None, -1)
-        v1 = value[tuple(s1)]
-        v2 = value[tuple(s2)]
-        ok = valid[tuple(s1)] & valid[tuple(s2)] & np.isfinite(v1) & np.isfinite(v2)
-        same = ok & (source_map[tuple(s1)] == source_map[tuple(s2)])
-        boundary = ok & (source_map[tuple(s1)] != source_map[tuple(s2)])
-        if np.any(boundary):
-            diffs_boundary.append(np.abs(v1[boundary] - v2[boundary]))
-        if np.any(same):
-            diffs_same.append(np.abs(v1[same] - v2[same]))
-    return (
-        np.concatenate(diffs_boundary) if diffs_boundary else np.asarray([], dtype=np.float32),
-        np.concatenate(diffs_same) if diffs_same else np.asarray([], dtype=np.float32),
-    )
-
-
-def compute_boundary_mask(source_map: np.ndarray, valid: np.ndarray) -> np.ndarray:
-    src = np.asarray(source_map, dtype=np.int16)
-    valid = np.asarray(valid, dtype=bool)
-    out = np.zeros(src.shape, dtype=bool)
-    out[1:, :] |= valid[1:, :] & valid[:-1, :] & (src[1:, :] != src[:-1, :])
-    out[:-1, :] |= valid[:-1, :] & valid[1:, :] & (src[:-1, :] != src[1:, :])
-    out[:, 1:] |= valid[:, 1:] & valid[:, :-1] & (src[:, 1:] != src[:, :-1])
-    out[:, :-1] |= valid[:, :-1] & valid[:, 1:] & (src[:, :-1] != src[:, 1:])
-    return out
 
 
 def selected_vza_from_source_map(source_map: np.ndarray, valid: np.ndarray, satellite_vzas: dict[str, np.ndarray]) -> np.ndarray:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import math
 import re
@@ -15,6 +14,7 @@ import pandas as pd
 
 matplotlib.use("Agg")
 
+from geo_ring_cloud import fusion_support as F06
 from geo_ring_cloud.lineage import utc_now
 from geo_ring_cloud.pipeline_layout import (
     NATIVE_DIR,
@@ -48,19 +48,6 @@ GEO_ALTITUDE_KM = 35786.023
 SATELLITE_RADIUS_KM = EARTH_RADIUS_KM + GEO_ALTITUDE_KM
 APPROX_WEIGHT = 0.8
 APPROX_EQUIVALENT_VZA_DEG = float(np.rad2deg(np.arccos(np.clip((APPROX_WEIGHT - 0.2) / 0.8, -1.0, 1.0))))
-
-
-def load_f06_module():
-    path = SCRIPT_DIR / "06_fuse_best_source.py"
-    spec = importlib.util.spec_from_file_location("stage1_f06", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load 06 module from {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-F06 = load_f06_module()
 
 
 def normalize_lon(lon: float | np.ndarray) -> float | np.ndarray:

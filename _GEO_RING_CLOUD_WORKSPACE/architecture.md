@@ -15,6 +15,11 @@
 | lineage | manifest、commit、输入输出追踪 | `geo_ring_cloud.lineage` |
 | adapters | 产品读取、格式适配、变量解码 | `geo_ring_cloud.adapters.claas3`, `geo_ring_cloud.adapters.epic`, `geo_data_audit/` |
 | semantics | 云代码含义、display/fusion 有效性与质量规则 | `geo_ring_cloud.cloud_semantics` |
+| reprojection | 原生定位、坐标规范化、最近邻重投影 | `geo_ring_cloud.reprojection` |
+| geometry | GEO 轨道参数、球面/ECEF VZA | `geo_ring_cloud.geometry` |
+| fusion support | 重投影目录、GEO 几何权重、候选源构建 | `geo_ring_cloud.fusion_support` |
+| overlap metrics | 二值统计、源边界、重叠区 quicklook | `geo_ring_cloud.overlap` |
+| audit semantics | 数据资产审计的可测试语义修正规则 | `geo_ring_cloud.data_asset_audit` |
 | stage pipeline | 单一 canonical stage 的科学处理与验证 | `stage_09d_*`, `stage_10_*` |
 | orchestration | 跨阶段实验、批处理、time-run matrix | `geo_ring_cloud_experiment_profile_pair.py`, `geo_ring_cloud_time_run_matrix.py` |
 | diagnostics | 可复用指标、采样和分层统计 | `geo_ring_cloud.diagnostics.epic_pair` |
@@ -23,6 +28,6 @@
 
 ## 物理迁移原则
 
-`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
+`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
 
 新 stage 若只有一个脚本，可使用 `stage_XX_<purpose>.py`；若有多个脚本，必须放入 `stage_XX_<purpose>/`。跨阶段工具不得伪造组合 stage，必须使用 `geo_ring_cloud_<role>_<purpose>.py`、声明 `COMPONENT_ROLE`，并在 manifest 中记录 `related_stage_ids`。

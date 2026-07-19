@@ -1,18 +1,19 @@
 # GEO-ring Cloud Engineering Status
 
-Generated: `2026-07-19T05:44:37Z`
+Generated: `2026-07-19T06:32:51Z`
 
 ## 当前规模
 
-- 索引脚本：96
-- canonical shared modules：15
+- 索引脚本：101
+- canonical shared modules：20
 - canonical stages：43
-- SQLite 详细 artifact 记录：972
+- SQLite 详细 artifact 记录：977
 - Markdown 快查 artifact 记录：436
 - data product audits：19
 - time-run 顶层目录：156
 - 已登记历史命名 warning：32
 - 历史绝对路径 warning 文件：0
+- 历史动态阶段加载 warning 文件：0
 
 ## 已建立的工程能力
 
@@ -25,7 +26,8 @@ Generated: `2026-07-19T05:44:37Z`
 
 ## 尚未达到的目标
 
-- `stage1_common.py` 已降为 compatibility shim；`pipeline_support` 已降为纯兼容 facade，layout、cloud semantics、产品读取、quicklook、artifact IO 与数组摘要统计均已拆入专责模块。
+- `stage1_common.py` 已降为 compatibility shim；`pipeline_support` 已降为纯兼容 facade，layout、cloud semantics、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、产品读取、quicklook、artifact IO 与数组摘要统计均已拆入专责模块。
+- 阶段脚本之间的动态实现加载已清零；Stage 05/06/07 主链均使用静态 package API。
 - 活跃项目代码中的机器本地绝对路径 warning 已清零；历史非 canonical 命名继续由 alias/baseline 吸收。
 - `environment.yml` 已固定已验证的直接依赖；跨平台传递依赖锁仍应在正式实验发布时按平台生成。
 - 一部分旧 time-run 使用 `stage0910` 等组合标签；为保障续跑暂保留，只作为 legacy alias，不得用于新组件命名。
@@ -34,6 +36,6 @@ Generated: `2026-07-19T05:44:37Z`
 
 1. P0：任何新增 governance error 必须在提交前清零。
 2. P1：保持机器本地绝对路径 warning 为零，并为新增 Python/PowerShell 路径执行治理门禁。
-3. P1：逐批清理阶段脚本通过动态加载彼此实现的编排耦合。
+3. P1：保持动态阶段加载为零；复用逻辑必须进入已登记 package API。
 4. P2：为正式实验发布生成平台化传递依赖锁；大数据集成测试继续本地运行。
 5. P2：按依赖审计结果渐进迁移扁平脚本，禁止一次性大搬迁。

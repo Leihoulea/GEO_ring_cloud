@@ -145,6 +145,7 @@ FORBIDDEN_ACTIVE_IMPORT_MODULES = LEGACY_IMPORT_MODULES | {
 LEGACY_IMPORT_TEST_ALLOWLIST = {
     f"{CORE_CODE_PREFIX}tests/geo_ring_cloud_test_claas3.py",
 }
+LEGACY_DYNAMIC_STAGE_LOADERS: set[str] = set()
 WORKSPACE_INDEX_DOCS = {
     "_GEO_RING_CLOUD_WORKSPACE/stage_registry.md",
     "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md",
@@ -617,6 +618,44 @@ def check_package_dependency_boundaries(paths: list[str]) -> list[Finding]:
     return findings
 
 
+def check_dynamic_stage_loading(paths: list[str], baseline_mode: bool) -> list[Finding]:
+    """Reject stage-to-stage implementation imports outside the registered legacy baseline."""
+    findings: list[Finding] = []
+    for rel_path in paths:
+        normalized = normalize_path(rel_path)
+        if (
+            not normalized.startswith(CORE_CODE_PREFIX)
+            or normalized.startswith(CORE_PACKAGE_PREFIX)
+            or Path(normalized).suffix.lower() != ".py"
+        ):
+            continue
+        text = read_text(rel_path)
+        if text is None:
+            continue
+        try:
+            tree = ast.parse(text, filename=rel_path)
+        except SyntaxError:
+            continue
+        has_dynamic_loader = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"spec_from_file_location", "SourceFileLoader"}
+            for node in ast.walk(tree)
+        )
+        if not has_dynamic_loader:
+            continue
+        is_legacy = normalized in LEGACY_DYNAMIC_STAGE_LOADERS
+        severity = "WARN" if baseline_mode or is_legacy else "ERROR"
+        message = (
+            "legacy dynamic stage-script loading; migrate callable logic to a registered "
+            "geo_ring_cloud package module"
+            if is_legacy
+            else "stage scripts must not dynamically load other stage scripts; use a registered package API"
+        )
+        findings.append(Finding(severity, rel_path, message))
+    return findings
+
+
 def check_python_structure(paths: list[str]) -> list[Finding]:
     findings: list[Finding] = []
     for rel_path in paths:
@@ -762,6 +801,7 @@ def main() -> int:
     findings.extend(check_compatibility_shims())
     findings.extend(check_package_facades())
     findings.extend(check_package_dependency_boundaries(paths))
+    findings.extend(check_dynamic_stage_loading(paths, baseline_mode=baseline_mode))
     findings.extend(check_python_structure(paths))
     findings.extend(check_naming(paths, added, baseline_mode=baseline_mode))
     findings.extend(check_stage_contract(paths, added, enforce_index_docs=args.staged))

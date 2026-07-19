@@ -84,6 +84,12 @@ scripts. Dependency direction is one-way: stage scripts may call shared package
 APIs; shared package APIs may depend only on lower-level package modules and
 declared third-party libraries.
 
+Stage scripts MUST NOT dynamically load another stage script with
+`spec_from_file_location`, `SourceFileLoader`, `runpy`, or equivalent mechanisms
+to reuse implementation. Extract the callable logic into a focused, registered
+`geo_ring_cloud.*` module and use a normal import. Registered historical loaders
+are migration warnings only and MUST NOT be copied to new code.
+
 `geo_ring_cloud.pipeline_support` is a registered transitional facade for
 legacy Stage 1 APIs. It MUST contain only imports, export metadata, and aliases;
 MUST NOT contain functions, classes, or implementation logic. Active stage and

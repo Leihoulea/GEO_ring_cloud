@@ -460,6 +460,66 @@ MODULE_REGISTRY = (
     },
     {
         "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.fusion_support",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/fusion_support.py",
+        "component_role": "fusion_support",
+        "legacy_module": "06_fuse_best_source",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/06_fuse_best_source.py",
+        "migration_status": "canonical_extracted",
+        "public_api": "reprojected catalog, target grid, GEO geometry weights, cloud mapping, fusion candidate construction",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,FusionAndOverlapSupportTests",
+        "notes": "Stage 06/06c/07 consumers use a static package API instead of dynamically loading the Stage 06 script.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.reprojection",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/reprojection.py",
+        "component_role": "reprojection",
+        "legacy_module": "05_reproject_cloud_to_grid",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/05_reproject_cloud_to_grid.py",
+        "migration_status": "canonical_extracted",
+        "public_api": "target grid, native geolocation, coordinate normalization, KD-tree nearest-neighbor reprojection",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,ReprojectionAndGeometrySupportTests",
+        "notes": "Stage 05 and Stage 06e share one static geolocation/reprojection implementation.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.geometry",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/geometry.py",
+        "component_role": "geometry",
+        "legacy_module": "06c_geometry_parameter_audit",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/06c_geometry_parameter_audit.py",
+        "migration_status": "canonical_extracted",
+        "public_api": "GEO geometry parameters, audited subpoints, spherical and ellipsoidal ECEF VZA",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,ReprojectionAndGeometrySupportTests",
+        "notes": "Stage 06c/06e consumers no longer load geometry implementation from a stage script path.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.overlap",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/overlap.py",
+        "component_role": "overlap_metrics",
+        "legacy_module": "07_overlap_consistency_validation",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/07_overlap_consistency_validation.py",
+        "migration_status": "canonical_extracted",
+        "public_api": "source-variable mapping, binary confusion, source-boundary metrics, overlap quicklook",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,FusionAndOverlapSupportTests",
+        "notes": "Stage 07 and 07p share one implementation without dynamically importing each other.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.data_asset_audit",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/data_asset_audit.py",
+        "component_role": "data_asset_audit",
+        "legacy_module": "06f_reexport_with_obitype_patch",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/06f_reexport_with_obitype_patch.py",
+        "migration_status": "canonical_extracted",
+        "public_api": "apply_fy4b_obitype_patch",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::DataAssetAuditTests",
+        "notes": "Semantic database correction is testable independently; the legacy re-export script is process orchestration only.",
+    },
+    {
+        "project_id": PROJECT_ID,
         "canonical_module": "geo_ring_cloud.adapters.cloud_products",
         "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/adapters/cloud_products.py",
         "component_role": "product_adapter",
@@ -1737,6 +1797,10 @@ def export_workspace_reports(db_path: Path = DB_PATH) -> None:
         "machine-local absolute path" in finding.message
         for finding in governance_check.check_paths(repo_paths, set(), baseline_mode=True)
     )
+    dynamic_stage_loader_count = sum(
+        "dynamic stage-script loading" in finding.message
+        for finding in governance_check.check_dynamic_stage_loading(repo_paths, baseline_mode=False)
+    )
 
     compact_artifacts = [
         row for row in artifacts
@@ -1799,6 +1863,11 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 | lineage | manifest、commit、输入输出追踪 | `geo_ring_cloud.lineage` |
 | adapters | 产品读取、格式适配、变量解码 | `geo_ring_cloud.adapters.claas3`, `geo_ring_cloud.adapters.epic`, `geo_data_audit/` |
 | semantics | 云代码含义、display/fusion 有效性与质量规则 | `geo_ring_cloud.cloud_semantics` |
+| reprojection | 原生定位、坐标规范化、最近邻重投影 | `geo_ring_cloud.reprojection` |
+| geometry | GEO 轨道参数、球面/ECEF VZA | `geo_ring_cloud.geometry` |
+| fusion support | 重投影目录、GEO 几何权重、候选源构建 | `geo_ring_cloud.fusion_support` |
+| overlap metrics | 二值统计、源边界、重叠区 quicklook | `geo_ring_cloud.overlap` |
+| audit semantics | 数据资产审计的可测试语义修正规则 | `geo_ring_cloud.data_asset_audit` |
 | stage pipeline | 单一 canonical stage 的科学处理与验证 | `stage_09d_*`, `stage_10_*` |
 | orchestration | 跨阶段实验、批处理、time-run matrix | `geo_ring_cloud_experiment_profile_pair.py`, `geo_ring_cloud_time_run_matrix.py` |
 | diagnostics | 可复用指标、采样和分层统计 | `geo_ring_cloud.diagnostics.epic_pair` |
@@ -1807,7 +1876,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 
 ## 物理迁移原则
 
-`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
+`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
 
 新 stage 若只有一个脚本，可使用 `stage_XX_<purpose>.py`；若有多个脚本，必须放入 `stage_XX_<purpose>/`。跨阶段工具不得伪造组合 stage，必须使用 `geo_ring_cloud_<role>_<purpose>.py`、声明 `COMPONENT_ROLE`，并在 manifest 中记录 `related_stage_ids`。
 """
@@ -1825,6 +1894,12 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
     else:
         path_debt_status = "- 活跃项目代码中的机器本地绝对路径 warning 已清零；历史非 canonical 命名继续由 alias/baseline 吸收。"
         path_debt_priority = "2. P1：保持机器本地绝对路径 warning 为零，并为新增 Python/PowerShell 路径执行治理门禁。"
+    if dynamic_stage_loader_count:
+        dynamic_loader_status = f"- 剩余历史动态阶段加载：{dynamic_stage_loader_count} 个文件。"
+        dynamic_loader_priority = f"3. P1：将剩余 {dynamic_stage_loader_count} 个动态加载点迁移到专责模块。"
+    else:
+        dynamic_loader_status = "- 阶段脚本之间的动态实现加载已清零；Stage 05/06/07 主链均使用静态 package API。"
+        dynamic_loader_priority = "3. P1：保持动态阶段加载为零；复用逻辑必须进入已登记 package API。"
     engineering_status = f"""# GEO-ring Cloud Engineering Status
 
 Generated: `{GENERATED_AT}`
@@ -1840,6 +1915,7 @@ Generated: `{GENERATED_AT}`
 - time-run 顶层目录：{time_run_root_count}
 - 已登记历史命名 warning：{warning_count}
 - 历史绝对路径 warning 文件：{absolute_path_warning_count}
+- 历史动态阶段加载 warning 文件：{dynamic_stage_loader_count}
 
 ## 已建立的工程能力
 
@@ -1852,7 +1928,8 @@ Generated: `{GENERATED_AT}`
 
 ## 尚未达到的目标
 
-- `stage1_common.py` 已降为 compatibility shim；`pipeline_support` 已降为纯兼容 facade，layout、cloud semantics、产品读取、quicklook、artifact IO 与数组摘要统计均已拆入专责模块。
+- `stage1_common.py` 已降为 compatibility shim；`pipeline_support` 已降为纯兼容 facade，layout、cloud semantics、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、产品读取、quicklook、artifact IO 与数组摘要统计均已拆入专责模块。
+{dynamic_loader_status}
 {path_debt_status}
 - `environment.yml` 已固定已验证的直接依赖；跨平台传递依赖锁仍应在正式实验发布时按平台生成。
 - 一部分旧 time-run 使用 `stage0910` 等组合标签；为保障续跑暂保留，只作为 legacy alias，不得用于新组件命名。
@@ -1861,7 +1938,7 @@ Generated: `{GENERATED_AT}`
 
 1. P0：任何新增 governance error 必须在提交前清零。
 {path_debt_priority}
-3. P1：逐批清理阶段脚本通过动态加载彼此实现的编排耦合。
+{dynamic_loader_priority}
 4. P2：为正式实验发布生成平台化传递依赖锁；大数据集成测试继续本地运行。
 5. P2：按依赖审计结果渐进迁移扁平脚本，禁止一次性大搬迁。
 """
@@ -1938,6 +2015,7 @@ It applies to humans and AI agents.
 - MUST use `geo_ring_cloud_<role>_<purpose>.py` for new non-stage core utilities.
 - MUST place reusable shared APIs in the `geo_ring_cloud` package and import them through their canonical module names.
 - Package adapters and diagnostics MUST NOT import or dynamically load stage scripts; dependencies flow from stages to shared APIs.
+- Stage scripts MUST NOT dynamically load one another to reuse implementation; extract shared logic into a registered `geo_ring_cloud.*` module and use a normal import. Registered historical loaders are migration warnings only.
 - `geo_ring_cloud.pipeline_support` is a transitional compatibility facade. It MUST contain only imports, export metadata, and aliases; active stage/component code MUST NOT import it, and new shared responsibilities MUST use focused package modules.
 - Staged code MUST NOT import registered top-level compatibility shims; use canonical `geo_ring_cloud.*` modules.
 - Only the dedicated compatibility boundary test may import legacy shims, through the governance allowlist.

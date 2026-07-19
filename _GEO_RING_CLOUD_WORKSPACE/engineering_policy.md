@@ -20,6 +20,7 @@ It applies to humans and AI agents.
 - MUST use `geo_ring_cloud_<role>_<purpose>.py` for new non-stage core utilities.
 - MUST place reusable shared APIs in the `geo_ring_cloud` package and import them through their canonical module names.
 - Package adapters and diagnostics MUST NOT import or dynamically load stage scripts; dependencies flow from stages to shared APIs.
+- Stage scripts MUST NOT dynamically load one another to reuse implementation; extract shared logic into a registered `geo_ring_cloud.*` module and use a normal import. Registered historical loaders are migration warnings only.
 - `geo_ring_cloud.pipeline_support` is a transitional compatibility facade. It MUST contain only imports, export metadata, and aliases; active stage/component code MUST NOT import it, and new shared responsibilities MUST use focused package modules.
 - Staged code MUST NOT import registered top-level compatibility shims; use canonical `geo_ring_cloud.*` modules.
 - Only the dedicated compatibility boundary test may import legacy shims, through the governance allowlist.

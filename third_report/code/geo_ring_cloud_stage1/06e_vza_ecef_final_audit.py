@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import math
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from geo_ring_cloud import geometry as F06C
 from geo_ring_cloud.paths import GEOMETRY_ROOT, STAGE_ROOT
 from geo_ring_cloud.sources import tie_order, validate_profile
 
@@ -37,19 +36,6 @@ COMPARISON_CSV = LOCAL_REPORT_ROOT / "06e_vza_vs_audited_ecef.csv"
 IMPROVEMENT_CSV = LOCAL_REPORT_ROOT / "06e_vs_06b_ecef_improvement.csv"
 REPORT_MD = LOCAL_REPORT_ROOT / "06e_vza_ecef_final_audit_report.md"
 FY4B_DIAG_MD = LOCAL_REPORT_ROOT / "fy4b_06e_vza_gap_diagnosis.md"
-
-
-def load_module(path: Path, name: str):
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load module from {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-F06C = load_module(CODE_DIR / "06c_geometry_parameter_audit.py", "stage1_f06c")
 
 
 def utc_now() -> str:

@@ -5,6 +5,7 @@ import collections
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import unittest
@@ -103,6 +104,54 @@ class PackageBoundaryTests(unittest.TestCase):
         self.assertIs(pipeline_support.cloud_mask_semantics, cloud_semantics.cloud_mask_semantics)
         self.assertEqual(legacy_paths.PROJECT_ROOT, paths.PROJECT_ROOT)
 
+    def test_migrated_stage_scripts_use_static_package_dependencies(self) -> None:
+        migrated = [
+            "05_reproject_cloud_to_grid.py",
+            "06_fuse_best_source.py",
+            "06_5_source_selection_diagnostics.py",
+            "06c_geometry_parameter_audit.py",
+            "06c_multi_satellite_geometry_metadata_audit.py",
+            "07_overlap_consistency_validation.py",
+            "07p_overlap_validator_hotfix.py",
+            "07p_b_source_boundary_magnitude_review.py",
+            "06e_full_geometry_angle_source_sync_patch.py",
+            "06e_vza_ecef_final_audit.py",
+            "06f_unknown_aware_data_asset_audit.py",
+            "06f_reexport_with_obitype_patch.py",
+        ]
+        for name in migrated:
+            source = (CODE_DIR / name).read_text(encoding="utf-8-sig")
+            self.assertNotIn("spec_from_file_location", source, name)
+            self.assertNotIn("import importlib.util", source, name)
+
+        stage_06 = ast.parse((CODE_DIR / "06_fuse_best_source.py").read_text(encoding="utf-8-sig"))
+        stage_07 = ast.parse(
+            (CODE_DIR / "07_overlap_consistency_validation.py").read_text(encoding="utf-8-sig")
+        )
+        stage_06_functions = {
+            node.name for node in stage_06.body if isinstance(node, ast.FunctionDef)
+        }
+        stage_07_functions = {
+            node.name for node in stage_07.body if isinstance(node, ast.FunctionDef)
+        }
+        self.assertNotIn("build_candidate", stage_06_functions)
+        self.assertNotIn("compute_boundary_mask", stage_07_functions)
+
+        stage_05 = ast.parse(
+            (CODE_DIR / "05_reproject_cloud_to_grid.py").read_text(encoding="utf-8-sig")
+        )
+        stage_06c = ast.parse(
+            (CODE_DIR / "06c_geometry_parameter_audit.py").read_text(encoding="utf-8-sig")
+        )
+        self.assertNotIn(
+            "geolocate",
+            {node.name for node in stage_05.body if isinstance(node, ast.FunctionDef)},
+        )
+        self.assertNotIn(
+            "gather_geometry_params",
+            {node.name for node in stage_06c.body if isinstance(node, ast.FunctionDef)},
+        )
+
     def test_canonical_lineage_manifest_contract(self) -> None:
         from geo_ring_cloud.lineage import write_manifest
         from geo_ring_cloud.sources import REGISTRY_VERSION
@@ -130,6 +179,183 @@ class PackageBoundaryTests(unittest.TestCase):
         self.assertEqual(payload["related_stage_ids"], ["stage_09d", "stage_10"])
         self.assertEqual(payload["parameter_summary"], {"sample_count": 2})
         self.assertEqual(payload["source_registry_version"], REGISTRY_VERSION)
+
+
+class FusionAndOverlapSupportTests(unittest.TestCase):
+    def test_fusion_cloud_mapping_and_binary_contract(self) -> None:
+        from geo_ring_cloud import fusion_support
+
+        raw = np.asarray([[0, 1, 2, 3, 9]], dtype=np.int16)
+        standard = fusion_support.cloud_mask_to_standard("FY4B", "CLM", raw)
+        np.testing.assert_array_equal(standard, [[3, 2, 1, 0, -9999]])
+        binary = fusion_support.cloud_binary_from_standard(
+            standard,
+            np.ones(standard.shape, dtype=bool),
+        )
+        np.testing.assert_array_equal(binary, [[1, 1, 0, 0, -1]])
+
+    def test_fusion_grid_and_geostationary_geometry_contract(self) -> None:
+        from geo_ring_cloud import fusion_support
+
+        grid = {
+            "lon_min": -1.0,
+            "lat_min": -1.0,
+            "resolution_degree": 1.0,
+            "lon_size": 2,
+            "lat_size": 2,
+        }
+        lon, lat = fusion_support.build_target_lon_lat(grid)
+        np.testing.assert_allclose(lon, [-0.5, 0.5])
+        np.testing.assert_allclose(lat, [-0.5, 0.5])
+
+        vza = fusion_support.approximate_geostationary_vza(
+            np.asarray([[0.0, 0.0]], dtype=np.float32),
+            np.asarray([[0.0, 180.0]], dtype=np.float32),
+            0.0,
+        )
+        self.assertAlmostEqual(float(vza[0, 0]), 0.0, places=5)
+        self.assertTrue(np.isnan(vza[0, 1]))
+
+    def test_overlap_confusion_and_boundary_contract(self) -> None:
+        from geo_ring_cloud import overlap
+
+        confusion = overlap.confusion_from_binary(
+            np.asarray([0, 0, 1, 1]),
+            np.asarray([0, 1, 0, 1]),
+        )
+        self.assertEqual(confusion, {"tn": 1, "fp": 1, "fn": 1, "tp": 1})
+
+        source_map = np.asarray([[1, 1, 2], [1, 2, 2]], dtype=np.int16)
+        valid = np.ones(source_map.shape, dtype=bool)
+        boundary = overlap.compute_boundary_mask(source_map, valid)
+        np.testing.assert_array_equal(
+            boundary,
+            [[False, True, True], [True, True, False]],
+        )
+        mapping = overlap.build_variable_to_product()
+        self.assertIn(("FY4B", "cloud_mask"), mapping)
+
+
+class ReprojectionAndGeometrySupportTests(unittest.TestCase):
+    def test_target_grid_and_longitude_contract(self) -> None:
+        from geo_ring_cloud import reprojection
+
+        lon, lat, grid = reprojection.make_target_grid()
+        self.assertEqual(lon.shape, (7200,))
+        self.assertEqual(lat.shape, (3600,))
+        self.assertEqual(grid["shape"], [3600, 7200])
+        self.assertAlmostEqual(float(lon[0]), -179.975)
+        self.assertAlmostEqual(float(lat[-1]), 89.975)
+        normalized = reprojection.normalize_longitude(
+            np.asarray([0.0, 181.0, 360.0, -180.0], dtype=np.float32)
+        )
+        np.testing.assert_allclose(normalized, [0.0, -179.0, 0.0, 180.0])
+
+    def test_geometry_parameter_and_vza_contract(self) -> None:
+        from geo_ring_cloud import geometry
+
+        params = geometry.GeometryParams(
+            satellite="test",
+            reference_product="test",
+            source_file="test.nc",
+            current_subpoint_lon_deg=0.0,
+            current_subpoint_source="test",
+            current_earth_radius_m=geometry.DEFAULT_A_M,
+            current_earth_radius_source="test",
+            current_height_above_ellipsoid_m=geometry.DEFAULT_HEIGHT_ABOVE_ELLIPSOID_M,
+            current_height_source="test",
+            recommended_subpoint_lon_deg=0.0,
+            recommended_subpoint_source="test",
+            recommended_a_m=geometry.DEFAULT_A_M,
+            recommended_a_source="test",
+            recommended_b_m=geometry.DEFAULT_B_M,
+            recommended_b_source="test",
+            recommended_center_distance_m=geometry.DEFAULT_CENTER_DISTANCE_M,
+            recommended_center_distance_source="test",
+            recommended_height_above_ellipsoid_m=geometry.DEFAULT_HEIGHT_ABOVE_ELLIPSOID_M,
+            recommended_height_source="test",
+            fallback_used=False,
+            notes="",
+        )
+        self.assertEqual(params.satellite, "test")
+        spherical = geometry.spherical_vza_chunk(
+            np.asarray([0.0]),
+            np.asarray([0.0]),
+            0.0,
+            geometry.DEFAULT_A_M,
+            geometry.DEFAULT_CENTER_DISTANCE_M,
+        )
+        ecef = geometry.ecef_vza_chunk(
+            np.asarray([0.0]),
+            np.asarray([0.0]),
+            0.0,
+            geometry.DEFAULT_A_M,
+            geometry.DEFAULT_B_M,
+            geometry.DEFAULT_CENTER_DISTANCE_M,
+        )
+        self.assertAlmostEqual(float(spherical[0, 0]), 0.0, places=5)
+        self.assertAlmostEqual(float(ecef[0, 0]), 0.0, places=5)
+
+
+class DataAssetAuditTests(unittest.TestCase):
+    def test_fy4b_obitype_patch_updates_semantics_and_is_idempotent(self) -> None:
+        from geo_ring_cloud.data_asset_audit import apply_fy4b_obitype_patch
+
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE files(file_id INTEGER PRIMARY KEY, satellite TEXT, product TEXT);
+                CREATE TABLE items(
+                    item_id INTEGER PRIMARY KEY,
+                    file_id INTEGER,
+                    normalized_name TEXT,
+                    semantic_class TEXT,
+                    known_status TEXT,
+                    manual_review_priority TEXT,
+                    notes TEXT
+                );
+                CREATE TABLE unknowns(item_id INTEGER);
+                CREATE TABLE flags(item_id INTEGER);
+                CREATE TABLE recommendations(
+                    item_id INTEGER,
+                    use_now INTEGER,
+                    use_later INTEGER,
+                    do_not_use INTEGER,
+                    use_for_fusion INTEGER,
+                    use_for_rating INTEGER,
+                    use_for_screening INTEGER,
+                    use_for_07_stratification INTEGER,
+                    use_for_future_deep_space_enhancement INTEGER,
+                    reason TEXT,
+                    confidence REAL,
+                    blocking_issue INTEGER
+                );
+                INSERT INTO files VALUES (1, 'FY4B', 'CLM');
+                INSERT INTO items VALUES (10, 1, 'obitype', 'unknown', 'unknown', 'HIGH', '');
+                INSERT INTO unknowns VALUES (10);
+                INSERT INTO flags VALUES (10);
+                INSERT INTO recommendations VALUES (10, 1, 0, 1, 1, 1, 1, 1, 1, '', 0.1, 1);
+                """
+            )
+            self.assertEqual(apply_fy4b_obitype_patch(conn), 1)
+            self.assertEqual(apply_fy4b_obitype_patch(conn), 1)
+            item = conn.execute(
+                "SELECT semantic_class, known_status, manual_review_priority, notes FROM items"
+            ).fetchone()
+            recommendation = conn.execute(
+                "SELECT use_now, use_later, do_not_use, confidence, blocking_issue FROM recommendations"
+            ).fetchone()
+            unknown_count = conn.execute("SELECT count(*) FROM unknowns").fetchone()[0]
+            flag_count = conn.execute("SELECT count(*) FROM flags").fetchone()[0]
+        finally:
+            conn.close()
+
+        self.assertEqual(item[:3], ("lineage_metadata", "known_uninterpreted", "LOW"))
+        self.assertEqual(item[3].count("OBIType = Observing Type"), 1)
+        self.assertEqual(recommendation, (0, 1, 0, 0.95, 0))
+        self.assertEqual(unknown_count, 0)
+        self.assertEqual(flag_count, 0)
 
 
 class PipelineLayoutTests(unittest.TestCase):

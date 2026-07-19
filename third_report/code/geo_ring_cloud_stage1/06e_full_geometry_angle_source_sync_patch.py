@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import math
 import os
@@ -16,6 +15,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from geo_ring_cloud import reprojection as F05
 from geo_ring_cloud.sources import SOURCE_BY_KEY, tie_order, validate_profile
 from geo_ring_cloud.diagnostics.summary import finite_stats
 from geo_ring_cloud.adapters.cloud_products import find_himawari_r21_geometry_file, read_mapping
@@ -52,19 +52,6 @@ ANGLE_NAMES = [
 EARTH_RADIUS_KM = 6378.137
 GEO_ALTITUDE_KM = 35786.023
 SATELLITE_RADIUS_KM = EARTH_RADIUS_KM + GEO_ALTITUDE_KM
-
-
-def load_module(path: Path, name: str):
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load module {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-F05 = load_module(CODE_DIR / "05_reproject_cloud_to_grid.py", "stage1_f05")
-F06 = load_module(CODE_DIR / "06_fuse_best_source.py", "stage1_f06")
 
 
 def ensure_output_dirs() -> None:

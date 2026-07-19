@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import math
 import re
@@ -20,8 +19,9 @@ import matplotlib.pyplot as plt
 from satpy.readers.ahi_hsd import AHIHSDFileHandler
 from satpy.readers.seviri_l1b_native import NativeMSGFileHandler
 
+from geo_ring_cloud import fusion_support as F06
 from geo_ring_cloud.lineage import utc_now
-from geo_ring_cloud.paths import CODE_ROOT, GEOMETRY_ROOT, STAGE_ROOT
+from geo_ring_cloud.paths import GEOMETRY_ROOT, STAGE_ROOT
 from geo_ring_cloud.pipeline_layout import REPORT_DIR as REPORT_ROOT
 
 REPROJECT_ROOT = STAGE_ROOT / "reprojected_grid"
@@ -46,18 +46,6 @@ ROW_CHUNK = 120
 
 def normalize_lon(lon: float | np.ndarray) -> float | np.ndarray:
     return ((np.asarray(lon) + 180.0) % 360.0) - 180.0
-
-
-def load_module(module_path: Path, module_name: str):
-    spec = importlib.util.spec_from_file_location(module_name, module_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load module: {module_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-F06 = load_module(CODE_ROOT / "06_fuse_best_source.py", "geo_stage1_f06")
 
 
 @dataclass
