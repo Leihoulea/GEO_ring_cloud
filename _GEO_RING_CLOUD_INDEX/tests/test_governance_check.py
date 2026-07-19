@@ -71,6 +71,42 @@ class CompatibilityShimTests(unittest.TestCase):
         self.assertTrue(all(item.severity == "ERROR" for item in findings))
 
 
+class StageCompatibilityEntrypointTests(unittest.TestCase):
+    @staticmethod
+    def write_registered_entrypoints(root: Path) -> None:
+        for relative, (canonical, stage_id) in governance_check.STAGE_COMPATIBILITY_ENTRYPOINTS.items():
+            canonical_path = (
+                f"{governance_check.CORE_CODE_PREFIX}{canonical.replace('.', '/')}.py"
+            )
+            write(root, canonical_path, f'STAGE_ID = "{stage_id}"\n\ndef main():\n    return 0\n')
+            write(
+                root,
+                relative,
+                f'"""compatibility entrypoint"""\n'
+                f'from {canonical} import *\n'
+                f'STAGE_ID = "{stage_id}"\n'
+                'COMPONENT_ROLE = "compatibility_entrypoint"\n'
+                'if __name__ == "__main__":\n    raise SystemExit(main())\n',
+            )
+
+    def test_registered_thin_entrypoints_are_accepted(self) -> None:
+        with isolated_root("stage_entrypoint_valid") as root:
+            self.write_registered_entrypoints(root)
+            findings = governance_check.check_stage_compatibility_entrypoints()
+
+        self.assertEqual(findings, [])
+
+    def test_stage_entrypoint_implementation_logic_is_rejected(self) -> None:
+        with isolated_root("stage_entrypoint_logic") as root:
+            self.write_registered_entrypoints(root)
+            target = next(iter(governance_check.STAGE_COMPATIBILITY_ENTRYPOINTS))
+            with (root / target).open("a", encoding="utf-8") as handle:
+                handle.write("\ndef implementation():\n    return 1\n")
+            findings = governance_check.check_stage_compatibility_entrypoints()
+
+        self.assertEqual(sum("implementation logic" in item.message for item in findings), 1)
+
+
 class PackageFacadeTests(unittest.TestCase):
     def test_import_only_facade_is_accepted(self) -> None:
         relative = next(iter(governance_check.PACKAGE_FACADE_PATHS))
@@ -194,6 +230,24 @@ class ModuleRegistryTests(unittest.TestCase):
             findings = governance_check.check_stage_contract(
                 [script, engineering_status],
                 set(),
+                enforce_index_docs=True,
+            )
+
+        self.assertEqual(findings, [])
+
+    def test_registered_stage_migration_is_not_treated_as_a_new_stage(self) -> None:
+        script = next(
+            path
+            for path in governance_check.REGISTERED_STAGE_MIGRATION_TARGETS
+            if not path.endswith("/__init__.py")
+        )
+        artifact_index = "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md"
+        with isolated_root("registered_stage_migration") as root:
+            write(root, script, 'STAGE_ID = "stage_06f"\n')
+            write(root, artifact_index, "| path |\n| --- |\n")
+            findings = governance_check.check_stage_contract(
+                [script, artifact_index],
+                {script},
                 enforce_index_docs=True,
             )
 

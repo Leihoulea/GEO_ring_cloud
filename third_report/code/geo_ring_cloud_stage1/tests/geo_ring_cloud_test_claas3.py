@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import collections
+import importlib
 import json
 import os
 import shutil
@@ -103,6 +104,49 @@ class PackageBoundaryTests(unittest.TestCase):
         self.assertIs(legacy_pipeline.cloud_mask_masks, cloud_semantics.cloud_mask_masks)
         self.assertIs(pipeline_support.cloud_mask_semantics, cloud_semantics.cloud_mask_semantics)
         self.assertEqual(legacy_paths.PROJECT_ROOT, paths.PROJECT_ROOT)
+
+    def test_stage_06f_legacy_entrypoints_export_canonical_objects(self) -> None:
+        mappings = {
+            "06f_unknown_aware_data_asset_audit": (
+                "stage_06f_data_asset_audit.stage_06f_unknown_aware_data_asset_audit",
+                "main",
+            ),
+            "06f_reexport_with_obitype_patch": (
+                "stage_06f_data_asset_audit.stage_06f_reexport_with_obitype_patch",
+                "main",
+            ),
+            "06f_report_sync_patch": (
+                "stage_06f_data_asset_audit.stage_06f_report_sync",
+                "main",
+            ),
+        }
+        for legacy_name, (canonical_name, public_name) in mappings.items():
+            legacy = importlib.import_module(legacy_name)
+            canonical = importlib.import_module(canonical_name)
+            self.assertIs(getattr(legacy, public_name), getattr(canonical, public_name))
+            self.assertEqual(legacy.STAGE_ID, "stage_06f")
+
+    def test_stage_06f_legacy_and_canonical_audit_help(self) -> None:
+        commands = [
+            [sys.executable, "06f_unknown_aware_data_asset_audit.py", "--help"],
+            [
+                sys.executable,
+                "-m",
+                "stage_06f_data_asset_audit.stage_06f_unknown_aware_data_asset_audit",
+                "--help",
+            ],
+        ]
+        for command in commands:
+            completed = subprocess.run(
+                command,
+                cwd=CODE_DIR,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("usage:", completed.stdout.lower())
 
     def test_migrated_stage_scripts_use_static_package_dependencies(self) -> None:
         migrated = [

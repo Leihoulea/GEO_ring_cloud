@@ -16,11 +16,12 @@ MUST do these steps before writing or moving files:
 2. Read `_GEO_RING_CLOUD_WORKSPACE/engineering_policy.md`.
 3. Read `_GEO_RING_CLOUD_WORKSPACE/architecture.md` and `_GEO_RING_CLOUD_WORKSPACE/engineering_status.md`.
 4. Check `_GEO_RING_CLOUD_WORKSPACE/module_registry.md` before creating or duplicating shared code.
-5. Check `_GEO_RING_CLOUD_WORKSPACE/stage_registry.md`.
-6. Check `_GEO_RING_CLOUD_WORKSPACE/artifact_index.md`.
-7. Check `_GEO_RING_CLOUD_WORKSPACE/data_product_audits.md` for generic and stage-scoped EO product inspections.
-8. Query `_GEO_RING_CLOUD_INDEX/geo_ring_cloud_index.sqlite` when a precise lookup is cheaper than broad file search.
-9. Search focused code paths with `rg` only after the index/workspace checks.
+5. Check `_GEO_RING_CLOUD_WORKSPACE/code_migrations.md` before using or moving a historical stage path.
+6. Check `_GEO_RING_CLOUD_WORKSPACE/stage_registry.md`.
+7. Check `_GEO_RING_CLOUD_WORKSPACE/artifact_index.md`.
+8. Check `_GEO_RING_CLOUD_WORKSPACE/data_product_audits.md` for generic and stage-scoped EO product inspections.
+9. Query `_GEO_RING_CLOUD_INDEX/geo_ring_cloud_index.sqlite` when a precise lookup is cheaper than broad file search.
+10. Search focused code paths with `rg` only after the index/workspace checks.
 
 MUST NOT scan raw data, time-run outputs, evidence packs, or `_NON_GEO_ARCHIVE`
 unless the task explicitly requires those artifacts.
@@ -101,6 +102,12 @@ Staged code MUST NOT import registered top-level compatibility shims such as
 canonical `geo_ring_cloud.*` module instead.
 Only the dedicated compatibility boundary test may import legacy shims, via
 the explicit governance allowlist; do not add broad directory exemptions.
+
+Historical stage paths retained after physical migration MUST be registered in
+`code_migrations` and MUST remain thin `compatibility_entrypoint` files. They
+MUST import the expected canonical stage module, declare the matching
+`STAGE_ID`, and contain no scientific or orchestration implementation beyond a
+standard `if __name__ == "__main__"` call to `main()`.
 
 Generic data/product inspections SHOULD use `component_role=data_product_audit`.
 If an inspection supports a downstream stage, keep the generic audit role and

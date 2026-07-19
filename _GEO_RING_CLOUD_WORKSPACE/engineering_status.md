@@ -1,13 +1,14 @@
 # GEO-ring Cloud Engineering Status
 
-Generated: `2026-07-19T06:32:51Z`
+Generated: `2026-07-19T06:46:20Z`
 
 ## 当前规模
 
-- 索引脚本：101
+- 索引脚本：105
 - canonical shared modules：20
+- 已登记物理代码迁移：3
 - canonical stages：43
-- SQLite 详细 artifact 记录：977
+- SQLite 详细 artifact 记录：982
 - Markdown 快查 artifact 记录：436
 - data product audits：19
 - time-run 顶层目录：156
@@ -21,12 +22,14 @@ Generated: `2026-07-19T06:32:51Z`
 - canonical stage taxonomy、artifact index、data product audit index 和跨项目 collision guard。
 - Python `geo_ring_cloud.paths` 与 PowerShell `geo_ring_cloud_path_configuration.ps1` 共享环境变量契约；统一 lineage manifest helper 与 staged governance check。
 - `geo_ring_cloud` package、`pyproject.toml`、module registry 与旧 import compatibility shims。
+- SQLite/Markdown `code_migrations` 记录 canonical 路径、历史入口、验证证据和回滚说明。
 - 已验证直接依赖基线、统一 `ci_check.py` 入口与 GitHub 轻量 CI 门禁。
 - 大数据、time-run、图片、Office 文件和生成数据库默认不进入 Git。
 
 ## 尚未达到的目标
 
 - `stage1_common.py` 已降为 compatibility shim；`pipeline_support` 已降为纯兼容 facade，layout、cloud semantics、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、产品读取、quicklook、artifact IO 与数组摘要统计均已拆入专责模块。
+- Stage 06f 三个实现已迁入 `stage_06f_data_asset_audit/`；原路径由 AST 门禁约束为薄兼容入口。
 - 阶段脚本之间的动态实现加载已清零；Stage 05/06/07 主链均使用静态 package API。
 - 活跃项目代码中的机器本地绝对路径 warning 已清零；历史非 canonical 命名继续由 alias/baseline 吸收。
 - `environment.yml` 已固定已验证的直接依赖；跨平台传递依赖锁仍应在正式实验发布时按平台生成。

@@ -4,11 +4,6 @@
 | D:\AAAresearch_paper\geo_geometry_check\vza_method_comparison_by_satellite.csv | 06d_himawari_full_disk_geometry_validation.py | 28 | CURRENT06C_VZA_CSV 当前 06c VZA 比较结果 | D盘内 |
 | D:\AAAresearch_paper\geo_geometry_check\Himawari-9 | 06d_himawari_full_disk_geometry_validation.py | 29 | GEOMETRY_ROOT Himawari 全圆盘段数据 | D盘内 |
 | D:\AAAresearch_paper\geo_geometry_check | 06e_vza_ecef_final_audit.py | 20 | EXTERNAL_GEOMETRY_AUDIT_DIR 几何审计目录 | D盘内 |
-| D:\AAAresearch_paper\data | 06f_unknown_aware_data_asset_audit.py | 38 | SCAN_DIRS 原始卫星数据根 | D盘内 |
-| D:\AAAresearch_paper\geo_geometry_check | 06f_unknown_aware_data_asset_audit.py | 39 | SCAN_DIRS 几何校验样本 | D盘内 |
-| D:\AAAresearch_paper\geo_ring_cloud_stage1\standardized_native | 06f_unknown_aware_data_asset_audit.py | 40 | SCAN_DIRS 标准化原生产物 | D盘内 |
-| D:\AAAresearch_paper\geo_ring_cloud_stage1\reprojected_grid | 06f_unknown_aware_data_asset_audit.py | 41 | SCAN_DIRS 重投影产物 | D盘内 |
-| D:\AAAresearch_paper\geo_ring_cloud_stage1\fused_best_source | 06f_unknown_aware_data_asset_audit.py | 42 | SCAN_DIRS 融合产物 | D盘内 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\20240319_1500 | 08b_epic_l2_cloud_audit_compare.py | 24 | TIME_RUN_ROOT 特定时次运行目录 | D盘内 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | 08e_summarize_epic_georing_multisample.py | 16 | RUNS_ROOT 多时次运行根 | D盘内 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs | 08f_geometry_and_prefusion_epic_diagnostics.py | 14 | RUNS_ROOT 多时次运行根 | D盘内 |
@@ -33,6 +28,11 @@
 | D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 | rebuild_stage1_evidence_pack.py | 17 | CODE_ROOT 主代码来源 | D盘内 |
 | D:\AAAresearch_paper\data_check_report | rebuild_stage1_evidence_pack.py | 18 | DATA_CHECK_ROOT 前序审计证据来源 | D盘内 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\epic_202403_target_selection\recommended_epic_georing_validation_targets.csv | run_epic_georing_sample_batch.py | 15 | DEFAULT_SELECTION_CSV EPIC 验证目标选择清单 | D盘内 |
+| D:\AAAresearch_paper\data | stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py | 35 | INPUT_DIRS 原始卫星数据根（由 geo_ring_cloud.paths 解析） | D盘内 |
+| D:\AAAresearch_paper\geo_geometry_check | stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py | 36 | INPUT_DIRS 几何校验样本（由 geo_ring_cloud.paths 解析） | D盘内 |
+| D:\AAAresearch_paper\geo_ring_cloud_stage1\standardized_native | stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py | 37 | INPUT_DIRS 标准化原生产物（由 geo_ring_cloud.paths 解析） | D盘内 |
+| D:\AAAresearch_paper\geo_ring_cloud_stage1\reprojected_grid | stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py | 38 | INPUT_DIRS 重投影产物（由 geo_ring_cloud.paths 解析） | D盘内 |
+| D:\AAAresearch_paper\geo_ring_cloud_stage1\fused_best_source | stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py | 39 | INPUT_DIRS 融合产物（由 geo_ring_cloud.paths 解析） | D盘内 |
 | E:\GEO_Cloud_2024\CMSAF\DSCOVR_EPIC_L2_CLOUD_03_20240319150052_03.nc4 | 08b_epic_l2_cloud_audit_compare.py | 27 | EPIC_L2_FILE DSCOVR EPIC L2 云产品文件 | E盘 |
 | E:\GEO_Cloud_2024 | data_check_report/check_download_completeness.py | 18 | GEO_ROOT 外部数据盘 GEO 云产品存储根 | E盘 |
 | F:\DSCOVR_EPIC_L2_CLOUD_03_2024.03 | time_runs/*/single_sample_run_manifest.json | 5 | DSCOVR EPIC L2 云产品数据根（各批次 manifest 引用具体 .nc4 文件） | F盘 |

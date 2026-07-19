@@ -127,6 +127,28 @@ COMPATIBILITY_SHIM_PATHS = {
     f"{CORE_CODE_PREFIX}geo_ring_cloud_epic_pair_diagnostics.py": "geo_ring_cloud.diagnostics.epic_pair",
     f"{CORE_CODE_PREFIX}stage1_common.py": "geo_ring_cloud.pipeline_support",
 }
+STAGE_COMPATIBILITY_ENTRYPOINTS = {
+    f"{CORE_CODE_PREFIX}06f_unknown_aware_data_asset_audit.py": (
+        "stage_06f_data_asset_audit.stage_06f_unknown_aware_data_asset_audit",
+        "stage_06f",
+    ),
+    f"{CORE_CODE_PREFIX}06f_reexport_with_obitype_patch.py": (
+        "stage_06f_data_asset_audit.stage_06f_reexport_with_obitype_patch",
+        "stage_06f",
+    ),
+    f"{CORE_CODE_PREFIX}06f_report_sync_patch.py": (
+        "stage_06f_data_asset_audit.stage_06f_report_sync",
+        "stage_06f",
+    ),
+}
+REGISTERED_STAGE_MIGRATION_TARGETS = {
+    f"{CORE_CODE_PREFIX}{module.replace('.', '/')}.py"
+    for module, _ in STAGE_COMPATIBILITY_ENTRYPOINTS.values()
+}
+REGISTERED_STAGE_MIGRATION_TARGETS.update(
+    f"{Path(path).parent.as_posix()}/__init__.py"
+    for path in tuple(REGISTERED_STAGE_MIGRATION_TARGETS)
+)
 PACKAGE_FACADE_PATHS = {
     f"{CORE_PACKAGE_PREFIX}pipeline_support.py": "compatibility_facade",
 }
@@ -154,12 +176,14 @@ WORKSPACE_INDEX_DOCS = {
 MODIFIED_STAGE_INDEX_DOCS = {
     "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md",
     "_GEO_RING_CLOUD_WORKSPACE/engineering_status.md",
+    "_GEO_RING_CLOUD_WORKSPACE/code_migrations.md",
 }
 MODULE_REGISTRY_DOC = "_GEO_RING_CLOUD_WORKSPACE/module_registry.md"
 REQUIRED_ENGINEERING_FILES = {
     ".github/workflows/geo-ring-cloud-governance.yml",
     "_GEO_RING_CLOUD_INDEX/ci_check.py",
     "_GEO_RING_CLOUD_WORKSPACE/architecture.md",
+    "_GEO_RING_CLOUD_WORKSPACE/code_migrations.md",
     "_GEO_RING_CLOUD_WORKSPACE/engineering_policy.md",
     "_GEO_RING_CLOUD_WORKSPACE/engineering_status.md",
     MODULE_REGISTRY_DOC,
@@ -318,7 +342,7 @@ def check_naming(paths: list[str], added_paths: set[str], baseline_mode: bool) -
         normalized = normalize_path(rel_path)
         if ".git/" in normalized:
             continue
-        if normalized in COMPATIBILITY_SHIM_PATHS:
+        if normalized in COMPATIBILITY_SHIM_PATHS or normalized in STAGE_COMPATIBILITY_ENTRYPOINTS:
             continue
         name_only = Path(normalized).name
         has_ambiguous = any(pattern.search(name_only) for pattern in AMBIGUOUS_STAGE_PATTERNS)
@@ -345,7 +369,7 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
 
     for rel_path in paths:
         normalized = normalize_path(rel_path)
-        if normalized in COMPATIBILITY_SHIM_PATHS:
+        if normalized in COMPATIBILITY_SHIM_PATHS or normalized in STAGE_COMPATIBILITY_ENTRYPOINTS:
             continue
         if not is_core_code(normalized):
             continue
@@ -369,7 +393,10 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
 
         if suffix == ".py" and is_stage_owned_path(normalized):
             changed_stage_scripts = True
-            added_stage_scripts = added_stage_scripts or normalized in normalized_added
+            added_stage_scripts = added_stage_scripts or (
+                normalized in normalized_added
+                and normalized not in REGISTERED_STAGE_MIGRATION_TARGETS
+            )
         if suffix == ".py" and is_core_package_module(normalized) and normalized in normalized_added:
             added_package_modules.append(normalized)
 
@@ -554,6 +581,114 @@ def check_compatibility_shims() -> list[Finding]:
                     break
         if not imports_canonical:
             findings.append(Finding("ERROR", rel_path, f"compatibility shim must import {canonical_module}"))
+    return findings
+
+
+def check_stage_compatibility_entrypoints() -> list[Finding]:
+    """Keep migrated historical stage paths executable but implementation-free."""
+    findings: list[Finding] = []
+    for rel_path, (canonical_module, expected_stage_id) in sorted(
+        STAGE_COMPATIBILITY_ENTRYPOINTS.items()
+    ):
+        canonical_path = f"{CORE_CODE_PREFIX}{canonical_module.replace('.', '/')}.py"
+        if not (ROOT / canonical_path).is_file():
+            findings.append(Finding("ERROR", canonical_path, "registered canonical stage module is missing"))
+        text = read_text(rel_path)
+        if text is None:
+            findings.append(
+                Finding("ERROR", rel_path, "registered stage compatibility entrypoint is missing or unreadable")
+            )
+            continue
+        try:
+            tree = ast.parse(text, filename=rel_path)
+        except SyntaxError as exc:
+            findings.append(
+                Finding("ERROR", rel_path, f"stage compatibility entrypoint is not valid Python: {exc}")
+            )
+            continue
+        if component_role_in_script(rel_path) != "compatibility_entrypoint":
+            findings.append(
+                Finding(
+                    "ERROR",
+                    rel_path,
+                    "stage compatibility entrypoint must declare COMPONENT_ROLE='compatibility_entrypoint'",
+                )
+            )
+        if stage_ids_in_script(rel_path) != {expected_stage_id}:
+            findings.append(
+                Finding(
+                    "ERROR",
+                    rel_path,
+                    f"stage compatibility entrypoint must declare STAGE_ID='{expected_stage_id}'",
+                )
+            )
+
+        imports_canonical = False
+        invalid = False
+        for node in tree.body:
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                continue
+            if isinstance(node, ast.ImportFrom):
+                if node.module != canonical_module:
+                    invalid = True
+                    break
+                imports_canonical = True
+                continue
+            if isinstance(node, ast.Assign):
+                targets = [target.id for target in node.targets if isinstance(target, ast.Name)]
+                if targets not in (["STAGE_ID"], ["COMPONENT_ROLE"]):
+                    invalid = True
+                    break
+                continue
+            if isinstance(node, ast.If):
+                is_main_guard = (
+                    isinstance(node.test, ast.Compare)
+                    and isinstance(node.test.left, ast.Name)
+                    and node.test.left.id == "__name__"
+                    and len(node.test.ops) == 1
+                    and isinstance(node.test.ops[0], ast.Eq)
+                    and len(node.test.comparators) == 1
+                    and isinstance(node.test.comparators[0], ast.Constant)
+                    and node.test.comparators[0].value == "__main__"
+                    and not node.orelse
+                )
+                statement = node.body[0] if len(node.body) == 1 else None
+                direct_main_call = (
+                    isinstance(statement, ast.Expr)
+                    and isinstance(statement.value, ast.Call)
+                    and isinstance(statement.value.func, ast.Name)
+                    and statement.value.func.id == "main"
+                    and not statement.value.args
+                    and not statement.value.keywords
+                )
+                system_exit_main_call = (
+                    isinstance(statement, ast.Raise)
+                    and isinstance(statement.exc, ast.Call)
+                    and isinstance(statement.exc.func, ast.Name)
+                    and statement.exc.func.id == "SystemExit"
+                    and len(statement.exc.args) == 1
+                    and not statement.exc.keywords
+                    and isinstance(statement.exc.args[0], ast.Call)
+                    and isinstance(statement.exc.args[0].func, ast.Name)
+                    and statement.exc.args[0].func.id == "main"
+                    and not statement.exc.args[0].args
+                    and not statement.exc.args[0].keywords
+                )
+                calls_main = direct_main_call or system_exit_main_call
+                if not is_main_guard or not calls_main:
+                    invalid = True
+                    break
+                continue
+            invalid = True
+            break
+        if invalid:
+            findings.append(
+                Finding("ERROR", rel_path, "stage compatibility entrypoint contains implementation logic")
+            )
+        if not imports_canonical:
+            findings.append(
+                Finding("ERROR", rel_path, f"stage compatibility entrypoint must import {canonical_module}")
+            )
     return findings
 
 
@@ -799,6 +934,7 @@ def main() -> int:
     findings: list[Finding] = []
     findings.extend(check_engineering_contract())
     findings.extend(check_compatibility_shims())
+    findings.extend(check_stage_compatibility_entrypoints())
     findings.extend(check_package_facades())
     findings.extend(check_package_dependency_boundaries(paths))
     findings.extend(check_dynamic_stage_loading(paths, baseline_mode=baseline_mode))

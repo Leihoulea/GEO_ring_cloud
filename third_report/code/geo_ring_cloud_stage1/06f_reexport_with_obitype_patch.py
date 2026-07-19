@@ -1,21 +1,10 @@
-from __future__ import annotations
+"""Compatibility entrypoint for the canonical Stage 06f re-export command."""
 
-import subprocess
-import sys
-
-from geo_ring_cloud.paths import CODE_ROOT
+from stage_06f_data_asset_audit.stage_06f_reexport_with_obitype_patch import *
 
 
-AUDIT_SCRIPT = CODE_ROOT / "06f_unknown_aware_data_asset_audit.py"
-
-
-def main() -> int:
-    completed = subprocess.run(
-        [sys.executable, str(AUDIT_SCRIPT), "--reexport-with-obitype-patch"],
-        cwd=str(CODE_ROOT),
-        check=False,
-    )
-    return completed.returncode
+STAGE_ID = "stage_06f"
+COMPONENT_ROLE = "compatibility_entrypoint"
 
 
 if __name__ == "__main__":

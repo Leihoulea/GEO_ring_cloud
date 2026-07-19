@@ -248,6 +248,9 @@
 | geo_ring_cloud | stage_06d | stage_06d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_06e | stage_06e | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_06f | stage_06f | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_06f_data_asset_audit/stage_06f_reexport_with_obitype_patch.py | stage_06f | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_06f_data_asset_audit/stage_06f_report_sync.py | stage_06f | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py | stage_06f | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_07 | stage_07 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_07p | stage_07p | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_07p_b | stage_07p_b | 1.0 | registry-defined alias |

@@ -15,6 +15,7 @@
 - Reusable shared APIs belong in the `geo_ring_cloud` package, use lowercase `snake_case.py`, declare `COMPONENT_ROLE`, and must be registered in `module_registry.md`.
 - Executable non-stage utilities at the code root must use `geo_ring_cloud_<role>_<purpose>.py`, declare `COMPONENT_ROLE`, and avoid fake or combined stages. Roles include `runner`, `experiment_runner`, `downloader`, `evidence_pack_builder`, `summary_helper`, and `presentation_builder`.
 - Top-level compatibility shims may retain historical names only when registered; they must contain imports and metadata, not implementation logic.
+- A physically migrated historical stage path may remain only as a registered `compatibility_entrypoint`; it must import the canonical stage module, declare the matching `STAGE_ID`, and only invoke `main()` under the standard main guard.
 - Generic EO data/product inspections must use `component_role=data_product_audit`; keep legacy `third_report/code/geo_data_audit` paths until references are audited, and index them in `data_product_audits.md`.
 - Do not create new `Step*`, `stage10*`, `Stage10*`, `09_stage*`, or numeric-prefix stage names.
 
@@ -26,7 +27,7 @@
 
 ## Migration rule
 
-Historical files are not renamed by default. Rename only after code references, evidence references, and a rollback manifest are checked.
+Historical files are not renamed by default. Rename only after code references, evidence references, and rollback instructions are checked. Record every approved physical code move in SQLite `code_migrations` and `_GEO_RING_CLOUD_WORKSPACE/code_migrations.md`.
 
 ## Enforcement rule
 

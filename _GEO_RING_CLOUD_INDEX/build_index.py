@@ -190,7 +190,7 @@ EXTERNAL_DISKS = [
 ]
 
 # ---------------------------------------------------------------------------
-# 3. ring cloud 主脚本职责表（third_report/code/geo_ring_cloud_stage1/ 下 41 个 .py）
+# 3. ring cloud 主脚本职责表（历史人工职责 + 当前 canonical 路径）
 #    (文件名, 阶段, 职责)
 # ---------------------------------------------------------------------------
 SCRIPTS = [
@@ -220,9 +220,12 @@ SCRIPTS = [
     ("06d_himawari_full_disk_geometry_validation.py", "06d", "Himawari 全圆盘几何验证（引用 geo_geometry_check/Himawari-9 与 vza_method_comparison_by_satellite.csv）"),
     ("06e_full_geometry_angle_source_sync_patch.py", "06e", "几何角度源同步补丁：将传感器/太阳角度层投影到目标网格并重跑 06 融合"),
     ("06e_vza_ecef_final_audit.py", "06e", "VZA ECEF 坐标系最终审计（引用 geo_geometry_check）"),
-    ("06f_unknown_aware_data_asset_audit.py", "06f", "unknown-aware 数据资产审计：扫描 data/geo_geometry_check/stage1 子目录识别未知变量"),
-    ("06f_reexport_with_obitype_patch.py", "06f", "带 orbit type 补丁的重新导出"),
-    ("06f_report_sync_patch.py", "06f", "报告同步补丁"),
+    ("stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py", "06f", "Stage 06f canonical unknown-aware 数据资产审计实现"),
+    ("stage_06f_data_asset_audit/stage_06f_reexport_with_obitype_patch.py", "06f", "Stage 06f canonical orbit type 补丁重新导出命令"),
+    ("stage_06f_data_asset_audit/stage_06f_report_sync.py", "06f", "Stage 06f canonical 报告同步命令"),
+    ("06f_unknown_aware_data_asset_audit.py", "06f", "Stage 06f 历史路径兼容入口；实现位于 canonical stage package"),
+    ("06f_reexport_with_obitype_patch.py", "06f", "Stage 06f 历史路径兼容入口；实现位于 canonical stage package"),
+    ("06f_report_sync_patch.py", "06f", "Stage 06f 历史路径兼容入口；实现位于 canonical stage package"),
     ("07_overlap_consistency_validation.py", "07", "重叠区一致性验证 v1：相邻卫星覆盖区 cloud_mask/CTH/CTT 差异（历史版）"),
     ("07p_overlap_validator_hotfix.py", "07p", "重叠验证热修复：修 cloud-mask 映射/angle-layer/分层执行"),
     ("07p_b_source_boundary_magnitude_review.py", "07p-b", "源边界跳变幅度审查"),
@@ -269,11 +272,11 @@ EXT_REFS = [
     (r"D:\AAAresearch_paper\geo_geometry_check\Himawari-9", "06d_himawari_full_disk_geometry_validation.py", 29, "GEOMETRY_ROOT Himawari 全圆盘段数据", "D盘内"),
     (r"D:\AAAresearch_paper\geo_geometry_check", "06e_vza_ecef_final_audit.py", 20, "EXTERNAL_GEOMETRY_AUDIT_DIR 几何审计目录", "D盘内"),
     # 06f 扫描的多个数据目录
-    (r"D:\AAAresearch_paper\data", "06f_unknown_aware_data_asset_audit.py", 38, "SCAN_DIRS 原始卫星数据根", "D盘内"),
-    (r"D:\AAAresearch_paper\geo_geometry_check", "06f_unknown_aware_data_asset_audit.py", 39, "SCAN_DIRS 几何校验样本", "D盘内"),
-    (r"D:\AAAresearch_paper\geo_ring_cloud_stage1\standardized_native", "06f_unknown_aware_data_asset_audit.py", 40, "SCAN_DIRS 标准化原生产物", "D盘内"),
-    (r"D:\AAAresearch_paper\geo_ring_cloud_stage1\reprojected_grid", "06f_unknown_aware_data_asset_audit.py", 41, "SCAN_DIRS 重投影产物", "D盘内"),
-    (r"D:\AAAresearch_paper\geo_ring_cloud_stage1\fused_best_source", "06f_unknown_aware_data_asset_audit.py", 42, "SCAN_DIRS 融合产物", "D盘内"),
+    (r"D:\AAAresearch_paper\data", "stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py", 35, "INPUT_DIRS 原始卫星数据根（由 geo_ring_cloud.paths 解析）", "D盘内"),
+    (r"D:\AAAresearch_paper\geo_geometry_check", "stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py", 36, "INPUT_DIRS 几何校验样本（由 geo_ring_cloud.paths 解析）", "D盘内"),
+    (r"D:\AAAresearch_paper\geo_ring_cloud_stage1\standardized_native", "stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py", 37, "INPUT_DIRS 标准化原生产物（由 geo_ring_cloud.paths 解析）", "D盘内"),
+    (r"D:\AAAresearch_paper\geo_ring_cloud_stage1\reprojected_grid", "stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py", 38, "INPUT_DIRS 重投影产物（由 geo_ring_cloud.paths 解析）", "D盘内"),
+    (r"D:\AAAresearch_paper\geo_ring_cloud_stage1\fused_best_source", "stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py", 39, "INPUT_DIRS 融合产物（由 geo_ring_cloud.paths 解析）", "D盘内"),
     # rebuild_stage1_evidence_pack.py 汇总的所有证据源
     (r"D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack", "rebuild_stage1_evidence_pack.py", 14, "EVIDENCE_ROOT 证据包输出根", "D盘内"),
     (r"D:\AAAresearch_paper\geo_ring_cloud_stage1", "rebuild_stage1_evidence_pack.py", 15, "STAGE1_ROOT 主产物根（汇总证据来源）", "D盘内"),
@@ -615,6 +618,44 @@ MODULE_REGISTRY = (
         "notes": "Reusable diagnostics depend on package adapters and source registry, not stage scripts.",
     },
 )
+CODE_MIGRATIONS = (
+    {
+        "migration_id": "stage_06f_20260719_unknown_aware_audit",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_06f",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/06f_unknown_aware_data_asset_audit.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_06f_data_asset_audit/stage_06f_unknown_aware_data_asset_audit.py",
+        "compatibility_strategy": "legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; CLI help smoke test",
+        "rollback": "restore implementation at legacy_path and remove the canonical package only after reverting imports",
+        "notes": "Canonical Stage 06f implementation; historical path remains executable without duplicating logic.",
+    },
+    {
+        "migration_id": "stage_06f_20260719_obitype_reexport",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_06f",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/06f_reexport_with_obitype_patch.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_06f_data_asset_audit/stage_06f_reexport_with_obitype_patch.py",
+        "compatibility_strategy": "legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; CLI smoke test",
+        "rollback": "restore implementation at legacy_path and remove the canonical package only after reverting imports",
+        "notes": "Re-export command delegates to the canonical Stage 06f audit implementation.",
+    },
+    {
+        "migration_id": "stage_06f_20260719_report_sync",
+        "project_id": PROJECT_ID,
+        "canonical_stage_id": "stage_06f",
+        "legacy_path": "third_report/code/geo_ring_cloud_stage1/06f_report_sync_patch.py",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/stage_06f_data_asset_audit/stage_06f_report_sync.py",
+        "compatibility_strategy": "legacy_path_thin_entrypoint",
+        "status": "migrated_with_compatibility_entrypoint",
+        "verified_by": "governance AST boundary; canonical/legacy import identity; syntax smoke test",
+        "rollback": "restore implementation at legacy_path and remove the canonical package only after reverting imports",
+        "notes": "Report synchronization implementation now has a canonical stage-owned filename.",
+    },
+)
 INDEX_EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", "_tmp"}
 COMPONENT_ROLE_ASSIGNMENT = re.compile(
     r"^\s*COMPONENT_ROLE\s*=\s*['\"]([a-z][a-z0-9_]*)['\"]",
@@ -914,6 +955,7 @@ def create_schema(conn):
     DROP TABLE IF EXISTS files;
     DROP TABLE IF EXISTS scripts;
     DROP TABLE IF EXISTS module_registry;
+    DROP TABLE IF EXISTS code_migrations;
     DROP TABLE IF EXISTS external_data_refs;
     DROP TABLE IF EXISTS pipeline_stages;
     DROP TABLE IF EXISTS time_runs;
@@ -958,6 +1000,19 @@ def create_schema(conn):
         test_evidence TEXT,
         notes TEXT,
         UNIQUE(project_id, canonical_module)
+    );
+    CREATE TABLE code_migrations (
+        id INTEGER PRIMARY KEY,
+        migration_id TEXT NOT NULL UNIQUE,
+        project_id TEXT NOT NULL,
+        canonical_stage_id TEXT NOT NULL,
+        legacy_path TEXT NOT NULL UNIQUE,
+        canonical_path TEXT NOT NULL UNIQUE,
+        compatibility_strategy TEXT NOT NULL,
+        status TEXT NOT NULL,
+        verified_by TEXT,
+        rollback TEXT,
+        notes TEXT
     );
     CREATE TABLE external_data_refs (
         id INTEGER PRIMARY KEY,
@@ -1053,6 +1108,7 @@ def create_schema(conn):
     CREATE INDEX idx_files_rel ON files(relevance);
     CREATE INDEX idx_files_cat ON files(category);
     CREATE INDEX idx_module_registry_role ON module_registry(project_id, component_role);
+    CREATE INDEX idx_code_migrations_stage ON code_migrations(project_id, canonical_stage_id);
     CREATE INDEX idx_extref_loc ON external_data_refs(location);
     CREATE INDEX idx_stage_registry_project ON stage_registry(project_id);
     CREATE INDEX idx_artifact_stage ON artifact_index(project_id, canonical_stage_id);
@@ -1592,6 +1648,15 @@ def build_sqlite():
         )
     conn.commit()
 
+    # --- auditable physical code migrations ---
+    for row in CODE_MIGRATIONS:
+        cur.execute(
+            "INSERT INTO code_migrations(migration_id,project_id,canonical_stage_id,legacy_path,canonical_path,compatibility_strategy,status,verified_by,rollback,notes) "
+            "VALUES(:migration_id,:project_id,:canonical_stage_id,:legacy_path,:canonical_path,:compatibility_strategy,:status,:verified_by,:rollback,:notes)",
+            row,
+        )
+    conn.commit()
+
     # --- external_data_refs 表 ---
     for ext_path, script, lineno, purpose, loc in EXT_REFS:
         cur.execute(
@@ -1661,7 +1726,7 @@ def build_sqlite():
     meta = {
         "generated_at": ts,
         "project_root": str(ROOT),
-        "schema_version": "2.0",
+        "schema_version": "2.1",
         "source_note": "由 build_index.py 基于人工相关性标签 + 当前文件系统扫描 + canonical taxonomy 生成；不移动项目数据",
         "task_name": "GEO-ring Cloud Stage1（多静止卫星统一云产品融合）",
         "prototype_time": "2024-03-05T00:00:00Z",
@@ -1696,6 +1761,7 @@ def export_xlsx(db_path: Path = DB_PATH):
         "文件清单": "SELECT path,name,ext,category,stage,relevance,size_bytes FROM files ORDER BY relevance,category,path",
         "脚本职责": "SELECT path,project_id,canonical_stage_id,component_role,legacy_stage,responsibility,refs_external_paths FROM scripts ORDER BY project_id,canonical_stage_id,component_role,path",
         "模块注册表": "SELECT project_id,canonical_module,canonical_path,component_role,legacy_module,legacy_path,migration_status,public_api,test_evidence,notes FROM module_registry ORDER BY project_id,canonical_module",
+        "代码迁移记录": "SELECT migration_id,project_id,canonical_stage_id,legacy_path,canonical_path,compatibility_strategy,status,verified_by,rollback,notes FROM code_migrations ORDER BY project_id,canonical_stage_id,migration_id",
         "外部数据依赖": "SELECT external_path,referenced_by_script,line_no,purpose,location FROM external_data_refs ORDER BY location,referenced_by_script",
         "外部数据盘": "SELECT path,location,description,referenced FROM external_disks",
         "流水线阶段": "SELECT stage,name,input,output,gate_status,evidence_dir FROM pipeline_stages ORDER BY CAST(stage AS REAL), stage",
@@ -1761,6 +1827,10 @@ def export_workspace_reports(db_path: Path = DB_PATH) -> None:
     modules = fetch_dicts(
         conn,
         "SELECT project_id,canonical_module,canonical_path,component_role,legacy_module,legacy_path,migration_status,public_api,test_evidence,notes FROM module_registry ORDER BY project_id,canonical_module",
+    )
+    code_migrations = fetch_dicts(
+        conn,
+        "SELECT migration_id,project_id,canonical_stage_id,legacy_path,canonical_path,compatibility_strategy,status,verified_by,rollback,notes FROM code_migrations ORDER BY project_id,canonical_stage_id,migration_id",
     )
     stages = fetch_dicts(
         conn,
@@ -1833,6 +1903,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 - `engineering_status.md`: generated engineering-health snapshot and prioritized debt.
 - `script_inventory.md`: current GEO-ring Cloud stage scripts and non-stage components.
 - `module_registry.md`: canonical Python modules, compatibility shims, public APIs, and migration evidence.
+- `code_migrations.md`: physical stage-code moves, retained compatibility paths, verification, and rollback instructions.
 - `pipeline_stages.md`: stage-level inputs, outputs, and evidence directories.
 - `path_mapping.md`: code/data path dependencies and override strategy.
 - `archive_manifest_dry_run.csv`: dry-run archive candidates generated before physical moves.
@@ -1876,7 +1947,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 
 ## 物理迁移原则
 
-`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
+`geo_ring_cloud/` 是共享 Python API 的权威 package；顶层同名旧模块只允许作为 compatibility shim。当前已迁移路径配置、pipeline layout、云语义、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、数组摘要统计、数据源注册、lineage、run discovery、通用产品读取、quicklook、artifact IO、CLAAS-3/EPIC 产品适配器和 EPIC 配对诊断。`pipeline_support` 已降为纯兼容 facade，不得包含实现逻辑。`stage_06f_data_asset_audit/` 是首个完成物理归位的多脚本 canonical stage package；三个历史顶层路径仅保留受治理的薄兼容入口，迁移证据见 `code_migrations.md`。其余扁平历史 stage 脚本不得为目录美观一次性移动；只有在导入引用、运行器路径、证据引用和 rollback manifest 均验证后，才分批迁移。
 
 新 stage 若只有一个脚本，可使用 `stage_XX_<purpose>.py`；若有多个脚本，必须放入 `stage_XX_<purpose>/`。跨阶段工具不得伪造组合 stage，必须使用 `geo_ring_cloud_<role>_<purpose>.py`、声明 `COMPONENT_ROLE`，并在 manifest 中记录 `related_stage_ids`。
 """
@@ -1908,6 +1979,7 @@ Generated: `{GENERATED_AT}`
 
 - 索引脚本：{len(scripts)}
 - canonical shared modules：{len(modules)}
+- 已登记物理代码迁移：{len(code_migrations)}
 - canonical stages：{geo_stage_count}
 - SQLite 详细 artifact 记录：{len(artifacts)}
 - Markdown 快查 artifact 记录：{len(compact_artifacts)}
@@ -1923,12 +1995,14 @@ Generated: `{GENERATED_AT}`
 - canonical stage taxonomy、artifact index、data product audit index 和跨项目 collision guard。
 - Python `geo_ring_cloud.paths` 与 PowerShell `geo_ring_cloud_path_configuration.ps1` 共享环境变量契约；统一 lineage manifest helper 与 staged governance check。
 - `geo_ring_cloud` package、`pyproject.toml`、module registry 与旧 import compatibility shims。
+- SQLite/Markdown `code_migrations` 记录 canonical 路径、历史入口、验证证据和回滚说明。
 - 已验证直接依赖基线、统一 `ci_check.py` 入口与 GitHub 轻量 CI 门禁。
 - 大数据、time-run、图片、Office 文件和生成数据库默认不进入 Git。
 
 ## 尚未达到的目标
 
 - `stage1_common.py` 已降为 compatibility shim；`pipeline_support` 已降为纯兼容 facade，layout、cloud semantics、重投影、GEO 几何、融合支撑、重叠统计、数据资产审计语义、产品读取、quicklook、artifact IO 与数组摘要统计均已拆入专责模块。
+- Stage 06f 三个实现已迁入 `stage_06f_data_asset_audit/`；原路径由 AST 门禁约束为薄兼容入口。
 {dynamic_loader_status}
 {path_debt_status}
 - `environment.yml` 已固定已验证的直接依赖；跨平台传递依赖锁仍应在正式实验发布时按平台生成。
@@ -1957,6 +2031,11 @@ Generated: `{GENERATED_AT}`
         WORKSPACE_DIR / "module_registry.md",
         modules,
         ["project_id", "canonical_module", "canonical_path", "component_role", "legacy_module", "legacy_path", "migration_status", "public_api", "test_evidence", "notes"],
+    )
+    write_markdown_table(
+        WORKSPACE_DIR / "code_migrations.md",
+        code_migrations,
+        ["migration_id", "project_id", "canonical_stage_id", "legacy_path", "canonical_path", "compatibility_strategy", "status", "verified_by", "rollback", "notes"],
     )
     write_markdown_table(
         WORKSPACE_DIR / "pipeline_stages.md",
@@ -2000,7 +2079,7 @@ It applies to humans and AI agents.
 
 ## Required workflow
 
-- MUST check `architecture.md`, `engineering_status.md`, `module_registry.md`, `stage_registry.md`, `artifact_index.md`, `data_product_audits.md`, and the SQLite index before creating new code or reports.
+- MUST check `architecture.md`, `engineering_status.md`, `module_registry.md`, `code_migrations.md`, `stage_registry.md`, `artifact_index.md`, `data_product_audits.md`, and the SQLite index before creating new code or reports.
 - MUST reuse existing scripts, manifests, reports, and products when they already answer the task.
 - MUST decide the `project_id + canonical_stage_id` before naming files.
 - MUST run `python _GEO_RING_CLOUD_INDEX\\build_index.py` after adding or changing stage scripts.
@@ -2020,6 +2099,7 @@ It applies to humans and AI agents.
 - Staged code MUST NOT import registered top-level compatibility shims; use canonical `geo_ring_cloud.*` modules.
 - Only the dedicated compatibility boundary test may import legacy shims, through the governance allowlist.
 - MUST NOT add implementation logic to top-level compatibility shims recorded in `module_registry.md`.
+- Historical stage paths may remain only as registered `compatibility_entrypoint` files: import the expected canonical stage module, declare the matching `STAGE_ID`, and contain no scientific or orchestration implementation.
 - MUST NOT treat `geo_ring_cloud.stage_09` and `epic_ceres.stage_09` as the same stage.
 
 ## Output lineage
@@ -2063,6 +2143,7 @@ It applies to humans and AI agents.
 - Reusable shared APIs belong in the `geo_ring_cloud` package, use lowercase `snake_case.py`, declare `COMPONENT_ROLE`, and must be registered in `module_registry.md`.
 - Executable non-stage utilities at the code root must use `geo_ring_cloud_<role>_<purpose>.py`, declare `COMPONENT_ROLE`, and avoid fake or combined stages. Roles include `runner`, `experiment_runner`, `downloader`, `evidence_pack_builder`, `summary_helper`, and `presentation_builder`.
 - Top-level compatibility shims may retain historical names only when registered; they must contain imports and metadata, not implementation logic.
+- A physically migrated historical stage path may remain only as a registered `compatibility_entrypoint`; it must import the canonical stage module, declare the matching `STAGE_ID`, and only invoke `main()` under the standard main guard.
 - Generic EO data/product inspections must use `component_role=data_product_audit`; keep legacy `third_report/code/geo_data_audit` paths until references are audited, and index them in `data_product_audits.md`.
 - Do not create new `Step*`, `stage10*`, `Stage10*`, `09_stage*`, or numeric-prefix stage names.
 
@@ -2074,7 +2155,7 @@ It applies to humans and AI agents.
 
 ## Migration rule
 
-Historical files are not renamed by default. Rename only after code references, evidence references, and a rollback manifest are checked.
+Historical files are not renamed by default. Rename only after code references, evidence references, and rollback instructions are checked. Record every approved physical code move in SQLite `code_migrations` and `_GEO_RING_CLOUD_WORKSPACE/code_migrations.md`.
 
 ## Enforcement rule
 
@@ -2114,6 +2195,7 @@ Historical files are not renamed by default. Rename only after code references, 
 - 旧名称映射见 `_GEO_RING_CLOUD_WORKSPACE/legacy_aliases.md`。
 - 关键产物索引见 `_GEO_RING_CLOUD_WORKSPACE/artifact_index.md`。
 - 共享模块与旧 import 映射见 `_GEO_RING_CLOUD_WORKSPACE/module_registry.md`。
+- 物理代码迁移与兼容入口见 `_GEO_RING_CLOUD_WORKSPACE/code_migrations.md`。
 - 命名规则见 `_GEO_RING_CLOUD_WORKSPACE/naming_policy.md`。
 """
     (OUT_DIR / "整理建议.md").write_text(suggestions, encoding="utf-8")

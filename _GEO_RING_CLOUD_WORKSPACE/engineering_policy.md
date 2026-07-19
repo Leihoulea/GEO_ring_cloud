@@ -5,7 +5,7 @@ It applies to humans and AI agents.
 
 ## Required workflow
 
-- MUST check `architecture.md`, `engineering_status.md`, `module_registry.md`, `stage_registry.md`, `artifact_index.md`, `data_product_audits.md`, and the SQLite index before creating new code or reports.
+- MUST check `architecture.md`, `engineering_status.md`, `module_registry.md`, `code_migrations.md`, `stage_registry.md`, `artifact_index.md`, `data_product_audits.md`, and the SQLite index before creating new code or reports.
 - MUST reuse existing scripts, manifests, reports, and products when they already answer the task.
 - MUST decide the `project_id + canonical_stage_id` before naming files.
 - MUST run `python _GEO_RING_CLOUD_INDEX\build_index.py` after adding or changing stage scripts.
@@ -25,6 +25,7 @@ It applies to humans and AI agents.
 - Staged code MUST NOT import registered top-level compatibility shims; use canonical `geo_ring_cloud.*` modules.
 - Only the dedicated compatibility boundary test may import legacy shims, through the governance allowlist.
 - MUST NOT add implementation logic to top-level compatibility shims recorded in `module_registry.md`.
+- Historical stage paths may remain only as registered `compatibility_entrypoint` files: import the expected canonical stage module, declare the matching `STAGE_ID`, and contain no scientific or orchestration implementation.
 - MUST NOT treat `geo_ring_cloud.stage_09` and `epic_ceres.stage_09` as the same stage.
 
 ## Output lineage
