@@ -52,6 +52,7 @@ RUN_ID = "stage_09f_spatial_story_maps_202403"
 DEFAULT_STAGE09D_DIR = path_config.RUNS_ROOT / "stage09d_full_pixel_diagnostics_202403"
 DEFAULT_VIS_DIR = path_config.RUNS_ROOT / "stage09d_geo_visible_controlled_metrics_202403"
 DEFAULT_OUT = path_config.RUNS_ROOT / RUN_ID
+PPT_FIGSIZE = (13.333, 7.5)
 
 POLICY = "A_inclusive_binary"
 MASK_FOR_PAIR = "VIS-3_lat60_visible"
@@ -201,9 +202,9 @@ def read_csv(path: Path, warnings: list[dict[str, Any]], label: str) -> pd.DataF
 
 def save_figure(fig: plt.Figure, dirs: dict[str, Path], figure_id: str) -> dict[str, str]:
     base = dirs["figures"] / f"{RUN_ID}_{figure_id}"
-    fig.savefig(base.with_suffix(".png"), bbox_inches="tight", dpi=240)
-    fig.savefig(base.with_suffix(".svg"), bbox_inches="tight")
-    fig.savefig(base.with_suffix(".pdf"), bbox_inches="tight")
+    fig.savefig(base.with_suffix(".png"), dpi=240)
+    fig.savefig(base.with_suffix(".svg"))
+    fig.savefig(base.with_suffix(".pdf"))
     plt.close(fig)
     return {ext: str(base.with_suffix(f".{ext}")) for ext in ["png", "svg", "pdf"]}
 
@@ -221,6 +222,38 @@ def write_source(df: pd.DataFrame, path: Path, warnings: list[dict[str, Any]]) -
 
 def short_sample(sample_id: str) -> str:
     return f"{sample_id[:4]}-{sample_id[4:6]}-{sample_id[6:8]} {sample_id[9:11]}:{sample_id[11:13]}"
+
+
+def center_longitude_deg(lon: np.ndarray, valid: np.ndarray | None = None) -> float:
+    mask = np.isfinite(lon)
+    if valid is not None:
+        mask &= valid
+    vals = lon[mask]
+    if vals.size == 0 and valid is not None:
+        vals = lon[np.isfinite(lon)]
+    if vals.size == 0:
+        return math.nan
+    vals = ((vals.astype(float) + 180.0) % 360.0) - 180.0
+    angles = np.deg2rad(vals)
+    s = float(np.mean(np.sin(angles)))
+    c = float(np.mean(np.cos(angles)))
+    if not math.isfinite(s) or not math.isfinite(c):
+        return math.nan
+    out = math.degrees(math.atan2(s, c))
+    return ((out + 180.0) % 360.0) - 180.0
+
+
+def fmt_center_lon(value: float) -> str:
+    if not math.isfinite(float(value)):
+        return "center lon=NA"
+    return f"center lon={float(value):+.1f} deg"
+
+
+def sample_title(sample_id: str, center_lon: float, agreement: float | None = None) -> str:
+    bits = [short_sample(sample_id), fmt_center_lon(center_lon)]
+    if agreement is not None and math.isfinite(float(agreement)):
+        bits.append(f"agree={float(agreement):.3f}")
+    return "\n".join(bits)
 
 
 def short_reason(reason: str) -> str:
@@ -282,8 +315,14 @@ def scene_code(scene: dict[str, np.ndarray], valid: np.ndarray) -> np.ndarray:
 
 
 def orient(arr: np.ndarray, lat_ref: np.ndarray) -> np.ndarray:
-    top = float(np.nanmean(lat_ref[: max(1, lat_ref.shape[0] // 10), :]))
-    bottom = float(np.nanmean(lat_ref[-max(1, lat_ref.shape[0] // 10) :, :]))
+    valid_lat = np.isfinite(lat_ref) & (lat_ref >= -90.0) & (lat_ref <= 90.0)
+    half = max(1, lat_ref.shape[0] // 2)
+    top_vals = lat_ref[:half, :][valid_lat[:half, :]]
+    bottom_vals = lat_ref[-half:, :][valid_lat[-half:, :]]
+    if top_vals.size == 0 or bottom_vals.size == 0:
+        return arr
+    top = float(np.mean(top_vals))
+    bottom = float(np.mean(bottom_vals))
     return np.flipud(arr) if math.isfinite(top) and math.isfinite(bottom) and top < bottom else arr
 
 
@@ -293,7 +332,7 @@ def ds(arr: np.ndarray, stride: int) -> np.ndarray:
 
 def image_panel(ax: plt.Axes, arr: np.ndarray, title: str, cmap: ListedColormap, norm: BoundaryNorm) -> None:
     ax.imshow(arr, cmap=cmap, norm=norm, interpolation="nearest", origin="upper")
-    ax.set_title(title, pad=2)
+    ax.set_title(title, pad=2, fontsize=6.7)
     ax.set_xticks([])
     ax.set_yticks([])
     for spine in ax.spines.values():
@@ -460,7 +499,14 @@ def choose_representative_samples(
     return selected
 
 
-def flatten_sample_source(sample_id: str, lat: np.ndarray, lon: np.ndarray, arrays: dict[str, np.ndarray], stride: int) -> pd.DataFrame:
+def flatten_sample_source(
+    sample_id: str,
+    lat: np.ndarray,
+    lon: np.ndarray,
+    arrays: dict[str, np.ndarray],
+    stride: int,
+    metadata: dict[str, Any] | None = None,
+) -> pd.DataFrame:
     lat_d = ds(lat, stride)
     lon_d = ds(lon, stride)
     rows = {
@@ -471,6 +517,8 @@ def flatten_sample_source(sample_id: str, lat: np.ndarray, lon: np.ndarray, arra
         "longitude_deg": lon_d.ravel(),
         "plot_stride": np.full(lat_d.size, stride, dtype=np.int16),
     }
+    for key, value in (metadata or {}).items():
+        rows[key] = np.full(lat_d.size, value, dtype=object)
     for name, arr in arrays.items():
         rows[name] = ds(arr, stride).ravel()
     return pd.DataFrame(rows)
@@ -490,10 +538,12 @@ def sample_disk_arrays_and_summary(ctx: dict[str, Any], row: dict[str, Any]) -> 
     }
     total = int(np.count_nonzero(m["base"]))
     disagree = int(np.count_nonzero(m["base"] & (m["epic_cls"] != m["geo_cls"])))
+    center_lon = center_longitude_deg(ctx["epic"]["lon"], m["base"])
     summary = {
         "sample_id": row["sample_id"],
         "selection_reason": reason_for_sample(row),
         "short_reason": short_reason(reason_for_sample(row)),
+        "center_longitude_deg": center_lon,
         "n_valid_policy_a": total,
         "n_disagreement_policy_a": disagree,
         "agreement_policy_a": 1.0 - disagree / total if total else math.nan,
@@ -505,7 +555,7 @@ def sample_disk_arrays_and_summary(ctx: dict[str, Any], row: dict[str, Any]) -> 
     return arrays, lat, lon, summary
 
 
-def sample_count_rows(sample_id: str, arrays: dict[str, np.ndarray]) -> list[dict[str, Any]]:
+def sample_count_rows(sample_id: str, arrays: dict[str, np.ndarray], metadata: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for variable in [
         "epic_policy_a_class_code",
@@ -517,6 +567,8 @@ def sample_count_rows(sample_id: str, arrays: dict[str, np.ndarray]) -> list[dic
     ]:
         if variable in arrays:
             rows.extend(counts_for_codes(sample_id, variable, arrays[variable]))
+    for row in rows:
+        row.update(metadata or {})
     return rows
 
 
@@ -528,7 +580,7 @@ def figure1_representative_disk(
     warnings: list[dict[str, Any]],
 ) -> tuple[dict[str, str], Path, list[dict[str, Any]]]:
     n = len(samples)
-    fig, axes = plt.subplots(n, 6, figsize=(9.0, max(1.35 * n, 4.8)), constrained_layout=True)
+    fig, axes = plt.subplots(n, 6, figsize=PPT_FIGSIZE, constrained_layout=True)
     if n == 1:
         axes = np.asarray([axes])
     source_frames = []
@@ -538,7 +590,16 @@ def figure1_representative_disk(
         try:
             ctx = context_cache_get(cache, row)
             arrays, lat, lon, summary = sample_disk_arrays_and_summary(ctx, row)
-            source_frames.append(flatten_sample_source(row["sample_id"], lat, lon, arrays, stride))
+            source_frames.append(
+                flatten_sample_source(
+                    row["sample_id"],
+                    lat,
+                    lon,
+                    arrays,
+                    stride,
+                    {"center_longitude_deg": summary["center_longitude_deg"]},
+                )
+            )
             summary_rows.append(summary)
             plot_arrays = [
                 ("EPIC", arrays["epic_policy_a_class_code"], CLASS_CMAP, CLASS_NORM),
@@ -554,11 +615,11 @@ def figure1_representative_disk(
                     axes[i, j].text(
                         -0.06,
                         0.50,
-                        f"{short_sample(row['sample_id'])}\n{short_reason(row.get('stage_09f_selection_reason', ''))}",
+                        f"{short_sample(row['sample_id'])}\n{fmt_center_lon(summary['center_longitude_deg'])}\n{short_reason(row.get('stage_09f_selection_reason', ''))}",
                         transform=axes[i, j].transAxes,
                         ha="right",
                         va="center",
-                        fontsize=6.0,
+                        fontsize=5.3,
                         linespacing=1.1,
                     )
         except Exception as exc:
@@ -566,7 +627,7 @@ def figure1_representative_disk(
     fig.suptitle("Figure 1 | Representative EPIC-disk diagnostics, Policy A", fontsize=10)
     fig.text(
         0.5,
-        -0.006,
+        0.008,
         "Color guide: class cream=clear, blue=cloud; mismatch gray/blue=agree, orange=GEO misses EPIC cloud, red=GEO extra cloud; family blue=GOES, teal=EastAsia, red=Meteosat; valid count light-to-dark=1,2,3,>=4; scene green=homogeneous, purple=boundary/broken.",
         ha="center",
         va="top",
@@ -605,7 +666,7 @@ def figure1_legend_guide(
     src = source_path(dirs, "figure1_legend_and_row_meanings")
     write_source(pd.DataFrame(rows), src, warnings)
 
-    fig = plt.figure(figsize=(9.0, 6.4), constrained_layout=True)
+    fig = plt.figure(figsize=PPT_FIGSIZE, constrained_layout=True)
     gs = fig.add_gridspec(3, 3, height_ratios=[1.0, 1.0, 1.65])
     legend_specs = [
         ("class", "EPIC / GEO-ring class", 0, 0),
@@ -657,9 +718,9 @@ def figure1_individual_cases(
             ctx = context_cache_get(cache, row)
             arrays, lat, lon, summary = sample_disk_arrays_and_summary(ctx, row)
             summaries.append(summary)
-            source_rows.extend(sample_count_rows(sample_id, arrays))
+            source_rows.extend(sample_count_rows(sample_id, arrays, {"center_longitude_deg": summary["center_longitude_deg"]}))
 
-            fig, axes = plt.subplots(2, 3, figsize=(10.4, 7.4), constrained_layout=True)
+            fig, axes = plt.subplots(2, 3, figsize=PPT_FIGSIZE, constrained_layout=True)
             panels = [
                 ("EPIC cloud mask", "epic_policy_a_class_code", CLASS_CMAP, CLASS_NORM, "class"),
                 ("GEO-ring current mask", "georing_policy_a_class_code", CLASS_CMAP, CLASS_NORM, "class"),
@@ -673,7 +734,7 @@ def figure1_individual_cases(
                 ncol = {"class": 2, "mismatch": 2, "family": 1, "valid_count": 2, "scene": 2}.get(legend_kind, 1)
                 add_categorical_legend(ax, legend_kind, "", ncol=ncol, loc="lower left")
             fig.suptitle(
-                f"Figure 1 case | {short_sample(sample_id)} | {short_reason(reason_for_sample(row)).replace(chr(10), ' ')} | agreement={summary['agreement_policy_a']:.3f}",
+                f"Figure 1 case | {short_sample(sample_id)} | {fmt_center_lon(summary['center_longitude_deg'])} | {short_reason(reason_for_sample(row)).replace(chr(10), ' ')} | agreement={summary['agreement_policy_a']:.3f}",
                 fontsize=10,
             )
             figure_id = f"figure1_case_{sample_id}"
@@ -723,7 +784,7 @@ def figure1_all_time_atlases(
             prepared.append({"row": row, "arrays": arrays, "summary": summary})
             summary_rows.append(summary)
             for key in ["mismatch_category_code", "selected_family_code", "valid_source_count_code", "boundary_scene_code"]:
-                source_rows.extend(sample_count_rows(row["sample_id"], {key: arrays[key]}))
+                source_rows.extend(sample_count_rows(row["sample_id"], {key: arrays[key]}, {"center_longitude_deg": summary["center_longitude_deg"]}))
         except Exception as exc:
             warnings.append({"level": "warning", "source": "figure1_all_time_atlases", "sample_id": row.get("sample_id", ""), "message": str(exc), "traceback": traceback.format_exc()})
 
@@ -731,27 +792,37 @@ def figure1_all_time_atlases(
         pages = [prepared[i : i + samples_per_page] for i in range(0, len(prepared), samples_per_page)]
         for page_idx, page in enumerate(pages, 1):
             if atlas_name == "drivers":
-                fig, axes = plt.subplots(len(page), 2, figsize=(5.8, max(1.0 * len(page), 4.8)), constrained_layout=True)
-                if len(page) == 1:
-                    axes = np.asarray([axes])
+                cols_per_sample = 2
+                samples_per_row = 4
+                rows_n = int(math.ceil(len(page) / samples_per_row))
+                fig, axes = plt.subplots(rows_n, samples_per_row * cols_per_sample, figsize=PPT_FIGSIZE, constrained_layout=True)
+                axes_flat = np.asarray(axes).reshape(rows_n, samples_per_row * cols_per_sample)
+                for ax in axes_flat.ravel():
+                    ax.set_axis_off()
                 for i, item in enumerate(page):
                     row = item["row"]
                     arrays = item["arrays"]
-                    image_panel(axes[i, 0], ds(arrays["valid_source_count_code"], stride), "valid count" if i == 0 else "", COUNT_CMAP, COUNT_NORM)
-                    image_panel(axes[i, 1], ds(arrays["boundary_scene_code"], stride), "boundary/scene" if i == 0 else "", SCENE_CMAP, SCENE_NORM)
-                    axes[i, 0].text(-0.08, 0.5, short_sample(row["sample_id"]), transform=axes[i, 0].transAxes, ha="right", va="center", fontsize=5.8)
+                    summary = item["summary"]
+                    rr = i // samples_per_row
+                    cc = (i % samples_per_row) * cols_per_sample
+                    ax_valid = axes_flat[rr, cc]
+                    ax_scene = axes_flat[rr, cc + 1]
+                    ax_valid.set_axis_on()
+                    ax_scene.set_axis_on()
+                    image_panel(ax_valid, ds(arrays["valid_source_count_code"], stride), f"{sample_title(row['sample_id'], summary['center_longitude_deg'])}\nvalid", COUNT_CMAP, COUNT_NORM)
+                    image_panel(ax_scene, ds(arrays["boundary_scene_code"], stride), "boundary/scene", SCENE_CMAP, SCENE_NORM)
                 fig.suptitle(f"Figure 1 atlas drivers | all times | page {page_idx}/{len(pages)}", fontsize=9.5)
             else:
                 cols = 4
                 rows_n = int(math.ceil(len(page) / cols))
-                fig, axes = plt.subplots(rows_n, cols, figsize=(8.2, max(1.75 * rows_n, 3.5)), constrained_layout=True)
+                fig, axes = plt.subplots(rows_n, cols, figsize=PPT_FIGSIZE, constrained_layout=True)
                 axes_flat = np.asarray(axes).ravel()
                 for ax in axes_flat[len(page) :]:
                     ax.set_axis_off()
                 for ax, item in zip(axes_flat, page):
                     row = item["row"]
                     summary = item["summary"]
-                    image_panel(ax, ds(item["arrays"][key], stride), f"{short_sample(row['sample_id'])}\nagree={summary['agreement_policy_a']:.3f}", cmap, norm)
+                    image_panel(ax, ds(item["arrays"][key], stride), sample_title(row["sample_id"], summary["center_longitude_deg"], summary["agreement_policy_a"]), cmap, norm)
                 fig.suptitle(f"Figure 1 atlas {title} | all times | page {page_idx}/{len(pages)}", fontsize=9.5)
             figure_id = f"figure1_atlas_{atlas_name}_page{page_idx:02d}"
             paths = save_figure(fig, dirs, figure_id)
@@ -799,11 +870,12 @@ def figure2_source_coverage(
     lat = orient(ctx["epic"]["lat"], ctx["epic"]["lat"])
     lon = orient(ctx["epic"]["lon"], ctx["epic"]["lat"])
     arrays = {k: orient(v, ctx["epic"]["lat"]) for k, v in coverage_arrays.items()}
-    src_df = flatten_sample_source(sample["sample_id"], lat, lon, arrays, stride)
+    center_lon = center_longitude_deg(ctx["epic"]["lon"], base)
+    src_df = flatten_sample_source(sample["sample_id"], lat, lon, arrays, stride, {"center_longitude_deg": center_lon})
     src = source_path(dirs, "figure2_source_coverage_selected_family")
     write_source(src_df, src, warnings)
 
-    fig, axes = plt.subplots(2, 3, figsize=(8.2, 5.1), constrained_layout=True)
+    fig, axes = plt.subplots(2, 3, figsize=PPT_FIGSIZE, constrained_layout=True)
     panels = [
         ("FY4B valid", "FY4B_valid", BOOL_CMAP, BOOL_NORM),
         ("Himawari-9 valid", "Himawari9_valid", BOOL_CMAP, BOOL_NORM),
@@ -814,11 +886,12 @@ def figure2_source_coverage(
     ]
     for ax, (title, key, cmap, norm) in zip(axes.ravel(), panels):
         image_panel(ax, ds(arrays[key], stride), title, cmap, norm)
-    fig.suptitle(f"Figure 2 | Source valid-coverage proxy and selected family: {short_sample(sample['sample_id'])}", fontsize=10)
+    fig.suptitle(f"Figure 2 | Source valid-coverage proxy and selected family: {short_sample(sample['sample_id'])} | {fmt_center_lon(center_lon)}", fontsize=10)
     paths = save_figure(fig, dirs, "figure2_source_coverage_selected_family")
     summary = {
         "sample_id": sample["sample_id"],
         "figure2_role": "source valid mask and selected family coverage proxy",
+        "center_longitude_deg": center_lon,
         "n_policy_a_valid": int(np.count_nonzero(base)),
         "fy4b_valid_fraction": float(np.mean(source_valid.get("FY4B", np.zeros(base.shape, dtype=bool))[base])) if np.any(base) else math.nan,
         "himawari9_valid_fraction": float(np.mean(source_valid.get("Himawari-9", np.zeros(base.shape, dtype=bool))[base])) if np.any(base) else math.nan,
@@ -892,9 +965,10 @@ def figure3_source_pair_maps(
     warnings: list[dict[str, Any]],
 ) -> tuple[dict[str, str], Path, list[dict[str, Any]]]:
     pairs = [p for p in PAIR_LIST if p in pair_samples]
-    fig, axes = plt.subplots(len(pairs), 3, figsize=(7.4, max(1.55 * len(pairs), 4.4)), constrained_layout=True)
-    if len(pairs) == 1:
-        axes = np.asarray([axes])
+    fig, axes = plt.subplots(2, 6, figsize=PPT_FIGSIZE, constrained_layout=True)
+    axes_grid = np.asarray(axes).reshape(2, 6)
+    for ax in axes_grid.ravel():
+        ax.set_axis_off()
     frames = []
     summary = []
     for i, (source_a, source_b) in enumerate(pairs):
@@ -908,6 +982,7 @@ def figure3_source_pair_maps(
             if source_a not in source_cls or source_b not in source_cls:
                 warnings.append({"level": "warning", "source": "figure3", "sample_id": row["sample_id"], "message": f"missing source pair arrays: {source_a}, {source_b}"})
                 continue
+            center_lon = center_longitude_deg(ctx["epic"]["lon"], base)
             cls_a, valid_a = apply_source_policy(source_cls, source_valid, source_a)
             cls_b, valid_b = apply_source_policy(source_cls, source_valid, source_b)
             common = base & valid_a & valid_b
@@ -924,7 +999,7 @@ def figure3_source_pair_maps(
             }
             lat = orient(ctx["epic"]["lat"], ctx["epic"]["lat"])
             lon = orient(ctx["epic"]["lon"], ctx["epic"]["lat"])
-            pair_df = flatten_sample_source(row["sample_id"], lat, lon, arrays, stride)
+            pair_df = flatten_sample_source(row["sample_id"], lat, lon, arrays, stride, {"center_longitude_deg": center_lon})
             pair_df["source_A"] = source_a
             pair_df["source_B"] = source_b
             frames.append(pair_df)
@@ -934,6 +1009,7 @@ def figure3_source_pair_maps(
                     "sample_id": row["sample_id"],
                     "source_A": source_a,
                     "source_B": source_b,
+                    "center_longitude_deg": center_lon,
                     "n_common_valid_policy_a": n,
                     "source_disagreement_fraction": int(np.count_nonzero(disagreement)) / n if n else math.nan,
                     "both_correct_fraction": int(np.count_nonzero(common & (cls_a == epic_cls) & (cls_b == epic_cls))) / n if n else math.nan,
@@ -943,16 +1019,21 @@ def figure3_source_pair_maps(
                     "selection_reason": row.get("stage_09f_pair_reason", ""),
                 }
             )
-            image_panel(axes[i, 0], ds(arrays["common_valid_code"], stride), "Common valid" if i == 0 else "", BOOL_CMAP, BOOL_NORM)
-            image_panel(axes[i, 1], ds(arrays["source_disagreement_code"], stride), "A/B disagreement" if i == 0 else "", BOOL_CMAP, BOOL_NORM)
-            image_panel(axes[i, 2], ds(arrays["correctness_vs_epic_code"], stride), "Relative to EPIC" if i == 0 else "", PAIR_CMAP, PAIR_NORM)
-            axes[i, 0].set_ylabel(f"{source_a}\nvs {source_b}\n{short_sample(row['sample_id'])}", fontsize=6.0)
+            rr = i // 2
+            cc = (i % 2) * 3
+            panel_axes = [axes_grid[rr, cc], axes_grid[rr, cc + 1], axes_grid[rr, cc + 2]]
+            for ax in panel_axes:
+                ax.set_axis_on()
+            pair_label = f"{source_a} vs {source_b}\n{sample_title(row['sample_id'], center_lon)}"
+            image_panel(panel_axes[0], ds(arrays["common_valid_code"], stride), f"{pair_label}\nCommon valid", BOOL_CMAP, BOOL_NORM)
+            image_panel(panel_axes[1], ds(arrays["source_disagreement_code"], stride), "A/B disagreement", BOOL_CMAP, BOOL_NORM)
+            image_panel(panel_axes[2], ds(arrays["correctness_vs_epic_code"], stride), "Relative to EPIC", PAIR_CMAP, PAIR_NORM)
         except Exception as exc:
             warnings.append({"level": "warning", "source": "figure3", "sample_id": row.get("sample_id", ""), "message": str(exc), "traceback": traceback.format_exc()})
     fig.suptitle("Figure 3 | Source-pair spatial disagreement on the EPIC disk, Policy A", fontsize=10)
     fig.text(
         0.5,
-        -0.006,
+        0.008,
         "Color guide: common/disagreement teal=condition true; relative to EPIC blue=both correct, teal=A only correct, red=B only correct, yellow=both wrong. EPIC remains a diagnostic reference, not absolute truth.",
         ha="center",
         va="top",
@@ -1056,7 +1137,7 @@ def figure4_accumulated_geography(
     src = source_path(dirs, "figure4_accumulated_disagreement_geography")
     write_source(pd.DataFrame(rows), src, warnings)
 
-    fig, axes = plt.subplots(2, 2, figsize=(8.4, 4.9), constrained_layout=True)
+    fig, axes = plt.subplots(2, 2, figsize=PPT_FIGSIZE, constrained_layout=True)
     panels = [
         ("Disagreement fraction", maps["disagreement_fraction"], "magma", 0.0, 0.75),
         ("Meteosat-selected fraction", maps["meteosat_selected_fraction"], "Reds", 0.0, 1.0),
@@ -1097,6 +1178,8 @@ def write_report(
         "",
         f"- Run ID: `{RUN_ID}`",
         f"- Generated UTC: `{utc_now()}`",
+        "- PPT layout update: sample-disk figures use fixed 16:9 canvases; each sample label includes time and `center_longitude_deg`.",
+        "- Orientation update: sample-disk figures are north-up; `center_longitude_deg` is the circular mean longitude of Policy A valid comparison pixels.",
         "- 范围：只使用 2024-03 已有 Stage 09D/09E 结果和本地产品；未联网下载；未修改 fused cloud mask 生产逻辑。",
         "- 参照关系：EPIC 只作为 independent diagnostic reference，不作为绝对真值。",
         "- 覆盖范围解释：source coverage 图使用 `source valid mask` / `selected source family` 作为可视化代理，不等同于严格物理 FOV 边界。",
@@ -1305,6 +1388,8 @@ def main() -> int:
             "max_aggregate_samples": args.max_aggregate_samples,
             "atlas_samples_per_page": args.atlas_samples_per_page,
             "lat_lon_bin_deg": 5,
+            "figure_canvas_inches": list(PPT_FIGSIZE),
+            "center_longitude_definition": "circular mean longitude of Policy A valid comparison pixels",
         },
         "row_counts": {
             "manifest_all": len(manifest_all),
@@ -1325,6 +1410,8 @@ def main() -> int:
             "no_network_download": True,
             "epic_role": "independent diagnostic reference, not absolute truth",
             "coverage_proxy_note": "source valid mask / selected source family, not strict physical FOV boundary",
+            "sample_disk_orientation": "north-up; rows are oriented so larger latitude is visually above smaller latitude",
+            "ppt_layout": "fixed 16:9 canvas; no bbox_inches tight cropping",
         },
     }
     manifest_path = dirs["logs"] / "manifest.json"
