@@ -1,6 +1,6 @@
 # GEO-ring Cloud Workspace
 
-Generated: `2026-07-20T14:45:47Z`
+Generated: `2026-07-20T15:12:43Z`
 
 This folder is a lightweight control surface for the GEO-ring Cloud project. It intentionally does not copy large data products.
 
@@ -29,5 +29,6 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 - `legacy_aliases.md`: legacy labels mapped to canonical stage IDs.
 - `naming_policy.md`: naming rules for new work and known non-canonical labels.
 - `engineering_policy.md`: enforceable engineering contract for humans and AI agents.
+- `figure_workflow.md`: reusable scientific-figure workflow for stage plotting, source data, QA, exports, and governance.
 - Reproducible environment: `D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1\environment.yml`
 - Local/CI quality gate: `python _GEO_RING_CLOUD_INDEX\ci_check.py`
