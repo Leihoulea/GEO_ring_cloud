@@ -243,6 +243,18 @@ def center_longitude_deg(lon: np.ndarray, valid: np.ndarray | None = None) -> fl
     return ((out + 180.0) % 360.0) - 180.0
 
 
+def center_latitude_deg(lat: np.ndarray, valid: np.ndarray | None = None) -> float:
+    mask = np.isfinite(lat) & (lat >= -90.0) & (lat <= 90.0)
+    if valid is not None:
+        mask &= valid
+    vals = lat[mask]
+    if vals.size == 0 and valid is not None:
+        vals = lat[np.isfinite(lat) & (lat >= -90.0) & (lat <= 90.0)]
+    if vals.size == 0:
+        return 0.0
+    return float(np.clip(np.mean(vals.astype(float)), -80.0, 80.0))
+
+
 def fmt_center_lon(value: float) -> str:
     if not math.isfinite(float(value)):
         return "center lon=NA"
@@ -254,6 +266,21 @@ def sample_title(sample_id: str, center_lon: float, agreement: float | None = No
     if agreement is not None and math.isfinite(float(agreement)):
         bits.append(f"agree={float(agreement):.3f}")
     return "\n".join(bits)
+
+
+def normalize_lon(lon: np.ndarray | float) -> np.ndarray | float:
+    return ((np.asarray(lon, dtype=float) + 180.0) % 360.0) - 180.0
+
+
+def orthographic_project(lat: np.ndarray, lon: np.ndarray, center_lon: float, center_lat: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    lon_n = normalize_lon(lon)
+    dlon = np.deg2rad(((lon_n - center_lon + 180.0) % 360.0) - 180.0)
+    lat_r = np.deg2rad(lat.astype(float))
+    lat0 = math.radians(float(center_lat))
+    x = np.cos(lat_r) * np.sin(dlon)
+    y = math.cos(lat0) * np.sin(lat_r) - math.sin(lat0) * np.cos(lat_r) * np.cos(dlon)
+    cosc = math.sin(lat0) * np.sin(lat_r) + math.cos(lat0) * np.cos(lat_r) * np.cos(dlon)
+    return x, y, cosc >= -1e-6
 
 
 def short_reason(reason: str) -> str:
@@ -333,6 +360,65 @@ def ds(arr: np.ndarray, stride: int) -> np.ndarray:
 def image_panel(ax: plt.Axes, arr: np.ndarray, title: str, cmap: ListedColormap, norm: BoundaryNorm) -> None:
     ax.imshow(arr, cmap=cmap, norm=norm, interpolation="nearest", origin="upper")
     ax.set_title(title, pad=2, fontsize=6.7)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(0.35)
+        spine.set_edgecolor("#BBBBBB")
+
+
+def draw_graticule(ax: plt.Axes, center_lon: float, center_lat: float) -> None:
+    circle = plt.Circle((0.0, 0.0), 1.0, facecolor="#F8F8F8", edgecolor="#B8B8B8", linewidth=0.45, zorder=0)
+    ax.add_patch(circle)
+    for lat_line in [-60, -30, 0, 30, 60]:
+        lon_line = np.linspace(center_lon - 100.0, center_lon + 100.0, 240)
+        lat_vals = np.full_like(lon_line, lat_line, dtype=float)
+        x, y, vis = orthographic_project(lat_vals, lon_line, center_lon, center_lat)
+        ax.plot(x[vis], y[vis], color="#D6D6D6", linewidth=0.25, zorder=1)
+    for lon_line in [center_lon + d for d in [-90, -60, -30, 0, 30, 60, 90]]:
+        lat_vals = np.linspace(-80.0, 80.0, 220)
+        lon_vals = np.full_like(lat_vals, lon_line, dtype=float)
+        x, y, vis = orthographic_project(lat_vals, lon_vals, center_lon, center_lat)
+        ax.plot(x[vis], y[vis], color="#D6D6D6", linewidth=0.25, zorder=1)
+
+
+def globe_panel(
+    ax: plt.Axes,
+    arr: np.ndarray,
+    lat: np.ndarray,
+    lon: np.ndarray,
+    title: str,
+    cmap: ListedColormap,
+    norm: BoundaryNorm,
+    center_lon: float,
+    center_lat: float,
+    stride: int,
+) -> None:
+    arr_d = ds(arr, stride)
+    lat_d = ds(lat, stride)
+    lon_d = ds(lon, stride)
+    mask = np.isfinite(arr_d) & np.isfinite(lat_d) & np.isfinite(lon_d) & (lat_d >= -90.0) & (lat_d <= 90.0)
+    draw_graticule(ax, center_lon, center_lat)
+    if np.any(mask):
+        x, y, visible = orthographic_project(lat_d[mask], lon_d[mask], center_lon, center_lat)
+        vals = arr_d[mask][visible]
+        ax.scatter(
+            x[visible],
+            y[visible],
+            c=vals,
+            cmap=cmap,
+            norm=norm,
+            marker="s",
+            s=0.9 if stride <= 6 else 1.4,
+            linewidths=0,
+            rasterized=True,
+            zorder=2,
+        )
+    ax.set_title(title, pad=2, fontsize=6.7)
+    ax.set_aspect("equal")
+    ax.set_xlim(-1.03, 1.03)
+    ax.set_ylim(-1.03, 1.03)
     ax.set_xticks([])
     ax.set_yticks([])
     for spine in ax.spines.values():
@@ -519,6 +605,21 @@ def flatten_sample_source(
     }
     for key, value in (metadata or {}).items():
         rows[key] = np.full(lat_d.size, value, dtype=object)
+    if metadata and "center_longitude_deg" in metadata:
+        center_lon = float(metadata["center_longitude_deg"])
+        center_lat = float(metadata.get("center_latitude_deg", 0.0))
+        geo_ok = np.isfinite(lat_d) & np.isfinite(lon_d) & (lat_d >= -90.0) & (lat_d <= 90.0)
+        x_full = np.full(lat_d.shape, np.nan, dtype=float)
+        y_full = np.full(lat_d.shape, np.nan, dtype=float)
+        visible_full = np.zeros(lat_d.shape, dtype=bool)
+        if np.any(geo_ok):
+            x, y, visible = orthographic_project(lat_d[geo_ok], lon_d[geo_ok], center_lon, center_lat)
+            x_full[geo_ok] = x
+            y_full[geo_ok] = y
+            visible_full[geo_ok] = visible
+        rows["projection_x_orthographic"] = x_full.ravel()
+        rows["projection_y_orthographic"] = y_full.ravel()
+        rows["projection_visible"] = visible_full.ravel()
     for name, arr in arrays.items():
         rows[name] = ds(arr, stride).ravel()
     return pd.DataFrame(rows)
@@ -539,11 +640,13 @@ def sample_disk_arrays_and_summary(ctx: dict[str, Any], row: dict[str, Any]) -> 
     total = int(np.count_nonzero(m["base"]))
     disagree = int(np.count_nonzero(m["base"] & (m["epic_cls"] != m["geo_cls"])))
     center_lon = center_longitude_deg(ctx["epic"]["lon"], m["base"])
+    center_lat = center_latitude_deg(ctx["epic"]["lat"], m["base"])
     summary = {
         "sample_id": row["sample_id"],
         "selection_reason": reason_for_sample(row),
         "short_reason": short_reason(reason_for_sample(row)),
         "center_longitude_deg": center_lon,
+        "center_latitude_deg": center_lat,
         "n_valid_policy_a": total,
         "n_disagreement_policy_a": disagree,
         "agreement_policy_a": 1.0 - disagree / total if total else math.nan,
@@ -597,7 +700,7 @@ def figure1_representative_disk(
                     lon,
                     arrays,
                     stride,
-                    {"center_longitude_deg": summary["center_longitude_deg"]},
+                    {"center_longitude_deg": summary["center_longitude_deg"], "center_latitude_deg": summary["center_latitude_deg"]},
                 )
             )
             summary_rows.append(summary)
@@ -610,7 +713,7 @@ def figure1_representative_disk(
                 ("Boundary/scene", arrays["boundary_scene_code"], SCENE_CMAP, SCENE_NORM),
             ]
             for j, (title, arr, cmap, norm) in enumerate(plot_arrays):
-                image_panel(axes[i, j], ds(arr, stride), title if i == 0 else "", cmap, norm)
+                globe_panel(axes[i, j], arr, lat, lon, title if i == 0 else "", cmap, norm, summary["center_longitude_deg"], summary["center_latitude_deg"], stride)
                 if j == 0:
                     axes[i, j].text(
                         -0.06,
@@ -718,7 +821,7 @@ def figure1_individual_cases(
             ctx = context_cache_get(cache, row)
             arrays, lat, lon, summary = sample_disk_arrays_and_summary(ctx, row)
             summaries.append(summary)
-            source_rows.extend(sample_count_rows(sample_id, arrays, {"center_longitude_deg": summary["center_longitude_deg"]}))
+            source_rows.extend(sample_count_rows(sample_id, arrays, {"center_longitude_deg": summary["center_longitude_deg"], "center_latitude_deg": summary["center_latitude_deg"]}))
 
             fig, axes = plt.subplots(2, 3, figsize=PPT_FIGSIZE, constrained_layout=True)
             panels = [
@@ -730,7 +833,7 @@ def figure1_individual_cases(
                 ("Boundary / scene", "boundary_scene_code", SCENE_CMAP, SCENE_NORM, "scene"),
             ]
             for ax, (title, key, cmap, norm, legend_kind) in zip(axes.ravel(), panels):
-                image_panel(ax, ds(arrays[key], stride), title, cmap, norm)
+                globe_panel(ax, arrays[key], lat, lon, title, cmap, norm, summary["center_longitude_deg"], summary["center_latitude_deg"], stride)
                 ncol = {"class": 2, "mismatch": 2, "family": 1, "valid_count": 2, "scene": 2}.get(legend_kind, 1)
                 add_categorical_legend(ax, legend_kind, "", ncol=ncol, loc="lower left")
             fig.suptitle(
@@ -780,11 +883,11 @@ def figure1_all_time_atlases(
     for row in manifest:
         try:
             ctx = context_cache_get(cache, row)
-            arrays, _, _, summary = sample_disk_arrays_and_summary(ctx, row)
-            prepared.append({"row": row, "arrays": arrays, "summary": summary})
+            arrays, lat, lon, summary = sample_disk_arrays_and_summary(ctx, row)
+            prepared.append({"row": row, "arrays": arrays, "lat": lat, "lon": lon, "summary": summary})
             summary_rows.append(summary)
             for key in ["mismatch_category_code", "selected_family_code", "valid_source_count_code", "boundary_scene_code"]:
-                source_rows.extend(sample_count_rows(row["sample_id"], {key: arrays[key]}, {"center_longitude_deg": summary["center_longitude_deg"]}))
+                source_rows.extend(sample_count_rows(row["sample_id"], {key: arrays[key]}, {"center_longitude_deg": summary["center_longitude_deg"], "center_latitude_deg": summary["center_latitude_deg"]}))
         except Exception as exc:
             warnings.append({"level": "warning", "source": "figure1_all_time_atlases", "sample_id": row.get("sample_id", ""), "message": str(exc), "traceback": traceback.format_exc()})
 
@@ -802,6 +905,8 @@ def figure1_all_time_atlases(
                 for i, item in enumerate(page):
                     row = item["row"]
                     arrays = item["arrays"]
+                    lat = item["lat"]
+                    lon = item["lon"]
                     summary = item["summary"]
                     rr = i // samples_per_row
                     cc = (i % samples_per_row) * cols_per_sample
@@ -809,8 +914,8 @@ def figure1_all_time_atlases(
                     ax_scene = axes_flat[rr, cc + 1]
                     ax_valid.set_axis_on()
                     ax_scene.set_axis_on()
-                    image_panel(ax_valid, ds(arrays["valid_source_count_code"], stride), f"{sample_title(row['sample_id'], summary['center_longitude_deg'])}\nvalid", COUNT_CMAP, COUNT_NORM)
-                    image_panel(ax_scene, ds(arrays["boundary_scene_code"], stride), "boundary/scene", SCENE_CMAP, SCENE_NORM)
+                    globe_panel(ax_valid, arrays["valid_source_count_code"], lat, lon, f"{sample_title(row['sample_id'], summary['center_longitude_deg'])}\nvalid", COUNT_CMAP, COUNT_NORM, summary["center_longitude_deg"], summary["center_latitude_deg"], stride)
+                    globe_panel(ax_scene, arrays["boundary_scene_code"], lat, lon, "boundary/scene", SCENE_CMAP, SCENE_NORM, summary["center_longitude_deg"], summary["center_latitude_deg"], stride)
                 fig.suptitle(f"Figure 1 atlas drivers | all times | page {page_idx}/{len(pages)}", fontsize=9.5)
             else:
                 cols = 4
@@ -822,7 +927,7 @@ def figure1_all_time_atlases(
                 for ax, item in zip(axes_flat, page):
                     row = item["row"]
                     summary = item["summary"]
-                    image_panel(ax, ds(item["arrays"][key], stride), sample_title(row["sample_id"], summary["center_longitude_deg"], summary["agreement_policy_a"]), cmap, norm)
+                    globe_panel(ax, item["arrays"][key], item["lat"], item["lon"], sample_title(row["sample_id"], summary["center_longitude_deg"], summary["agreement_policy_a"]), cmap, norm, summary["center_longitude_deg"], summary["center_latitude_deg"], stride)
                 fig.suptitle(f"Figure 1 atlas {title} | all times | page {page_idx}/{len(pages)}", fontsize=9.5)
             figure_id = f"figure1_atlas_{atlas_name}_page{page_idx:02d}"
             paths = save_figure(fig, dirs, figure_id)
@@ -871,7 +976,8 @@ def figure2_source_coverage(
     lon = orient(ctx["epic"]["lon"], ctx["epic"]["lat"])
     arrays = {k: orient(v, ctx["epic"]["lat"]) for k, v in coverage_arrays.items()}
     center_lon = center_longitude_deg(ctx["epic"]["lon"], base)
-    src_df = flatten_sample_source(sample["sample_id"], lat, lon, arrays, stride, {"center_longitude_deg": center_lon})
+    center_lat = center_latitude_deg(ctx["epic"]["lat"], base)
+    src_df = flatten_sample_source(sample["sample_id"], lat, lon, arrays, stride, {"center_longitude_deg": center_lon, "center_latitude_deg": center_lat})
     src = source_path(dirs, "figure2_source_coverage_selected_family")
     write_source(src_df, src, warnings)
 
@@ -885,13 +991,14 @@ def figure2_source_coverage(
         ("Selected source family", "selected_family_code", FAMILY_CMAP, FAMILY_NORM),
     ]
     for ax, (title, key, cmap, norm) in zip(axes.ravel(), panels):
-        image_panel(ax, ds(arrays[key], stride), title, cmap, norm)
+        globe_panel(ax, arrays[key], lat, lon, title, cmap, norm, center_lon, center_lat, stride)
     fig.suptitle(f"Figure 2 | Source valid-coverage proxy and selected family: {short_sample(sample['sample_id'])} | {fmt_center_lon(center_lon)}", fontsize=10)
     paths = save_figure(fig, dirs, "figure2_source_coverage_selected_family")
     summary = {
         "sample_id": sample["sample_id"],
         "figure2_role": "source valid mask and selected family coverage proxy",
         "center_longitude_deg": center_lon,
+        "center_latitude_deg": center_lat,
         "n_policy_a_valid": int(np.count_nonzero(base)),
         "fy4b_valid_fraction": float(np.mean(source_valid.get("FY4B", np.zeros(base.shape, dtype=bool))[base])) if np.any(base) else math.nan,
         "himawari9_valid_fraction": float(np.mean(source_valid.get("Himawari-9", np.zeros(base.shape, dtype=bool))[base])) if np.any(base) else math.nan,
@@ -983,6 +1090,7 @@ def figure3_source_pair_maps(
                 warnings.append({"level": "warning", "source": "figure3", "sample_id": row["sample_id"], "message": f"missing source pair arrays: {source_a}, {source_b}"})
                 continue
             center_lon = center_longitude_deg(ctx["epic"]["lon"], base)
+            center_lat = center_latitude_deg(ctx["epic"]["lat"], base)
             cls_a, valid_a = apply_source_policy(source_cls, source_valid, source_a)
             cls_b, valid_b = apply_source_policy(source_cls, source_valid, source_b)
             common = base & valid_a & valid_b
@@ -999,7 +1107,7 @@ def figure3_source_pair_maps(
             }
             lat = orient(ctx["epic"]["lat"], ctx["epic"]["lat"])
             lon = orient(ctx["epic"]["lon"], ctx["epic"]["lat"])
-            pair_df = flatten_sample_source(row["sample_id"], lat, lon, arrays, stride, {"center_longitude_deg": center_lon})
+            pair_df = flatten_sample_source(row["sample_id"], lat, lon, arrays, stride, {"center_longitude_deg": center_lon, "center_latitude_deg": center_lat})
             pair_df["source_A"] = source_a
             pair_df["source_B"] = source_b
             frames.append(pair_df)
@@ -1010,6 +1118,7 @@ def figure3_source_pair_maps(
                     "source_A": source_a,
                     "source_B": source_b,
                     "center_longitude_deg": center_lon,
+                    "center_latitude_deg": center_lat,
                     "n_common_valid_policy_a": n,
                     "source_disagreement_fraction": int(np.count_nonzero(disagreement)) / n if n else math.nan,
                     "both_correct_fraction": int(np.count_nonzero(common & (cls_a == epic_cls) & (cls_b == epic_cls))) / n if n else math.nan,
@@ -1025,9 +1134,9 @@ def figure3_source_pair_maps(
             for ax in panel_axes:
                 ax.set_axis_on()
             pair_label = f"{source_a} vs {source_b}\n{sample_title(row['sample_id'], center_lon)}"
-            image_panel(panel_axes[0], ds(arrays["common_valid_code"], stride), f"{pair_label}\nCommon valid", BOOL_CMAP, BOOL_NORM)
-            image_panel(panel_axes[1], ds(arrays["source_disagreement_code"], stride), "A/B disagreement", BOOL_CMAP, BOOL_NORM)
-            image_panel(panel_axes[2], ds(arrays["correctness_vs_epic_code"], stride), "Relative to EPIC", PAIR_CMAP, PAIR_NORM)
+            globe_panel(panel_axes[0], arrays["common_valid_code"], lat, lon, f"{pair_label}\nCommon valid", BOOL_CMAP, BOOL_NORM, center_lon, center_lat, stride)
+            globe_panel(panel_axes[1], arrays["source_disagreement_code"], lat, lon, "A/B disagreement", BOOL_CMAP, BOOL_NORM, center_lon, center_lat, stride)
+            globe_panel(panel_axes[2], arrays["correctness_vs_epic_code"], lat, lon, "Relative to EPIC", PAIR_CMAP, PAIR_NORM, center_lon, center_lat, stride)
         except Exception as exc:
             warnings.append({"level": "warning", "source": "figure3", "sample_id": row.get("sample_id", ""), "message": str(exc), "traceback": traceback.format_exc()})
     fig.suptitle("Figure 3 | Source-pair spatial disagreement on the EPIC disk, Policy A", fontsize=10)
@@ -1179,7 +1288,8 @@ def write_report(
         f"- Run ID: `{RUN_ID}`",
         f"- Generated UTC: `{utc_now()}`",
         "- PPT layout update: sample-disk figures use fixed 16:9 canvases; each sample label includes time and `center_longitude_deg`.",
-        "- Orientation update: sample-disk figures are north-up; `center_longitude_deg` is the circular mean longitude of Policy A valid comparison pixels.",
+        "- Globe-view update: sample-disk figures are plotted in a geodetic orthographic projection from pixel `latitude_deg`/`longitude_deg`, not in raw EPIC image-row/column coordinates.",
+        "- Orientation update: orthographic maps are north-up; `center_longitude_deg` is the circular mean longitude of Policy A valid comparison pixels, and `center_latitude_deg` is their mean latitude.",
         "- 范围：只使用 2024-03 已有 Stage 09D/09E 结果和本地产品；未联网下载；未修改 fused cloud mask 生产逻辑。",
         "- 参照关系：EPIC 只作为 independent diagnostic reference，不作为绝对真值。",
         "- 覆盖范围解释：source coverage 图使用 `source valid mask` / `selected source family` 作为可视化代理，不等同于严格物理 FOV 边界。",
@@ -1390,6 +1500,8 @@ def main() -> int:
             "lat_lon_bin_deg": 5,
             "figure_canvas_inches": list(PPT_FIGSIZE),
             "center_longitude_definition": "circular mean longitude of Policy A valid comparison pixels",
+            "center_latitude_definition": "mean latitude of Policy A valid comparison pixels",
+            "sample_disk_map_projection": "geodetic orthographic projection from pixel latitude/longitude",
         },
         "row_counts": {
             "manifest_all": len(manifest_all),
@@ -1410,7 +1522,7 @@ def main() -> int:
             "no_network_download": True,
             "epic_role": "independent diagnostic reference, not absolute truth",
             "coverage_proxy_note": "source valid mask / selected source family, not strict physical FOV boundary",
-            "sample_disk_orientation": "north-up; rows are oriented so larger latitude is visually above smaller latitude",
+            "sample_disk_orientation": "north-up geodetic orthographic globe view; not raw EPIC image row/column view",
             "ppt_layout": "fixed 16:9 canvas; no bbox_inches tight cropping",
         },
     }
