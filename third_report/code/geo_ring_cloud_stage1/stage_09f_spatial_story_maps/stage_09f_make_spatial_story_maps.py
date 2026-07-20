@@ -112,6 +112,11 @@ LEGENDS = {
         (3, "near local cloud boundary", "#C95F5F", ".."),
         (4, "broken-cloud scene", "#9E77B5", "xx"),
     ],
+    "coverage": [
+        (0, "outside / no display", "#D0D0D0", "//"),
+        (1, "condition false", "#F4F4F4", ""),
+        (2, "condition true", "#2AA198", ""),
+    ],
     "pair": [
         (0, "not common valid", "#D0D0D0", "//"),
         (2, "both match EPIC", "#3B6FB6", ""),
@@ -202,7 +207,7 @@ def read_csv(path: Path, warnings: list[dict[str, Any]], label: str) -> pd.DataF
 
 def save_figure(fig: plt.Figure, dirs: dict[str, Path], figure_id: str) -> dict[str, str]:
     base = dirs["figures"] / f"{RUN_ID}_{figure_id}"
-    fig.savefig(base.with_suffix(".png"), dpi=240)
+    fig.savefig(base.with_suffix(".png"), dpi=300)
     fig.savefig(base.with_suffix(".svg"))
     fig.savefig(base.with_suffix(".pdf"))
     plt.close(fig)
@@ -461,6 +466,11 @@ def add_categorical_legend(ax: plt.Axes, kind: str, title: str, ncol: int = 1, l
         leg.get_title().set_fontsize(6.3)
 
 
+def add_map_legend(ax: plt.Axes, kind: str, title: str = "Legend") -> None:
+    ncol = {"class": 2, "mismatch": 2, "family": 1, "valid_count": 2, "scene": 2, "coverage": 1, "pair": 2}.get(kind, 1)
+    add_categorical_legend(ax, kind, title, ncol=ncol, loc="lower left")
+
+
 def counts_for_codes(sample_id: str, variable: str, arr: np.ndarray, valid_mask: np.ndarray | None = None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     values, counts = np.unique(arr[np.isfinite(arr)], return_counts=True)
@@ -705,15 +715,17 @@ def figure1_representative_disk(
             )
             summary_rows.append(summary)
             plot_arrays = [
-                ("EPIC", arrays["epic_policy_a_class_code"], CLASS_CMAP, CLASS_NORM),
-                ("GEO-ring", arrays["georing_policy_a_class_code"], CLASS_CMAP, CLASS_NORM),
-                ("Mismatch", arrays["mismatch_category_code"], MISMATCH_CMAP, MISMATCH_NORM),
-                ("Selected family", arrays["selected_family_code"], FAMILY_CMAP, FAMILY_NORM),
-                ("valid count", arrays["valid_source_count_code"], COUNT_CMAP, COUNT_NORM),
-                ("Boundary/scene", arrays["boundary_scene_code"], SCENE_CMAP, SCENE_NORM),
+                ("EPIC", arrays["epic_policy_a_class_code"], CLASS_CMAP, CLASS_NORM, "class"),
+                ("GEO-ring", arrays["georing_policy_a_class_code"], CLASS_CMAP, CLASS_NORM, "class"),
+                ("Mismatch", arrays["mismatch_category_code"], MISMATCH_CMAP, MISMATCH_NORM, "mismatch"),
+                ("Selected family", arrays["selected_family_code"], FAMILY_CMAP, FAMILY_NORM, "family"),
+                ("valid count", arrays["valid_source_count_code"], COUNT_CMAP, COUNT_NORM, "valid_count"),
+                ("Boundary/scene", arrays["boundary_scene_code"], SCENE_CMAP, SCENE_NORM, "scene"),
             ]
-            for j, (title, arr, cmap, norm) in enumerate(plot_arrays):
+            for j, (title, arr, cmap, norm, legend_kind) in enumerate(plot_arrays):
                 globe_panel(axes[i, j], arr, lat, lon, title if i == 0 else "", cmap, norm, summary["center_longitude_deg"], summary["center_latitude_deg"], stride)
+                if i == 0:
+                    add_map_legend(axes[i, j], legend_kind)
                 if j == 0:
                     axes[i, j].text(
                         -0.06,
@@ -770,14 +782,15 @@ def figure1_legend_guide(
     write_source(pd.DataFrame(rows), src, warnings)
 
     fig = plt.figure(figsize=PPT_FIGSIZE, constrained_layout=True)
-    gs = fig.add_gridspec(3, 3, height_ratios=[1.0, 1.0, 1.65])
+    gs = fig.add_gridspec(4, 3, height_ratios=[1.0, 1.0, 1.0, 1.65])
     legend_specs = [
         ("class", "EPIC / GEO-ring class", 0, 0),
         ("mismatch", "Mismatch category", 0, 1),
         ("family", "Selected source family", 0, 2),
         ("valid_count", "Stage06 valid source count", 1, 0),
         ("scene", "Boundary / scene", 1, 1),
-        ("pair", "Source-pair relative to EPIC", 1, 2),
+        ("coverage", "Coverage / true-false masks", 1, 2),
+        ("pair", "Source-pair relative to EPIC", 2, 0),
     ]
     for kind, title, r, c in legend_specs:
         ax = fig.add_subplot(gs[r, c])
@@ -791,7 +804,7 @@ def figure1_legend_guide(
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
 
-    ax = fig.add_subplot(gs[2, :])
+    ax = fig.add_subplot(gs[3, :])
     ax.set_axis_off()
     ax.text(0.0, 0.98, "Why these rows were selected", fontsize=8.5, fontweight="bold", va="top")
     y = 0.86
@@ -834,8 +847,7 @@ def figure1_individual_cases(
             ]
             for ax, (title, key, cmap, norm, legend_kind) in zip(axes.ravel(), panels):
                 globe_panel(ax, arrays[key], lat, lon, title, cmap, norm, summary["center_longitude_deg"], summary["center_latitude_deg"], stride)
-                ncol = {"class": 2, "mismatch": 2, "family": 1, "valid_count": 2, "scene": 2}.get(legend_kind, 1)
-                add_categorical_legend(ax, legend_kind, "", ncol=ncol, loc="lower left")
+                add_map_legend(ax, legend_kind)
             fig.suptitle(
                 f"Figure 1 case | {short_sample(sample_id)} | {fmt_center_lon(summary['center_longitude_deg'])} | {short_reason(reason_for_sample(row)).replace(chr(10), ' ')} | agreement={summary['agreement_policy_a']:.3f}",
                 fontsize=10,
@@ -916,6 +928,9 @@ def figure1_all_time_atlases(
                     ax_scene.set_axis_on()
                     globe_panel(ax_valid, arrays["valid_source_count_code"], lat, lon, f"{sample_title(row['sample_id'], summary['center_longitude_deg'])}\nvalid", COUNT_CMAP, COUNT_NORM, summary["center_longitude_deg"], summary["center_latitude_deg"], stride)
                     globe_panel(ax_scene, arrays["boundary_scene_code"], lat, lon, "boundary/scene", SCENE_CMAP, SCENE_NORM, summary["center_longitude_deg"], summary["center_latitude_deg"], stride)
+                    if i == 0:
+                        add_map_legend(ax_valid, "valid_count")
+                        add_map_legend(ax_scene, "scene")
                 fig.suptitle(f"Figure 1 atlas drivers | all times | page {page_idx}/{len(pages)}", fontsize=9.5)
             else:
                 cols = 4
@@ -928,6 +943,8 @@ def figure1_all_time_atlases(
                     row = item["row"]
                     summary = item["summary"]
                     globe_panel(ax, item["arrays"][key], item["lat"], item["lon"], sample_title(row["sample_id"], summary["center_longitude_deg"], summary["agreement_policy_a"]), cmap, norm, summary["center_longitude_deg"], summary["center_latitude_deg"], stride)
+                    if ax is axes_flat[0]:
+                        add_map_legend(ax, legend_kind or "mismatch")
                 fig.suptitle(f"Figure 1 atlas {title} | all times | page {page_idx}/{len(pages)}", fontsize=9.5)
             figure_id = f"figure1_atlas_{atlas_name}_page{page_idx:02d}"
             paths = save_figure(fig, dirs, figure_id)
@@ -990,8 +1007,12 @@ def figure2_source_coverage(
         ("Meteosat-IODC valid", "MeteosatIODC_valid", BOOL_CMAP, BOOL_NORM),
         ("Selected source family", "selected_family_code", FAMILY_CMAP, FAMILY_NORM),
     ]
-    for ax, (title, key, cmap, norm) in zip(axes.ravel(), panels):
+    for idx, (ax, (title, key, cmap, norm)) in enumerate(zip(axes.ravel(), panels)):
         globe_panel(ax, arrays[key], lat, lon, title, cmap, norm, center_lon, center_lat, stride)
+        if idx == 0:
+            add_map_legend(ax, "coverage", "Valid mask")
+        if key == "selected_family_code":
+            add_map_legend(ax, "family", "Selected family")
     fig.suptitle(f"Figure 2 | Source valid-coverage proxy and selected family: {short_sample(sample['sample_id'])} | {fmt_center_lon(center_lon)}", fontsize=10)
     paths = save_figure(fig, dirs, "figure2_source_coverage_selected_family")
     summary = {
@@ -1137,6 +1158,10 @@ def figure3_source_pair_maps(
             globe_panel(panel_axes[0], arrays["common_valid_code"], lat, lon, f"{pair_label}\nCommon valid", BOOL_CMAP, BOOL_NORM, center_lon, center_lat, stride)
             globe_panel(panel_axes[1], arrays["source_disagreement_code"], lat, lon, "A/B disagreement", BOOL_CMAP, BOOL_NORM, center_lon, center_lat, stride)
             globe_panel(panel_axes[2], arrays["correctness_vs_epic_code"], lat, lon, "Relative to EPIC", PAIR_CMAP, PAIR_NORM, center_lon, center_lat, stride)
+            if i == 0:
+                add_map_legend(panel_axes[0], "coverage", "Common valid")
+                add_map_legend(panel_axes[1], "coverage", "A/B mismatch")
+                add_map_legend(panel_axes[2], "pair", "vs EPIC")
         except Exception as exc:
             warnings.append({"level": "warning", "source": "figure3", "sample_id": row.get("sample_id", ""), "message": str(exc), "traceback": traceback.format_exc()})
     fig.suptitle("Figure 3 | Source-pair spatial disagreement on the EPIC disk, Policy A", fontsize=10)
