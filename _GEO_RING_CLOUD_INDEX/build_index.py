@@ -1123,6 +1123,18 @@ STAGE_SCOPED_DATA_PRODUCT_AUDITS = [
         "output_root": str(ROOT / "geo_ring_cloud_stage1_time_runs/stage_09g_orientation_root_cause_audit_202403"),
         "notes": "Read-only diagnostic; EPIC is an independent reference, not absolute truth; no fusion production logic is modified",
     },
+    {
+        "audit_id": "stage_09h_gate1_20240310_meteosat0deg_root_cause",
+        "primary_path": str(ROOT / "third_report/code/geo_ring_cloud_stage1/stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate1_20240310_meteosat0deg.py"),
+        "canonical_stage_id": "stage_09h",
+        "related_stage_ids": "stage_09g,stage_09h",
+        "data_domain": "Meteosat-0deg CLM / GRIB navigation",
+        "product_family": "EUMETSAT operational MSG CLM",
+        "audit_scope": "Gate 1 single-case raw GRIB scanning-mode, reader direction, reshape-order, IR availability, and navigation root-cause evidence audit",
+        "status": "active",
+        "output_root": str(ROOT / "geo_ring_cloud_stage1_time_runs/stage_09h_meteosat_mask_navigation_root_cause_202403"),
+        "notes": "Read-only Gate 1; no production code changes and no full-month batch run",
+    },
 ]
 
 
@@ -1574,6 +1586,7 @@ def insert_stage_registry(conn: sqlite3.Connection) -> None:
         ("stage_09e", "Stage 09e PSF-like EPIC-view spatial representativeness and SEL-QC diagnostics", "geo_ring_cloud_stage1_time_runs/stage_09e_psf_aware_epic_view_202403,geo_ring_cloud_stage1_time_runs/stage_09e_sel_qc_common_valid_202403"),
         ("stage_09f", "Stage 09F spatial story maps for GEO-ring vs EPIC cloud-mask diagnostics", "geo_ring_cloud_stage1_time_runs/stage_09f_spatial_story_maps_202403,stage_09f_spatial_story_maps/stage_09f_make_spatial_story_maps.py"),
         ("stage_09g", "Stage 09G orientation root-cause audit from raw EPIC/Meteosat to Stage 09F plots", "geo_ring_cloud_stage1_time_runs/stage_09g_orientation_root_cause_audit_202403,stage_09g_orientation_root_cause_audit/stage_09g_run_orientation_root_cause_audit.py"),
+        ("stage_09h", "Stage 09H Meteosat mask-navigation root-cause Gate diagnostics", "geo_ring_cloud_stage1_time_runs/stage_09h_meteosat_mask_navigation_root_cause_202403,stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate1_20240310_meteosat0deg.py"),
         ("stage_10", "Stage 10 fused CTH validation and mechanism diagnostics", "geo_ring_cloud_stage1_time_runs/stage_10_cth_fused_product_validation_202403"),
         ("stage_10p", "Stage 10p related EPIC Composite PSF-aware data product audit", "geo_ring_cloud_stage1_time_runs/stage_10p_psf_inventory_202401"),
         ("stage_10p2", "Stage 10p2 approximate EPIC FOV aggregation diagnostics", "geo_ring_cloud_stage1_time_runs/stage_10p2_approx_epic_fov_aggregation_202403"),

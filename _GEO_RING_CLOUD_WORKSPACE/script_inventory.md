@@ -44,6 +44,7 @@
 | run_epic_georing_single_sample.py | geo_ring_cloud |  | runner | 运行器 | EPIC Geo-ring 单时次完整运行流水线（BASE=stage1, RUNS=time_runs） |  |
 | geo_ring_cloud/sources.py | geo_ring_cloud |  | source_registry |  | 当前文件系统扫描补充脚本 |  |
 | summarize_time_run_20240319_1500.py | geo_ring_cloud |  | summary_helper | 汇总 | 汇总 20240319_1500 时次运行结果 |  |
+| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate1_20240310_meteosat0deg.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3_integration.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud_time_run_prune_failed.py | geo_ring_cloud |  | time_run_pruning |  | 当前文件系统扫描补充脚本 |  |
