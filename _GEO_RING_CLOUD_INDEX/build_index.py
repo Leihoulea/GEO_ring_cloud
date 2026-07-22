@@ -111,6 +111,8 @@ def infer_stage_from_name(rel_name: str) -> str:
         return "10p"
     if base.startswith("stage_10_") or name.startswith("stage_10_") or "/stage_10_" in name or "/stage_10_cth_validation/" in name:
         return "10"
+    if base.startswith("stage_09g_") or name.startswith("stage_09g_") or "/stage_09g_" in name:
+        return "09g"
     if base.startswith("stage_09f_") or name.startswith("stage_09f_") or "/stage_09f_" in name:
         return "09f"
     if base.startswith("stage_09e_") or name.startswith("stage_09e_") or "/stage_09e_" in name:
@@ -1023,6 +1025,7 @@ ARTIFACT_STAGE_HINTS = {
     "stage_10p": "stage_10p",
     "stage_10_cth_validation": "stage_10",
     "stage_10_": "stage_10",
+    "stage_09g": "stage_09g",
     "stage_09f": "stage_09f",
     "stage_09e": "stage_09e",
     "core_time_index": "stage_01",
@@ -1558,6 +1561,7 @@ def insert_stage_registry(conn: sqlite3.Connection) -> None:
         ("stage_09d", "Stage 09d full-pixel diagnostics and interpretation", "geo_ring_cloud_stage1_time_runs/stage09d_full_pixel_diagnostics_202403"),
         ("stage_09e", "Stage 09e PSF-like EPIC-view spatial representativeness and SEL-QC diagnostics", "geo_ring_cloud_stage1_time_runs/stage_09e_psf_aware_epic_view_202403,geo_ring_cloud_stage1_time_runs/stage_09e_sel_qc_common_valid_202403"),
         ("stage_09f", "Stage 09F spatial story maps for GEO-ring vs EPIC cloud-mask diagnostics", "geo_ring_cloud_stage1_time_runs/stage_09f_spatial_story_maps_202403,stage_09f_spatial_story_maps/stage_09f_make_spatial_story_maps.py"),
+        ("stage_09g", "Stage 09G orientation root-cause audit from raw EPIC/Meteosat to Stage 09F plots", "geo_ring_cloud_stage1_time_runs/stage_09g_orientation_root_cause_audit_202403,stage_09g_orientation_root_cause_audit/stage_09g_run_orientation_root_cause_audit.py"),
         ("stage_10", "Stage 10 fused CTH validation and mechanism diagnostics", "geo_ring_cloud_stage1_time_runs/stage_10_cth_fused_product_validation_202403"),
         ("stage_10p", "Stage 10p related EPIC Composite PSF-aware data product audit", "geo_ring_cloud_stage1_time_runs/stage_10p_psf_inventory_202401"),
         ("stage_10p2", "Stage 10p2 approximate EPIC FOV aggregation diagnostics", "geo_ring_cloud_stage1_time_runs/stage_10p2_approx_epic_fov_aggregation_202403"),
@@ -1626,7 +1630,7 @@ def insert_stage_registry(conn: sqlite3.Connection) -> None:
             "output": "",
             "status": "archived",
             "evidence_paths": str(ARCHIVE_DIR / "third_report"),
-            "do_not_merge_with": "geo_ring_cloud.stage_09,geo_ring_cloud.stage_09b,geo_ring_cloud.stage_09c,geo_ring_cloud.stage_09d,geo_ring_cloud.stage_09e,geo_ring_cloud.stage_09f",
+            "do_not_merge_with": "geo_ring_cloud.stage_09,geo_ring_cloud.stage_09b,geo_ring_cloud.stage_09c,geo_ring_cloud.stage_09d,geo_ring_cloud.stage_09e,geo_ring_cloud.stage_09f,geo_ring_cloud.stage_09g",
             "notes": notes,
         }
 

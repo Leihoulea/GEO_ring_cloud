@@ -128,6 +128,7 @@
 | geo_ring_cloud | Stage09d | stage_09d | 1.0 | registry-defined alias |
 | geo_ring_cloud | Stage09e | stage_09e | 1.0 | registry-defined alias |
 | geo_ring_cloud | Stage09f | stage_09f | 1.0 | registry-defined alias |
+| geo_ring_cloud | Stage09g | stage_09g | 1.0 | registry-defined alias |
 | geo_ring_cloud | Stage10 | stage_10 | 1.0 | registry-defined alias |
 | geo_ring_cloud | Stage10p | stage_10p | 1.0 | registry-defined alias |
 | geo_ring_cloud | Stage10p2 | stage_10p2 | 1.0 | registry-defined alias |
@@ -171,6 +172,7 @@
 | geo_ring_cloud | geo_ring_cloud.stage_09d | stage_09d | 1.0 | registry-defined alias |
 | geo_ring_cloud | geo_ring_cloud.stage_09e | stage_09e | 1.0 | registry-defined alias |
 | geo_ring_cloud | geo_ring_cloud.stage_09f | stage_09f | 1.0 | registry-defined alias |
+| geo_ring_cloud | geo_ring_cloud.stage_09g | stage_09g | 1.0 | registry-defined alias |
 | geo_ring_cloud | geo_ring_cloud.stage_10 | stage_10 | 1.0 | registry-defined alias |
 | geo_ring_cloud | geo_ring_cloud.stage_10p | stage_10p | 1.0 | registry-defined alias |
 | geo_ring_cloud | geo_ring_cloud.stage_10p2 | stage_10p2 | 1.0 | registry-defined alias |
@@ -224,6 +226,7 @@
 | geo_ring_cloud | stage09d_interpretation/build_stage09d_interpretation_package.py | stage_09d | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage09e | stage_09e | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage09f | stage_09f | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage09g | stage_09g | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage10 | stage_10 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage10p | stage_10p | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage10p2 | stage_10p2 | 1.0 | registry-defined alias |
@@ -299,6 +302,8 @@
 | geo_ring_cloud | stage_09e_psf_sel_qc/stage_09e_run_psf_sel_qc.py | stage_09e | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09f | stage_09f | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09f_spatial_story_maps/stage_09f_make_spatial_story_maps.py | stage_09f | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_09g | stage_09g | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_09g_orientation_root_cause_audit/stage_09g_run_orientation_root_cause_audit.py | stage_09g | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_10 | stage_10 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_10/stage_10_make_group_meeting_ppt.py | stage_10 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_10/stage_10_make_meeting_figures.py | stage_10 | 1.0 | registry-defined alias |
