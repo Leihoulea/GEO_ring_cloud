@@ -121,6 +121,7 @@
 | stage_09f_spatial_story_maps/stage_09f_make_spatial_story_maps.py | geo_ring_cloud | stage_09f |  | 09f | 当前文件系统扫描补充脚本；推断阶段 09f |  |
 | stage_10/stage_10_make_group_meeting_ppt.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
 | stage_10/stage_10_make_meeting_figures.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
+| stage_10/stage_10_make_spatial_earth_figures.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
 | stage_10_claas3_epic_relative_height_evaluation.py | geo_ring_cloud | stage_10 |  | 10 | A/B-band EPIC-relative effective-height profile-pair diagnostics with common approximate PSF |  |
 | stage_10_cth_validation/stage_10_qc_audit.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
 | stage_10_cth_validation/stage_10_rewrite_cth_report.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |

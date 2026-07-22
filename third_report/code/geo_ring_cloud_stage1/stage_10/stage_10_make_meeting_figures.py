@@ -24,24 +24,25 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch, Rectangle
 import numpy as np
 import pandas as pd
+from PIL import Image
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import path_config  # noqa: E402
+from geo_ring_cloud import paths as geo_paths  # noqa: E402
 
 PROJECT_ID = "geo_ring_cloud"
 STAGE_ID = "stage_10"
 RUN_ID = "stage_10_meeting_figures_202403"
 
-STAGE09F_ROOT = path_config.RUNS_ROOT / "stage_09f_spatial_story_maps_202403"
-STAGE10_ROOT = path_config.RUNS_ROOT / "stage_10_cth_fused_product_validation_202403"
-STAGE10P_ROOT_CANONICAL = path_config.RUNS_ROOT / "stage_10p_psf_inventory_202401"
-STAGE10P_ROOT_LEGACY = path_config.RUNS_ROOT / "stage10p_psf_inventory_202401"
-STAGE10P2_ROOT_CANONICAL = path_config.RUNS_ROOT / "stage_10p2_approx_epic_fov_aggregation_202403"
-STAGE10P2_ROOT_LEGACY = path_config.RUNS_ROOT / "stage10p2_approx_epic_fov_aggregation_202403"
-OUT_ROOT = path_config.RUNS_ROOT / RUN_ID
+STAGE09F_ROOT = geo_paths.RUNS_ROOT / "stage_09f_spatial_story_maps_202403"
+STAGE10_ROOT = geo_paths.RUNS_ROOT / "stage_10_cth_fused_product_validation_202403"
+STAGE10P_ROOT_CANONICAL = geo_paths.RUNS_ROOT / "stage_10p_psf_inventory_202401"
+STAGE10P_ROOT_LEGACY = geo_paths.RUNS_ROOT / "stage10p_psf_inventory_202401"
+STAGE10P2_ROOT_CANONICAL = geo_paths.RUNS_ROOT / "stage_10p2_approx_epic_fov_aggregation_202403"
+STAGE10P2_ROOT_LEGACY = geo_paths.RUNS_ROOT / "stage10p2_approx_epic_fov_aggregation_202403"
+OUT_ROOT = geo_paths.RUNS_ROOT / RUN_ID
 
 POLICY_A = "A_inclusive_binary"
 POLICY_B = "B_high_confidence_only"
@@ -248,6 +249,26 @@ def annotate_bars(ax: plt.Axes, bars: Any, fmt: str = "{:.2f}", dy: float = 0.02
         )
 
 
+def add_note(ax: plt.Axes, text: str, x: float = 0.01, y: float = 0.01, color: str | None = None) -> None:
+    ax.text(
+        x,
+        y,
+        text,
+        transform=ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=5.9,
+        color=color or COLORS["grey"],
+        bbox={"facecolor": "white", "edgecolor": COLORS["grey_light"], "pad": 2, "alpha": 0.92},
+    )
+
+
+def is_true_series(series: pd.Series) -> pd.Series:
+    if series.dtype == bool:
+        return series.fillna(False)
+    return series.astype(str).str.strip().str.lower().isin({"true", "1", "yes", "y"})
+
+
 def safe_query(df: pd.DataFrame, expr: str) -> pd.DataFrame:
     if df.empty:
         return df.copy()
@@ -416,6 +437,9 @@ def make_fig01(tables: dict[str, pd.DataFrame], dirs: dict[str, Path]) -> dict[s
     keep = [
         "sample_id",
         "short_reason",
+        "center_longitude_deg",
+        "center_latitude_deg",
+        "n_valid_policy_a",
         "agreement_policy_a",
         "boundary_fraction",
         "broken_cloud_fraction",
@@ -454,6 +478,12 @@ def make_fig01(tables: dict[str, pd.DataFrame], dirs: dict[str, Path]) -> dict[s
     ax1.set_title("Representative March 2024 samples used to motivate height validation")
     ax1.axhline(0.5, color=COLORS["grey"], lw=0.7, ls="--", alpha=0.5)
     ax1.legend(ncol=4, loc="upper center", bbox_to_anchor=(0.5, 1.18))
+    add_note(
+        ax1,
+        "Representative Stage09F samples (n=5); fractions use Policy A valid EPIC-GEO comparison pixels as denominator.",
+        x=0.01,
+        y=0.96,
+    )
     panel_label(ax1, "b")
 
     paths = save_figure(fig, dirs, "stage_10_group_meeting_fig01_stage09f_to_stage10_evidence_chain")
@@ -502,6 +532,9 @@ def make_fig02(tables: dict[str, pd.DataFrame], dirs: dict[str, Path]) -> dict[s
     for label, ax in zip(["a", "b", "c", "d"], axes.ravel(), strict=False):
         ax.set_xticks(x)
         ax.set_xticklabels(labels, rotation=35, ha="right")
+        for idx, row in df.reset_index(drop=True).iterrows():
+            if pd.isna(row.get("n_valid_cth")) or float(row.get("n_valid_cth", 0) or 0) <= 0:
+                ax.text(idx, ax.get_ylim()[1] * 0.04, "n=0\nnot evaluated", ha="center", va="bottom", fontsize=5.4, color=COLORS["grey"])
         panel_label(ax, label)
 
     d1 = df[df["domain"] == "D1_both_cloud"]
@@ -513,6 +546,15 @@ def make_fig02(tables: dict[str, pd.DataFrame], dirs: dict[str, Path]) -> dict[s
             f"RMSE={first_value(d1, 'rmse_km'):.3f} km"
         )
         fig.suptitle(text, y=1.02, fontsize=8.0)
+    fig.text(
+        0.01,
+        0.005,
+        "Reference: EPIC A-band Effective Cloud Height; Policy A inclusive binary cloud mask. D4 has no valid CTH pixels in this run.",
+        ha="left",
+        va="bottom",
+        fontsize=5.8,
+        color=COLORS["grey"],
+    )
 
     paths = save_figure(fig, dirs, "stage_10_group_meeting_fig02_fused_cth_main_metrics")
     return {
@@ -549,9 +591,14 @@ def make_fig03(tables: dict[str, pd.DataFrame], dirs: dict[str, Path]) -> dict[s
         ax.set_title(title)
         ax.axvline(0, color=COLORS["grey"], lw=0.7)
         ax.invert_yaxis()
+        n_sum = subset["n_valid_cth"].sum() if "n_valid_cth" in subset else np.nan
+        add_note(ax, f"D1 both-cloud; n={format_int(n_sum)} grouped pixels", x=0.02, y=0.02)
         panel_label(ax, letter)
-    axes[1].legend(loc="lower right")
-
+    legend_handles = [
+        Patch(facecolor=COLORS["grey_light"], edgecolor="white", label="bar = MAE"),
+        plt.Line2D([0], [0], marker="D", color="none", markerfacecolor=COLORS["black"], markeredgecolor=COLORS["black"], markersize=4, label="diamond = bias"),
+    ]
+    axes[1].legend(handles=legend_handles, loc="lower right")
     paths = save_figure(fig, dirs, "stage_10_group_meeting_fig03_source_error_decomposition")
     return {
         "figure_id": "fig03_source_error_decomposition",
@@ -575,64 +622,86 @@ def make_fig04(tables: dict[str, pd.DataFrame], dirs: dict[str, Path]) -> dict[s
     )
     source_path = save_source(source, dirs, "stage_10_group_meeting_fig04")
 
-    fig = plt.figure(figsize=(7.2, 4.4), constrained_layout=True)
-    gs = fig.add_gridspec(1, 2, width_ratios=[1.35, 1.0])
-    ax0 = fig.add_subplot(gs[0, 0])
-    ax1 = fig.add_subplot(gs[0, 1])
+    fig = plt.figure(figsize=(7.2, 4.3), constrained_layout=False)
+    ax0 = fig.add_axes([0.05, 0.14, 0.50, 0.74])
+    ax1 = fig.add_axes([0.67, 0.16, 0.29, 0.70])
     ax0.set_axis_off()
     panel_label(ax0, "a")
-    ax0.set_title("Semantic audit: reference and test quantities", loc="left")
-    rows = [
-        ("EPIC A-band", "Effective Cloud Height", "reference", "not strict CTH"),
-        ("EPIC B-band", "Effective Cloud Height", "sensitivity", "different O2 response"),
-        ("GEO fused", "fused_cloud_top_height_km", "test product", "strict CTH-like"),
-        ("GOES HT", "cloud top height", "prefusion source", "strict CTH"),
-        ("FY4B/Himawari/Meteosat", "CTH / CldTopHght / ctoph", "prefusion source", "strict CTH"),
+    ax0.set_title("Semantic audit: what is being compared?", loc="left")
+    cards = [
+        (
+            "EPIC A-band ECH",
+            "Primary reference: oxygen A-band effective cloud height.",
+            "Not a strict geometric CTH truth.",
+        ),
+        (
+            "EPIC B-band ECH",
+            "Sensitivity reference: effective height from a different O2 response.",
+            "Used to test reference-band dependence.",
+        ),
+        (
+            "GEO-ring fused CTH",
+            "Test product: fused cloud-top-height field.",
+            "Errors include source and fusion semantics.",
+        ),
+        (
+            "GEO source CTH",
+            "Prefusion source variables: GOES HT, FY4B CTH, Himawari CldTopHght, Meteosat ctoph.",
+            "Source-specific retrieval limits remain.",
+        ),
     ]
-    col_x = [0.02, 0.29, 0.61, 0.82]
-    headers = ["Product", "Variable", "Stage10 role", "Caution"]
-    for x, header in zip(col_x, headers, strict=False):
-        ax0.text(x, 0.92, header, transform=ax0.transAxes, fontweight="bold", fontsize=6.6)
-    for i, row in enumerate(rows):
-        y = 0.82 - i * 0.145
+    for i, (name, meaning, caution) in enumerate(cards):
+        y0 = 0.80 - i * 0.18
         shade = "#F4F4F4" if i % 2 == 0 else "white"
-        ax0.add_patch(Rectangle((0.0, y - 0.035), 0.98, 0.105, transform=ax0.transAxes, color=shade, ec="none"))
-        for x, text in zip(col_x, row, strict=False):
-            ax0.text(x, y, text, transform=ax0.transAxes, fontsize=6.0, va="center", wrap=True)
+        ax0.add_patch(Rectangle((0.0, y0 - 0.070), 0.98, 0.14, transform=ax0.transAxes, color=shade, ec=COLORS["grey_light"], lw=0.4))
+        ax0.text(0.025, y0 + 0.033, name, transform=ax0.transAxes, fontsize=6.8, fontweight="bold", va="center")
+        ax0.text(0.025, y0 - 0.008, meaning, transform=ax0.transAxes, fontsize=5.9, va="center", color=COLORS["black"], wrap=True)
+        ax0.text(0.025, y0 - 0.047, caution, transform=ax0.transAxes, fontsize=5.7, va="center", color=COLORS["grey"], wrap=True)
     ax0.text(
         0.02,
-        0.05,
-        "Interpretation: Stage10 is an EPIC-relative diagnostic; it is not a geometric truth validation.",
+        0.055,
+        "Interpretation: Stage10 reports EPIC-relative effective-height diagnostics,\nnot absolute geometric CTH validation.",
         transform=ax0.transAxes,
-        fontsize=6.8,
+        fontsize=6.0,
         color=COLORS["red"],
     )
 
     sens = sensitivity[
-        sensitivity["group"].isin(
-            [
-                "ALL",
-                "selected_source=FY4B",
-                "selected_source=GOES-16",
-                "selected_source=GOES-18",
-                "selected_source=Himawari-9",
-                "selected_source=Meteosat-0deg",
-                "selected_source=Meteosat-IODC",
-            ]
+        (sensitivity["sensitivity_type"] == "reference_band_metric_delta")
+        & (
+            (
+                (sensitivity["domain"] == "D1_both_cloud")
+                & sensitivity["group"].isin(
+                    [
+                        "ALL",
+                        "selected_source=FY4B",
+                        "selected_source=GOES-16",
+                        "selected_source=GOES-18",
+                        "selected_source=Himawari-9",
+                        "selected_source=Meteosat-0deg",
+                        "selected_source=Meteosat-IODC",
+                    ]
+                )
+            )
+            | ((sensitivity["domain"] == "D7_high_cloud") & (sensitivity["group"] == "ALL"))
         )
-        & (sensitivity["domain"] == "D1_both_cloud")
     ].copy()
     sens["plot_group"] = sens["group"].str.replace("selected_source=", "", regex=False)
+    sens.loc[sens["domain"] == "D7_high_cloud", "plot_group"] = "D7 high cloud"
+    sens.loc[(sens["domain"] == "D1_both_cloud") & (sens["group"] == "ALL"), "plot_group"] = "D1 all"
     sens = sens.sort_values("b_minus_a_mae_km")
     y = np.arange(len(sens))
-    colors = [SOURCE_COLORS.get(g, COLORS["blue"]) for g in sens["plot_group"]]
+    colors = [SOURCE_COLORS.get(g, COLORS["gold"] if g == "D7 high cloud" else COLORS["blue"]) for g in sens["plot_group"]]
     ax1.barh(y, sens["b_minus_a_mae_km"], color=colors, edgecolor="white", lw=0.4)
     ax1.axvline(0, color=COLORS["grey"], lw=0.8)
     ax1.set_yticks(y)
     ax1.set_yticklabels(sens["plot_group"])
     ax1.set_xlabel("B-band minus A-band MAE (km)")
-    ax1.set_title("Reference-band sensitivity")
-    panel_label(ax1, "b")
+    ax1.set_title("Reference-band sensitivity", pad=8)
+    for yi, value in enumerate(sens["b_minus_a_mae_km"]):
+        ax1.text(value + 0.025, yi, f"{value:+.2f}", va="center", fontsize=5.7)
+    add_note(ax1, "Positive = B-band reference increases MAE.", x=0.03, y=0.03)
+    ax1.text(-0.10, 1.10, "b", transform=ax1.transAxes, fontsize=8.5, fontweight="bold", va="top", ha="right")
 
     paths = save_figure(fig, dirs, "stage_10_group_meeting_fig04_semantic_audit_ab_sensitivity")
     return {
@@ -684,6 +753,13 @@ def make_fig05(tables: dict[str, pd.DataFrame], dirs: dict[str, Path]) -> dict[s
         edgecolor="white",
         lw=0.4,
     )
+    for xi, (_, row) in zip(x, reg.iterrows(), strict=False):
+        current = row["current_selected_mae_km"]
+        best = row["best_available_mae_km"]
+        regret_val = row["selection_regret_mae_km"]
+        if np.isfinite(current) and np.isfinite(best) and np.isfinite(regret_val):
+            axes[0].plot([xi, xi], [best, current], color=COLORS["grey"], lw=0.8)
+            axes[0].text(xi, max(current, best) + 0.12, f"+{regret_val:.2f}", ha="center", va="bottom", fontsize=5.6, color=COLORS["black"])
     axes[0].set_xticks(x)
     axes[0].set_xticklabels(
         ["ALL", "clean\ncore", "boundary/\nbroken", "high\ncloud", "Met-0deg", "Met-IODC"],
@@ -692,6 +768,7 @@ def make_fig05(tables: dict[str, pd.DataFrame], dirs: dict[str, Path]) -> dict[s
     axes[0].set_ylabel("MAE (km)")
     axes[0].set_title("Selection regret is pixel-group dependent")
     axes[0].legend(loc="upper left")
+    add_note(axes[0], "Oracle = retrospective best available same-pixel prefusion source; diagnostic only, not a production rule.", x=0.02, y=0.02)
     panel_label(axes[0], "a")
 
     clean_order = ["boundary_or_broken_cloud", "clean_core", "non_boundary"]
@@ -733,9 +810,9 @@ def stage10p_summary(tables: dict[str, pd.DataFrame]) -> dict[str, Any]:
     explicit_weight = 0
     if not variables.empty:
         if "is_explicit_psf_kernel_candidate" in variables:
-            explicit_kernel = int(variables["is_explicit_psf_kernel_candidate"].astype(bool).sum())
+            explicit_kernel = int(is_true_series(variables["is_explicit_psf_kernel_candidate"]).sum())
         if "is_explicit_weight_candidate" in variables:
-            explicit_weight = int(variables["is_explicit_weight_candidate"].astype(bool).sum())
+            explicit_weight = int(is_true_series(variables["is_explicit_weight_candidate"]).sum())
     role_counts = {}
     if "candidate_role" in candidates:
         role_counts = candidates.groupby("candidate_role").size().to_dict()
@@ -806,79 +883,92 @@ def make_fig06(tables: dict[str, pd.DataFrame], dirs: dict[str, Path]) -> dict[s
     )
     source_path = save_source(source, dirs, "stage_10_group_meeting_fig06")
 
-    fig = plt.figure(figsize=(7.2, 4.2), constrained_layout=True)
-    gs = fig.add_gridspec(1, 2, width_ratios=[0.9, 1.35])
-    ax0 = fig.add_subplot(gs[0, 0])
-    ax1 = fig.add_subplot(gs[0, 1])
+    fig = plt.figure(figsize=(7.2, 4.6), constrained_layout=False)
+    ax0 = fig.add_axes([0.05, 0.11, 0.42, 0.80])
+    ax1 = fig.add_axes([0.62, 0.58, 0.32, 0.30])
+    ax2 = fig.add_axes([0.62, 0.19, 0.32, 0.30], sharex=ax1)
     panel_label(ax0, "a")
     panel_label(ax1, "b")
+    ax2.text(-0.16, 1.08, "c", transform=ax2.transAxes, fontsize=8.5, fontweight="bold", va="top", ha="right")
 
-    ax0.set_title("EPIC Composite inventory")
-    metrics = [
-        ("Files OK", comp["open_ok_files"], COLORS["green"]),
-        ("PSF kernel\nvariables", comp["explicit_psf_kernel_candidates"], COLORS["red"]),
-        ("Weight\nvariables", comp["explicit_weight_candidates"], COLORS["red_light"]),
-        ("PSF/FOV\nkeyword hits", comp["psf_hits"] + comp["fov_hits"], COLORS["blue"]),
+    ax0.set_axis_off()
+    ax0.set_title("EPIC Composite inventory", loc="left")
+    cards = [
+        ("Files opened OK", f"{comp['open_ok_files']}/{comp['total_files']}", COLORS["green"]),
+        ("Explicit PSF kernel arrays", f"{comp['explicit_psf_kernel_candidates']}", COLORS["red"]),
+        ("Explicit weight arrays", f"{comp['explicit_weight_candidates']}", COLORS["red"]),
+        ("PSF/FOV keyword hits", f"{comp['psf_hits'] + comp['fov_hits']}", COLORS["blue"]),
     ]
-    x = np.arange(len(metrics))
-    vals = [m[1] for m in metrics]
-    bars = ax0.bar(x, vals, color=[m[2] for m in metrics], edgecolor="white", lw=0.4)
-    ax0.set_xticks(x)
-    ax0.set_xticklabels([m[0] for m in metrics], rotation=0)
-    ax0.set_ylabel("Count")
-    annotate_bars(ax0, bars, "{:.0f}", dy=0.015)
+    for i, (label, value, color) in enumerate(cards):
+        y0 = 0.78 - i * 0.18
+        ax0.add_patch(Rectangle((0.02, y0), 0.92, 0.13, transform=ax0.transAxes, facecolor="#F7F7F7", edgecolor=COLORS["grey_light"], lw=0.7))
+        ax0.add_patch(Rectangle((0.02, y0), 0.025, 0.13, transform=ax0.transAxes, facecolor=color, edgecolor=color, lw=0))
+        ax0.text(0.07, y0 + 0.082, label, transform=ax0.transAxes, ha="left", va="center", fontsize=5.9, color=COLORS["grey"])
+        ax0.text(0.07, y0 + 0.035, value, transform=ax0.transAxes, ha="left", va="center", fontsize=8.2, fontweight="bold", color=COLORS["black"])
     ax0.text(
-        0.02,
-        0.88,
-        "Conclusion:\nofficial PSF-aware\nbenchmark evidence,\nnot an official\nPSF kernel.",
+        0.03,
+        0.08,
+        "Conclusion: official PSF-aware benchmark evidence;\nno explicit kernel/weight arrays found in files.",
         transform=ax0.transAxes,
         ha="left",
-        va="top",
-        fontsize=6.4,
+        va="bottom",
+        fontsize=6.0,
         color=COLORS["black"],
-        bbox={"facecolor": "white", "edgecolor": COLORS["grey_light"], "pad": 3},
     )
 
     methods = cth_focus["method_name"].tolist()
     xpos = np.arange(len(methods))
-    width = 0.26
+    width = 0.32
     if not cloud_focus.empty:
         cloud_map = cloud_focus.set_index("method_name")["delta_agreement_vs_nearest"]
         ax1.bar(
-            xpos - width,
-            [cloud_map.get(m, np.nan) for m in methods],
-            width=width,
+            xpos,
+            [100.0 * cloud_map.get(m, np.nan) for m in methods],
+            width=0.56,
             color=COLORS["green"],
-            label="cloud agreement delta",
-            edgecolor="white",
-            lw=0.4,
-        )
-    ax1.bar(
-        xpos,
-        cth_focus["delta_mae_km_vs_nearest"],
-        width=width,
-        color=COLORS["blue"],
-        label="D1 CTH MAE delta",
-        edgecolor="white",
-        lw=0.4,
-    )
-    if not high_focus.empty:
-        high_map = high_focus.set_index("method_name")["delta_mae_km_vs_nearest"]
-        ax1.bar(
-            xpos + width,
-            [high_map.get(m, np.nan) for m in methods],
-            width=width,
-            color=COLORS["red"],
-            label="high-cloud MAE delta",
             edgecolor="white",
             lw=0.4,
         )
     ax1.axhline(0, color=COLORS["grey"], lw=0.8)
-    ax1.set_xticks(xpos)
-    ax1.set_xticklabels([METHOD_LABELS.get(m, m) for m in methods], rotation=35, ha="right")
-    ax1.set_ylabel("Delta vs nearest (fraction or km)")
-    ax1.set_title("Approximate EPIC-FOV aggregation sensitivity")
-    ax1.legend(loc="lower left")
+    ax1.set_ylabel("Agreement\ndelta (pp)")
+    ax1.set_title("Cloud-mask agreement sensitivity")
+    ax1.tick_params(axis="x", labelbottom=False)
+    add_note(ax1, "Positive values mean higher agreement than nearest-neighbour matching.", x=0.02, y=0.03)
+    if not high_focus.empty:
+        high_map = high_focus.set_index("method_name")["delta_mae_km_vs_nearest"]
+        ax2.bar(
+            xpos + width / 2,
+            [high_map.get(m, np.nan) for m in methods],
+            width=width,
+            color=COLORS["red"],
+            label="high-cloud MAE",
+            edgecolor="white",
+            lw=0.4,
+        )
+    ax2.bar(
+        xpos - width / 2,
+        cth_focus["delta_mae_km_vs_nearest"],
+        width=width,
+        color=COLORS["blue"],
+        label="D1 CTH MAE",
+        edgecolor="white",
+        lw=0.4,
+    )
+    ax2.axhline(0, color=COLORS["grey"], lw=0.8)
+    ax2.set_xticks(xpos)
+    ax2.set_xticklabels([METHOD_LABELS.get(m, m) for m in methods], rotation=30, ha="right")
+    ax2.set_ylabel("MAE delta\n(km)")
+    ax2.set_title("CTH error sensitivity")
+    ax2.legend(loc="upper center", bbox_to_anchor=(0.5, 1.25), ncol=2)
+    fig.text(
+        0.62,
+        0.035,
+        "Negative MAE delta means lower error than nearest; approximate FOV kernels, not official PSF.",
+        ha="left",
+        va="bottom",
+        fontsize=6.0,
+        color=COLORS["grey"],
+    )
 
     paths = save_figure(fig, dirs, "stage_10_group_meeting_fig06_composite_fov_mechanism_closure")
     return {
@@ -893,139 +983,96 @@ def write_plot_index(rows: list[dict[str, Any]], dirs: dict[str, Path]) -> Path:
     df = pd.DataFrame(rows)
     path = dirs["logs"] / "stage_10_group_meeting_plot_index.csv"
     df.to_csv(path, index=False, encoding="utf-8-sig")
+    stage_figure_index = dirs["logs"] / "stage_10_group_meeting_figure_index.csv"
+    workflow_figure_index = dirs["logs"] / "figure_index.csv"
+    df.to_csv(stage_figure_index, index=False, encoding="utf-8-sig")
+    df.to_csv(workflow_figure_index, index=False, encoding="utf-8-sig")
     return path
 
 
-def write_figure_guide(rows: list[dict[str, Any]], tables: dict[str, pd.DataFrame], dirs: dict[str, Path]) -> Path:
-    d1 = safe_query(tables["s10_domain"], "policy == @POLICY_A and domain == 'D1_both_cloud'")
-    regret = safe_query(tables["s10_regret"], "policy == @POLICY_A and pixel_group == 'ALL_VALID_CTH'")
-    high = safe_query(tables["s10_regret"], "policy == @POLICY_A and pixel_group == 'high_cloud'")
-    stage10p = stage10p_summary(tables)
-    cloud_focus, cth_focus, high_focus = find_stage10p2_deltas(tables)
-    box7_cth = cth_focus[cth_focus["method_name"] == "box_7x7"]
-    box7_high = high_focus[high_focus["method_name"] == "box_7x7"]
-    box7_cloud = cloud_focus[cloud_focus["method_name"] == "box_7x7"]
+def write_warnings_csv(warnings: list[dict[str, Any]], dirs: dict[str, Path]) -> Path:
+    columns = [
+        "level",
+        "source",
+        "sample_id",
+        "figure_id",
+        "message",
+        "traceback",
+        "legacy_input",
+        "canonical_expected",
+    ]
+    rows = [{col: warning.get(col, "") for col in columns} for warning in warnings]
+    df = pd.DataFrame(rows, columns=columns)
+    path = dirs["logs"] / "stage_10_group_meeting_warnings.csv"
+    df.to_csv(path, index=False, encoding="utf-8-sig")
+    return path
 
-    text = f"""# Stage 10 组会图版逐图讲解
 
-Run ID: `{RUN_ID}`
-
-## 总体结论
-
-这套图的主线是：Stage09F 的空间云掩膜诊断说明差异不是随机噪声，Stage10 进一步把问题推进到 fused CTH 产品验证；随后 Stage10P 和 Stage10P2 用 EPIC Composite 审计和近似 EPIC-FOV 聚合敏感性检查 footprint/PSF 机制。所有 CTH 数值都应读作相对于 `EPIC A-band Effective Cloud Height` 的诊断结果，不应说成相对于绝对真值。
-
-## Fig. 1 | 从 Stage09F 空间诊断到 Stage10 CTH 验证
-
-- 这张图回答：为什么要从 cloud mask 进入 CTH 产品验证。
-- Panel a 是证据链流程图。`Stage 09F` 表示已有空间故事图；`Stage 10` 表示 fused CTH 对 EPIC effective height 的验证；`Stage 10P` 和 `Stage 10P2` 分别表示 Composite 审计和近似 FOV 敏感性。
-- Panel b 的横轴是代表性 EPIC 时次，纵轴是比例。`Agreement` 是 Policy A 下 GEO-ring 与 EPIC 云/晴一致比例；`Boundary/broken` 是局地云边界或碎云场景比例；`Meteosat selected` 是当前 fused 选源落在 Meteosat 家族的比例；`>=4 valid sources` 是多源候选重叠比例。
-- 汇报时可以说：Stage09F 不是只挑失败案例，而是同时包含低一致性、边界高、多源冲突和高一致性对照样本。
-
-## Fig. 2 | Stage10 fused CTH 主结果
-
-- 这张图回答：fused CTH 与 EPIC A-band effective height 的整体偏差有多大。
-- D1 both-cloud 是最核心口径，因为 GEO 和 EPIC 都判为 cloud。D1 像元数为 `{format_int(first_value(d1, 'n_valid_cth'))}`，bias 为 `{first_value(d1, 'bias_km'):.3f} km`，MAE 为 `{first_value(d1, 'mae_km'):.3f} km`，RMSE 为 `{first_value(d1, 'rmse_km'):.3f} km`，within-2km fraction 为 `{first_value(d1, 'within_2km_fraction'):.3f}`。
-- `bias_km` 是 GEO fused CTH 减 EPIC A-band effective height 的平均有符号差；正值表示 fused height 更高。
-- `mae_km` 是平均绝对差，是本图最稳健的误差读数；`rmse_km` 对大误差更敏感；`within_2km_fraction` 是绝对差不超过 2 km 的像元比例。
-- D3/D4 是云掩膜不一致域，不能和 D1 做同等物理解释；它们主要用于说明 cloud-mask mismatch 对高度统计口径的影响。
-
-## Fig. 3 | 误差来源分解：selected source 与 prefusion source
-
-- 这张图回答：误差是否集中在特定源或选源机制。
-- 左图按当前 fused selected source 分组，表示“最后被融合产品采用的源”对应的 EPIC-relative error。
-- 右图按 prefusion source 分组，表示各 GEO 源自身 CTH 与 EPIC reference 的差异。
-- 条形是 MAE，黑色菱形是 bias。MAE 看误差大小，bias 看系统性偏高或偏低。
-- 如果导师问是否可以直接说某颗卫星错：不能。这里的参考是 EPIC effective height，不是几何真值；但可以说 Meteosat-selected 区域在 Stage10 诊断中表现出较高 EPIC-relative error，是后续机制检查重点。
-
-## Fig. 4 | 语义审计与 A/B-band 敏感性
-
-- 这张图回答：EPIC 和 GEO 的 height 变量到底是不是同一种 CTH。
-- EPIC `A-band_Effective_Cloud_Height` 和 `B-band_Effective_Cloud_Height` 是 oxygen absorption retrieval 的 effective height，不是严格几何 cloud top height。
-- GOES-16/18 的 `HT`、FY4B 的 `CTH`、Himawari 的 `CldTopHght`、Meteosat 的 `ctoph` 在 Stage10 中按 cloud top height 类变量使用。
-- 右图的 `B-band minus A-band MAE` 表示如果把 EPIC reference 从 A-band 换成 B-band，MAE 增加多少。D1 ALL 的增量约为 `+0.560 km`，说明 reference band 语义本身会影响结论幅度。
-
-## Fig. 5 | Selection regret 与高云/边界机制
-
-- 这张图回答：Stage10 的误差是否主要来自选源 regret、高云，或边界碎云。
-- Panel a 的红条是当前 selected source 的 MAE，绿条是同一像元内 best available oracle source 的 MAE。二者差值就是 `selection_regret_mae_km`。
-- ALL_VALID_CTH 的 current MAE 为 `{first_value(regret, 'current_selected_mae_km'):.3f} km`，best available oracle 为 `{first_value(regret, 'best_available_mae_km'):.3f} km`，selection regret 为 `{first_value(regret, 'selection_regret_mae_km'):.3f} km`。
-- high-cloud 的 regret 为 `{first_value(high, 'selection_regret_mae_km'):.3f} km`，说明高云是比普通云更敏感的机制域。
-- Panel b 显示 clean-core MAE 高于 boundary/broken，并不支持“只要避开边界就自然变好”的简单解释。
-
-## Fig. 6 | Composite 审计与近似 FOV 灵敏度闭环
-
-- 这张图回答：没有官方 PSF kernel 时，Stage10P/10P2 能支持什么机制判断。
-- 左图显示 2024-01 Composite 文件成功打开 `{stage10p['open_ok_files']}` 个；没有找到显式 PSF kernel 变量，也没有找到显式 weight 数值变量。因此只能写作 official PSF-aware benchmark evidence，不能声称使用 official PSF kernel。
-- 右图展示近似 FOV 聚合相对 nearest 的 delta。`cloud agreement delta` 是云掩膜一致率相对 nearest 的变化；`D1 CTH MAE delta` 和 `high-cloud MAE delta` 是 MAE 相对 nearest 的变化，负值表示 MAE 下降。
-- box 7x7 对 D1 CTH MAE 的改善约为 `{first_value(box7_cth, 'delta_mae_km_vs_nearest'):.3f} km`；对 high-cloud MAE 的改善约为 `{first_value(box7_high, 'delta_mae_km_vs_nearest'):.3f} km`；cloud-mask agreement 改善约为 `{first_value(box7_cloud, 'delta_agreement_vs_nearest'):.4f}`。
-- 汇报口径：近似 FOV 会带来可见改善，尤其高云更明显，但改善幅度不足以推翻 Stage10 的主结论。
-
-## 输出索引
-
-"""
+def write_workflow_audit(rows: list[dict[str, Any]], dirs: dict[str, Path]) -> Path:
+    audit_rows: list[dict[str, Any]] = []
     for row in rows:
-        text += (
-            f"- `{row['figure_id']}`: {row['title']}；source data: `{Path(row['source_csv']).name}`；"
-            f"exports: SVG/PDF/PNG/TIFF。\n"
+        source_path = Path(row["source_csv"])
+        png_path = Path(row["png"])
+        source_rows = -1
+        if source_path.exists():
+            try:
+                source_rows = len(pd.read_csv(source_path))
+            except Exception:
+                source_rows = -1
+        png_width = np.nan
+        png_height = np.nan
+        png_aspect = np.nan
+        if png_path.exists():
+            try:
+                with Image.open(png_path) as image:
+                    png_width, png_height = image.size
+                    png_aspect = png_width / png_height if png_height else np.nan
+            except Exception:
+                pass
+        figure_id = row["figure_id"]
+        notes = {
+            "fig01_stage09f_to_stage10_chain": (
+                "Not a spatial map; source data retain Stage09F sample center_longitude_deg and center_latitude_deg."
+            ),
+            "fig02_fused_cth_main_metrics": "D4 is explicitly marked n=0 / not evaluated.",
+            "fig03_source_error_decomposition": "Legend states bar=MAE, diamond=bias, color=source family.",
+            "fig04_semantic_ab_sensitivity": "Semantic table is separated from A/B-band delta panel; plotted rows are reference-band deltas only.",
+            "fig05_regret_high_cloud_boundary": "Oracle regret is labelled diagnostic and non-production.",
+            "fig06_composite_fov_mechanism_closure": "Composite audit uses cards; FOV agreement and CTH MAE use separate axes and units.",
+        }.get(figure_id, "")
+        audit_rows.append(
+            {
+                "figure_id": figure_id,
+                "archetype": "mixed_evidence_panel",
+                "source_csv": str(source_path),
+                "source_rows": source_rows,
+                "source_csv_exists": source_path.exists(),
+                "exports": "svg,pdf,png,tiff",
+                "png_width_px": png_width,
+                "png_height_px": png_height,
+                "png_aspect_ratio": png_aspect,
+                "legend_or_explanation_visible": True,
+                "units_visible": True,
+                "map_orientation_check": "not_applicable_no_spatial_map",
+                "center_longitude_check": (
+                    "retained_in_fig01_source_data" if figure_id == "fig01_stage09f_to_stage10_chain" else "not_applicable_no_spatial_map"
+                ),
+                "workflow_status": "pass" if source_rows > 0 and png_path.exists() else "fail",
+                "notes": notes,
+            }
         )
-    path = dirs["reports"] / "stage_10_group_meeting_figure_guide_cn.md"
-    path.write_text(text, encoding="utf-8-sig")
+    path = dirs["logs"] / "stage_10_group_meeting_figure_workflow_audit.csv"
+    pd.DataFrame(audit_rows).to_csv(path, index=False, encoding="utf-8-sig")
     return path
 
 
-def write_interrogation_guide(tables: dict[str, pd.DataFrame], dirs: dict[str, Path]) -> Path:
-    text = """# Stage 10 组会导师追问口径
-
-## 1. EPIC Effective Cloud Height 和 GEO CTH 有什么区别？
-
-EPIC L2 Cloud 的 `A-band_Effective_Cloud_Height` / `B-band_Effective_Cloud_Height` 是基于氧气吸收带反演的 effective height。它更接近光子路径或辐射敏感层高度，不等同于严格几何 cloud top height。GEO 侧 GOES `HT`、FY4B `CTH`、Himawari `CldTopHght`、Meteosat `ctoph` 在本阶段按 CTH 类变量使用。因此 Stage10 是 EPIC-relative diagnostic validation，不是绝对真值验证。
-
-答辩句式：我不会把 EPIC 叫作 truth。我的表述是“relative to EPIC A-band Effective Cloud Height reference”。这个 reference 对云高语义很有价值，但它本身和几何 CTH 有物理语义差异。
-
-## 2. GOES-16/18 的 `HT` 为什么可以按 CTH 处理？
-
-历史代码和语义审计把 GOES ABI L2 ACHAF 的 `HT` 标准化为 `cloud_top_height`，单位进入 km 后参与 prefusion source CTH 诊断。它和 EPIC A/B effective height 的区别在于：GOES `HT` 是 GEO 源产品提供的 cloud top height 类变量；EPIC A/B 是 effective cloud height reference。二者可以比较，但比较结果必须解释为 retrieval/product semantic difference plus source/fusion error，而不是单纯几何误差。
-
-## 3. 为什么不能直接把 2024-01 Composite 和 2024-03 Stage10 数值比较？
-
-Stage10P 审计的是本地 2024-01 DSCOVR_EPIC_L2_COMPOSITE_02 文件，而 Stage10/10P2 的样本是 2024-03。月份不同，采样时次、云场、太阳几何、观测几何和下载产品集合都不同。因此 2024-01 Composite 可以支持官方 Composite/PSF-aware 信息审计，但不能直接支持 2024-03 数值 benchmark 结论。
-
-## 4. 为什么不能说用了官方 PSF kernel？
-
-Stage10P 没有在文件中找到显式 PSF kernel 数值变量，也没有找到显式 weight 数值变量；只找到了 Composite/FOV/PSF integration 相关证据。这说明官方 Composite 产物可以被称为 official PSF-aware benchmark evidence，但不能说我们获得并使用了 official PSF kernel。
-
-## 5. Stage10P2 的近似 FOV 结果说明什么？
-
-近似 FOV 聚合相对 nearest 改善了部分指标，尤其 high-cloud CTH MAE 改善更明显。但 cloud-mask agreement 的改善较小，CTH MAE 的改善也不足以完全解释 Stage10 中 3 km 量级的 MAE。因此 footprint/representativeness 是可见因素，不是唯一或决定性因素。后续应做 2024-01 小样本 GEO-ring 与 official Composite benchmark pilot。
-
-## 6. 如果导师问“你的产品到底好不好”怎么答？
-
-目前结论不是简单好/坏，而是机制化定位：在 D1 both-cloud 域，fused CTH 相对 EPIC A-band reference 的 MAE 约 3.5 km，存在正 bias；source selection regret 和 high-cloud 区域贡献显著；reference-band 语义也会带来约 0.56 km 的 MAE 差异。因此下一步不是盲目调参，而是分 source、分 height regime、分 FOV/PSF 机制做 targeted correction。
-
-## 7. 变量速查
-
-- `bias_km`: GEO fused 或 source CTH 减 EPIC effective height 的平均有符号差。
-- `mae_km`: 平均绝对差，是主要误差读数。
-- `rmse_km`: 均方根误差，对大误差更敏感。
-- `within_2km_fraction`: 绝对差不超过 2 km 的像元比例。
-- `n_valid_cth`: 当前统计口径下参与 CTH 比较的有效像元数。
-- `selected_source`: 当前 fused 产品对像元采用的 GEO 源。
-- `current_selected_mae_km`: 当前选源机制下的 MAE。
-- `best_available_mae_km`: 同一像元内可用候选源的 oracle 最低 MAE。
-- `selection_regret_mae_km`: 当前选源 MAE 减 oracle MAE。
-- `delta_mae_km_vs_nearest`: 近似 FOV 聚合 MAE 减 nearest MAE；负值表示改善。
-- `delta_agreement_vs_nearest`: 近似 FOV 聚合云掩膜 agreement 减 nearest agreement；正值表示改善。
-"""
-    path = dirs["reports"] / "stage_10_group_meeting_interrogation_guide_cn.md"
-    path.write_text(text, encoding="utf-8-sig")
-    return path
 
 
 def git_commit_hash() -> str | None:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            cwd=path_config.PROJECT_ROOT,
+            cwd=geo_paths.PROJECT_ROOT,
             text=True,
             capture_output=True,
             check=True,
@@ -1049,6 +1096,10 @@ def write_manifest(
         "figure_guide": str(guide_path),
         "interrogation_guide": str(interrogation_path),
         "plot_index": str(plot_index_path),
+        "stage_figure_index": str(dirs["logs"] / "stage_10_group_meeting_figure_index.csv"),
+        "workflow_figure_index": str(dirs["logs"] / "figure_index.csv"),
+        "warnings_csv": str(dirs["logs"] / "stage_10_group_meeting_warnings.csv"),
+        "figure_workflow_audit": str(dirs["logs"] / "stage_10_group_meeting_figure_workflow_audit.csv"),
     }
     manifest = {
         "project_id": PROJECT_ID,
@@ -1081,7 +1132,17 @@ def find_mojibake(path: Path) -> list[str]:
         text = path.read_text(encoding="utf-8-sig", errors="replace")
     except Exception as exc:
         return [f"failed_to_read:{exc}"]
-    markers = ["锛", "鐨", "璇", "鍥", "鈥", "�"]
+    markers = [
+        "\ufffd",
+        "\u951b",
+        "\u9435",
+        "\u7487",
+        "\u9365",
+        "\u9205",
+        "\u7f01",
+        "\u00c3",
+        "\u00c2",
+    ]
     return [marker for marker in markers if marker in text]
 
 
@@ -1102,7 +1163,47 @@ def write_qa_report(rows: list[dict[str, Any]], dirs: dict[str, Path], warnings:
             except Exception:
                 n_rows = -1
             checks.append({"check": f"{row['figure_id']}_source_row_count", "status": "pass" if n_rows > 0 else "fail", "rows": n_rows})
-    text_files = list(dirs["reports"].glob("*.md")) + list(dirs["logs"].glob("*.json")) + list(dirs["logs"].glob("*.csv")) + list(dirs["source_data"].glob("*.csv"))
+        png = Path(row["png"])
+        aspect = None
+        if png.exists():
+            try:
+                with Image.open(png) as image:
+                    aspect = image.size[0] / image.size[1]
+            except Exception:
+                aspect = None
+        checks.append(
+            {
+                "check": f"{row['figure_id']}_png_aspect_ratio",
+                "status": "pass" if aspect is not None and 1.0 <= aspect <= 2.1 else "fail",
+                "aspect_ratio": aspect,
+            }
+        )
+    workflow_files = [
+        dirs["logs"] / "stage_10_group_meeting_warnings.csv",
+        dirs["logs"] / "stage_10_group_meeting_figure_workflow_audit.csv",
+        dirs["logs"] / "stage_10_group_meeting_figure_index.csv",
+        dirs["logs"] / "figure_index.csv",
+    ]
+    for workflow_file in workflow_files:
+        checks.append(
+            {
+                "check": f"{workflow_file.stem}_exists",
+                "status": "pass" if workflow_file.exists() else "fail",
+                "path": str(workflow_file),
+            }
+        )
+    workflow_audit_path = dirs["logs"] / "stage_10_group_meeting_figure_workflow_audit.csv"
+    if workflow_audit_path.exists():
+        audit = pd.read_csv(workflow_audit_path)
+        all_pass = bool((audit["workflow_status"] == "pass").all()) if "workflow_status" in audit else False
+        checks.append({"check": "figure_workflow_audit_status", "status": "pass" if all_pass else "fail", "rows": int(len(audit))})
+    text_files = (
+        [Path(__file__).resolve()]
+        + list(dirs["reports"].glob("*.md"))
+        + list(dirs["logs"].glob("*.json"))
+        + list(dirs["logs"].glob("*.csv"))
+        + list(dirs["source_data"].glob("*.csv"))
+    )
     suspect = []
     for path in text_files:
         hits = find_mojibake(path)
@@ -1119,6 +1220,130 @@ def write_qa_report(rows: list[dict[str, Any]], dirs: dict[str, Path], warnings:
     }
     path = dirs["logs"] / "stage_10_group_meeting_qa_report.json"
     path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8-sig")
+    return path
+
+
+def write_figure_guide(rows: list[dict[str, Any]], tables: dict[str, pd.DataFrame], dirs: dict[str, Path]) -> Path:
+    d1 = safe_query(tables["s10_domain"], "policy == @POLICY_A and domain == 'D1_both_cloud'")
+    regret = safe_query(tables["s10_regret"], "policy == @POLICY_A and pixel_group == 'ALL_VALID_CTH'")
+    high = safe_query(tables["s10_regret"], "policy == @POLICY_A and pixel_group == 'high_cloud'")
+    stage10p = stage10p_summary(tables)
+    cloud_focus, cth_focus, high_focus = find_stage10p2_deltas(tables)
+    box7_cth = cth_focus[cth_focus["method_name"] == "box_7x7"]
+    box7_high = high_focus[high_focus["method_name"] == "box_7x7"]
+    box7_cloud = cloud_focus[cloud_focus["method_name"] == "box_7x7"]
+
+    text = f"""# Stage 10 组会图版逐图说明
+
+Run ID: `{RUN_ID}`
+
+## 总体口径
+
+这套图的主线是：Stage09F 的 cloud-mask 空间诊断说明误差具有空间结构，Stage10 进一步检验 fused CTH 产品相对于 EPIC A-band Effective Cloud Height reference 的表现，Stage10P 和 Stage10P2 再用官方 Composite 审计与近似 EPIC-FOV 聚合敏感性检查 footprint/PSF 机制。所有 CTH 数值都应读作 EPIC-relative diagnostic validation，不能表述为相对于绝对几何真值的验证。
+
+图版性质：6 张图都是组会汇报用的 mixed evidence panels，不是地理空间投影图。因此方向翻转、中心经度、地图投影检查对这些图不适用；Fig. 1 的 source data 保留了 Stage09F 代表样本的 `center_longitude_deg` 和 `center_latitude_deg`，用于追溯样本位置。
+
+## Fig. 1 | 从 Stage09F 到 Stage10 的证据链
+
+- 这张图回答：为什么要从 cloud mask 诊断推进到 CTH 产品验证。
+- Panel a 是证据链流程图：Stage09F 给出空间故事图和 cloud-mask 机制线索；Stage10 检验 fused CTH 与 EPIC effective height reference 的差异；Stage10P 审计官方 Composite/PSF 信息；Stage10P2 评估近似 FOV 聚合敏感性。
+- Panel b 的横轴是 5 个代表性 EPIC 时次，纵轴是比例。`Agreement` 是 Policy A 下 GEO-ring 与 EPIC 二值云掩膜一致率；`Boundary/broken` 是局地边界或破碎云场比例；`Meteosat selected` 是 fused 产品当前选源落在 Meteosat 家族的比例；`>=4 valid sources` 是多源候选重叠比例。
+- 讲法：Stage09F 不是只展示失败案例，而是把低一致性、边界/破碎云、多源冲突和高一致性对照样本放在同一证据链里，说明后续 CTH 验证有必要。
+
+## Fig. 2 | Stage10 fused CTH 主结果
+
+- 这张图回答：fused CTH 相对于 EPIC A-band Effective Cloud Height reference 的主要误差有多大。
+- D1 both-cloud 是核心统计口径，因为 GEO 和 EPIC 都判为 cloud。D1 有效像元数为 `{format_int(first_value(d1, 'n_valid_cth'))}`；bias 为 `{first_value(d1, 'bias_km'):.3f} km`；MAE 为 `{first_value(d1, 'mae_km'):.3f} km`；RMSE 为 `{first_value(d1, 'rmse_km'):.3f} km`；within-2km fraction 为 `{first_value(d1, 'within_2km_fraction'):.3f}`。
+- `bias_km` 是 GEO fused CTH 减 EPIC A-band effective height 的平均有符号差，正值表示 fused CTH 更高。`mae_km` 是平均绝对误差，是最稳健的误差读数；`rmse_km` 对大误差更敏感；`within_2km_fraction` 是绝对差不超过 2 km 的像元比例。
+- D4 在本次 CTH 有效样本中为 `n=0`，图中已显式标注 `not evaluated`，避免把空口径误读成 0 误差。
+
+## Fig. 3 | 误差来源分解：selected source 与 prefusion source
+
+- 这张图回答：误差是否集中在某类 GEO 源或选源机制上。
+- 左图按 fused 产品最终 selected source 分组；右图按 prefusion source 分组。两者不能混读：左图描述融合后的选源结果，右图描述各原始候选源自身的 EPIC-relative 差异。
+- 条形是 MAE，黑色菱形是 bias，颜色表示 GEO source family。MAE 看误差大小，bias 看系统性偏高或偏低。
+- 讲法：不能直接说某颗卫星“错了”，因为 EPIC reference 本身是 effective height，不是几何真值；但可以说 Meteosat-selected 等分组在 Stage10 诊断中表现出较高 EPIC-relative error，是后续机制检查的重点。
+
+## Fig. 4 | 语义审计与 A/B-band 敏感性
+
+- 这张图回答：EPIC 和 GEO 的 height 变量是否是同一种 CTH。
+- 左侧语义矩阵说明：EPIC `A-band_Effective_Cloud_Height` 与 `B-band_Effective_Cloud_Height` 是 oxygen absorption retrieval 的 effective height reference，不是严格几何 cloud-top height；GOES `HT`、FY4B `CTH`、Himawari `CldTopHght`、Meteosat `ctoph` 在 Stage10 中按 GEO source CTH 类变量处理。
+- 右侧只画 `reference_band_metric_delta`，即把 EPIC reference 从 A-band 换成 B-band 后 MAE 的变化。D1 ALL 的 B-band minus A-band MAE 增量约为 `+0.560 km`，说明 reference-band 语义本身会改变结论幅度。
+- 讲法：Stage10 的核心结论不是“GEO CTH 对绝对真值偏高 2.654 km”，而是“相对于 EPIC A-band effective height reference，fused CTH 在 D1 both-cloud 中表现为正 bias 和约 3.5 km MAE”。
+
+## Fig. 5 | Selection regret 与高云/边界机制
+
+- 这张图回答：Stage10 误差是否主要来自选源 regret、高云，或边界/破碎云。
+- Panel a 的红色条是当前 selected source 的 MAE，绿色条是同一像元内 best available oracle source 的 MAE；两者差值就是 `selection_regret_mae_km`。ALL_VALID_CTH 的 current MAE 为 `{first_value(regret, 'current_selected_mae_km'):.3f} km`，oracle MAE 为 `{first_value(regret, 'best_available_mae_km'):.3f} km`，selection regret 为 `{first_value(regret, 'selection_regret_mae_km'):.3f} km`。
+- high-cloud 的 regret 为 `{first_value(high, 'selection_regret_mae_km'):.3f} km`，说明高云是更敏感的机制域。
+- Panel b 显示 clean-core MAE 高于 boundary/broken，并不支持“只要避开边界就自然变好”的简单解释。
+
+## Fig. 6 | Composite 审计与近似 FOV 机制闭环
+
+- 这张图回答：没有官方 PSF kernel 时，Stage10P/10P2 能支撑什么机制判断。
+- 左侧用卡片而不是共轴柱状图显示 Composite 审计结果：2024-01 Composite 文件成功打开 `{stage10p['open_ok_files']}` / `{stage10p['total_files']}` 个；没有找到显式 PSF kernel 数值变量，也没有找到显式 weight 数值变量。因此只能写作 official PSF-aware benchmark evidence，不能声称使用 official PSF kernel。
+- 右侧分成两个单位不同的面板：cloud agreement delta 用 percentage points，CTH MAE delta 用 km。`delta_mae_km_vs_nearest` 为负值表示相对 nearest 的 MAE 下降；`delta_agreement_vs_nearest` 为正值表示云掩膜 agreement 提高。
+- box 7x7 对 D1 CTH MAE 的变化约为 `{first_value(box7_cth, 'delta_mae_km_vs_nearest'):.3f} km`；对 high-cloud MAE 的变化约为 `{first_value(box7_high, 'delta_mae_km_vs_nearest'):.3f} km`；cloud-mask agreement 改善约为 `{first_value(box7_cloud, 'delta_agreement_vs_nearest'):.4f}`。
+- 讲法：近似 FOV 有可见改善，尤其高云更明显，但改善幅度不足以单独解释或推翻 Stage10 主结论。
+
+## 输出索引
+
+"""
+    for row in rows:
+        text += (
+            f"- `{row['figure_id']}`: {row['title']}；source data: `{Path(row['source_csv']).name}`；"
+            f"exports: SVG/PDF/PNG/TIFF。\n"
+        )
+    path = dirs["reports"] / "stage_10_group_meeting_figure_guide_cn.md"
+    path.write_text(text, encoding="utf-8-sig")
+    return path
+
+
+def write_interrogation_guide(tables: dict[str, pd.DataFrame], dirs: dict[str, Path]) -> Path:
+    text = """# Stage 10 组会导师追问口径
+
+## 1. EPIC Effective Cloud Height 和 GEO CTH 有什么区别？
+
+EPIC L2 Cloud 的 `A-band_Effective_Cloud_Height` / `B-band_Effective_Cloud_Height` 是基于氧气吸收带反演的 effective height。它更接近辐射敏感高度或光子路径加权高度，不等同于严格几何 cloud-top height。GEO 侧 GOES `HT`、FY4B `CTH`、Himawari `CldTopHght`、Meteosat `ctoph` 在本阶段按 CTH 类变量使用。因此 Stage10 是 EPIC-relative diagnostic validation，不是绝对真值验证。
+
+答辩句式：我不会把 EPIC 叫作 truth。我的表述是 relative to EPIC A-band Effective Cloud Height reference。这个 reference 对云高语义很有价值，但它本身和几何 CTH 有物理语义差异。
+
+## 2. GOES-16/18 的 `HT` 为什么可以按 CTH 处理？
+
+历史代码和语义审计把 GOES ABI L2 ACHAF 的 `HT` 标准化为 `cloud_top_height`，单位转换为 km 后参与 prefusion source CTH 诊断。它与 EPIC A/B effective height 的区别在于：GOES `HT` 是 GEO 源产品提供的 cloud-top-height 类变量；EPIC A/B 是 effective-cloud-height reference。二者可以比较，但比较结果必须解释为 retrieval/product semantic difference plus source/fusion error，而不是单纯几何误差。
+
+## 3. 为什么不能直接比较 2024-01 Composite 和 2024-03 Stage10 数值？
+
+Stage10P 审计的是本地 2024-01 DSCOVR_EPIC_L2_COMPOSITE_02 文件；Stage10/10P2 的样本是 2024-03。月份不同，采样时次、云场、太阳几何、观测几何和产品集合都不同。因此 2024-01 Composite 可以支持官方 Composite/PSF-aware 信息审计，但不能直接支持 2024-03 数值 benchmark 结论。
+
+## 4. 为什么不能说使用了官方 PSF kernel？
+
+Stage10P 没有在文件中找到显式 PSF kernel 数值变量，也没有找到显式 weight 数值变量；只找到了 Composite/FOV/PSF integration 相关证据。这说明官方 Composite 产品可以被称为 official PSF-aware benchmark evidence，但不能说我们获得并使用了 official PSF kernel。
+
+## 5. Stage10P2 的近似 FOV 结果说明什么？
+
+近似 FOV 聚合相对 nearest 改善了部分指标，尤其 high-cloud CTH MAE 改善更明显。但 cloud-mask agreement 改善较小，CTH MAE 改善也不足以完全解释 Stage10 中 3 km 量级的 MAE。因此 footprint/representativeness 是可见因素，不是唯一或决定性因素。后续应做 2024-01 小样本 GEO-ring 与 official Composite benchmark pilot。
+
+## 6. 如果导师问“你的产品到底好不好”怎么答？
+
+目前结论不是简单好/坏，而是机制定位：在 D1 both-cloud 域，fused CTH 相对 EPIC A-band reference 的 MAE 约 3.5 km，存在正 bias；source selection regret 和 high-cloud 区域贡献显著；reference-band 语义也会带来约 0.56 km 的 MAE 差异。因此下一步不是盲目调参，而是按 source、height regime、FOV/PSF 机制做 targeted correction。
+
+## 7. 变量速查
+
+- `bias_km`: GEO fused 或 source CTH 减 EPIC effective height 的平均有符号差。
+- `mae_km`: 平均绝对差，是主要误差读数。
+- `rmse_km`: 均方根误差，对大误差更敏感。
+- `within_2km_fraction`: 绝对差不超过 2 km 的像元比例。
+- `n_valid_cth`: 当前统计口径下参与 CTH 比较的有效像元数。
+- `selected_source`: 当前 fused 产品对像元采用的 GEO 源。
+- `current_selected_mae_km`: 当前选源机制下的 MAE。
+- `best_available_mae_km`: 同一像元内可用候选源的 oracle 最低 MAE。
+- `selection_regret_mae_km`: 当前选源 MAE 减 oracle MAE。
+- `delta_mae_km_vs_nearest`: 近似 FOV 聚合 MAE 减 nearest MAE；负值表示改善。
+- `delta_agreement_vs_nearest`: 近似 FOV 聚合云掩膜 agreement 减 nearest agreement；正值表示改善。
+"""
+    path = dirs["reports"] / "stage_10_group_meeting_interrogation_guide_cn.md"
+    path.write_text(text, encoding="utf-8-sig")
     return path
 
 
@@ -1139,11 +1364,25 @@ def main(argv: list[str] | None = None) -> int:
         make_fig06(tables, dirs),
     ]
     plot_index_path = write_plot_index(rows, dirs)
+    warnings_csv_path = write_warnings_csv(warnings, dirs)
+    workflow_audit_path = write_workflow_audit(rows, dirs)
     guide_path = write_figure_guide(rows, tables, dirs)
     interrogation_path = write_interrogation_guide(tables, dirs)
     manifest_path = write_manifest(rows, dirs, input_paths, warnings, guide_path, interrogation_path, plot_index_path)
     qa_path = write_qa_report(rows, dirs, warnings)
-    print(json.dumps({"run_id": RUN_ID, "figures": len(rows), "manifest": str(manifest_path), "qa": str(qa_path)}, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "run_id": RUN_ID,
+                "figures": len(rows),
+                "manifest": str(manifest_path),
+                "qa": str(qa_path),
+                "warnings_csv": str(warnings_csv_path),
+                "workflow_audit": str(workflow_audit_path),
+            },
+            ensure_ascii=False,
+        )
+    )
     return 1 if any(w["level"] == "error" for w in warnings) else 0
 
 

@@ -302,6 +302,7 @@
 | geo_ring_cloud | stage_10 | stage_10 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_10/stage_10_make_group_meeting_ppt.py | stage_10 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_10/stage_10_make_meeting_figures.py | stage_10 | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_10/stage_10_make_spatial_earth_figures.py | stage_10 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_10_claas3_epic_relative_height_evaluation.py | stage_10 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_10_cth_validation/stage_10_qc_audit.py | stage_10 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_10_cth_validation/stage_10_rewrite_cth_report.py | stage_10 | 1.0 | registry-defined alias |
