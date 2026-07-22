@@ -1111,6 +1111,18 @@ STAGE_SCOPED_DATA_PRODUCT_AUDITS = [
         "output_root": str(ROOT / "geo_ring_cloud_stage1_time_runs/stage_10p_psf_inventory_202401"),
         "notes": "Primary role is data_product_audit; related to Stage 10 validation but not a production pipeline transform",
     },
+    {
+        "audit_id": "stage_09g_20240310_meteosat_rotation_diagnostic",
+        "primary_path": str(ROOT / "third_report/code/geo_ring_cloud_stage1/stage_09g_orientation_root_cause_audit/stage_09g_run_20240310_meteosat_rotation_diagnostic.py"),
+        "canonical_stage_id": "stage_09g",
+        "related_stage_ids": "stage_09d,stage_09f,stage_09g",
+        "data_domain": "Meteosat-0deg / DSCOVR EPIC",
+        "product_family": "Meteosat source-level CLM and EPIC L2 cloud mask",
+        "audit_scope": "20240310_1200 source-level mask/navigation 180-degree transform diagnostic before and after EPIC-view sampling",
+        "status": "active",
+        "output_root": str(ROOT / "geo_ring_cloud_stage1_time_runs/stage_09g_orientation_root_cause_audit_202403"),
+        "notes": "Read-only diagnostic; EPIC is an independent reference, not absolute truth; no fusion production logic is modified",
+    },
 ]
 
 

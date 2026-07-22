@@ -303,6 +303,7 @@
 | geo_ring_cloud | stage_09f | stage_09f | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09f_spatial_story_maps/stage_09f_make_spatial_story_maps.py | stage_09f | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09g | stage_09g | 1.0 | registry-defined alias |
+| geo_ring_cloud | stage_09g_orientation_root_cause_audit/stage_09g_run_20240310_meteosat_rotation_diagnostic.py | stage_09g | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_09g_orientation_root_cause_audit/stage_09g_run_orientation_root_cause_audit.py | stage_09g | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_10 | stage_10 | 1.0 | registry-defined alias |
 | geo_ring_cloud | stage_10/stage_10_make_group_meeting_ppt.py | stage_10 | 1.0 | registry-defined alias |

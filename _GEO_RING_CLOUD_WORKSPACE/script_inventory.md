@@ -119,6 +119,7 @@
 | stage_09e_psf_sel_qc/stage_09e_make_nature_meeting_figures.py | geo_ring_cloud | stage_09e |  | 09e | 当前文件系统扫描补充脚本；推断阶段 09e |  |
 | stage_09e_psf_sel_qc/stage_09e_run_psf_sel_qc.py | geo_ring_cloud | stage_09e |  | 09e | 当前文件系统扫描补充脚本；推断阶段 09e |  |
 | stage_09f_spatial_story_maps/stage_09f_make_spatial_story_maps.py | geo_ring_cloud | stage_09f |  | 09f | 当前文件系统扫描补充脚本；推断阶段 09f |  |
+| stage_09g_orientation_root_cause_audit/stage_09g_run_20240310_meteosat_rotation_diagnostic.py | geo_ring_cloud | stage_09g |  | 09g | 当前文件系统扫描补充脚本；推断阶段 09g |  |
 | stage_09g_orientation_root_cause_audit/stage_09g_run_orientation_root_cause_audit.py | geo_ring_cloud | stage_09g |  | 09g | 当前文件系统扫描补充脚本；推断阶段 09g |  |
 | stage_10/stage_10_make_group_meeting_ppt.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
 | stage_10/stage_10_make_meeting_figures.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
