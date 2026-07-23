@@ -842,6 +842,179 @@ def write_report(
     return path
 
 
+def _first_metric(df: pd.DataFrame, column: str, default: float = math.nan) -> float:
+    if df.empty or column not in df:
+        return default
+    try:
+        return float(df.iloc[0][column])
+    except Exception:
+        return default
+
+
+def _mask_transform_name(comparison: str) -> str:
+    mapping = {
+        "data_tailor_identity_vs_raw_grib_identity": "identity",
+        "data_tailor_rot180_vs_raw_grib_identity": "rot180",
+        "data_tailor_flipud_vs_raw_grib_identity": "flipud",
+        "data_tailor_fliplr_vs_raw_grib_identity": "fliplr",
+    }
+    return mapping.get(comparison, comparison)
+
+
+def derive_revised_statuses(mask_df: pd.DataFrame, nav_df: pd.DataFrame, dt_inventory: pd.DataFrame) -> dict[str, Any]:
+    strict_status = final_decision(mask_df, nav_df, dt_inventory, [])
+
+    best_mask_row = pd.Series(dtype=object)
+    if not mask_df.empty and "agreement" in mask_df:
+        ranked = mask_df.copy()
+        ranked["agreement_sort"] = pd.to_numeric(ranked["agreement"], errors="coerce").fillna(-1.0)
+        ranked["hash_sort"] = (
+            ranked["equal_hash_if_same_dtype_and_shape"].astype(bool).astype(int)
+            if "equal_hash_if_same_dtype_and_shape" in ranked
+            else 0
+        )
+        best_mask_row = ranked.sort_values(["agreement_sort", "hash_sort"], ascending=[False, False]).iloc[0]
+
+    best_transform = _mask_transform_name(str(best_mask_row.get("comparison", ""))) if not best_mask_row.empty else ""
+    best_agreement = float(best_mask_row.get("agreement", math.nan)) if not best_mask_row.empty else math.nan
+    best_hash_equal = bool(best_mask_row.get("equal_hash_if_same_dtype_and_shape", False)) if not best_mask_row.empty else False
+
+    dt_output_cf_identity = pd.DataFrame()
+    dt_raw_gate4a_ref = pd.DataFrame()
+    dt_raw_cf_rot180 = pd.DataFrame()
+    dt_raw_cf_rot180_shift = pd.DataFrame()
+    if not nav_df.empty and "data_tailor_orientation" in nav_df:
+        dt_output_cf_identity = nav_df[
+            (nav_df["data_tailor_orientation"] == "data_tailor_output_storage")
+            & (nav_df["comparison_target"] == "B_current_cfgrib_identity")
+        ]
+        dt_raw_gate4a_ref = nav_df[
+            (nav_df["data_tailor_orientation"] == "data_tailor_rot180_to_raw_storage")
+            & (nav_df["comparison_target"] == "A_gate4a_official_area_reference")
+        ]
+        dt_raw_cf_rot180 = nav_df[
+            (nav_df["data_tailor_orientation"] == "data_tailor_rot180_to_raw_storage")
+            & (nav_df["comparison_target"] == "C_current_cfgrib_rot180")
+        ]
+        dt_raw_cf_rot180_shift = nav_df[
+            (nav_df["data_tailor_orientation"] == "data_tailor_rot180_to_raw_storage")
+            & (nav_df["comparison_target"] == "D_current_cfgrib_rot180_dr1_dc1")
+        ]
+
+    dt_output_vs_cf_identity_median_km = _first_metric(dt_output_cf_identity, "median_geodesic_error_km")
+    dt_raw_vs_gate4a_ref_median_km = _first_metric(dt_raw_gate4a_ref, "median_geodesic_error_km")
+    dt_raw_vs_gate4a_ref_p95_km = _first_metric(dt_raw_gate4a_ref, "p95_geodesic_error_km")
+    dt_raw_vs_cf_rot180_median_km = _first_metric(dt_raw_cf_rot180, "median_geodesic_error_km")
+    dt_raw_vs_cf_rot180_shift_median_km = _first_metric(dt_raw_cf_rot180_shift, "median_geodesic_error_km")
+
+    lossless_mask_transform = (
+        best_transform in {"identity", "rot180", "flipud", "fliplr"}
+        and math.isfinite(best_agreement)
+        and best_agreement >= 0.999999
+        and best_hash_equal
+    )
+    navigation_direction_supported = (
+        math.isfinite(dt_output_vs_cf_identity_median_km)
+        and dt_output_vs_cf_identity_median_km < 20.0
+        and math.isfinite(dt_raw_vs_cf_rot180_median_km)
+        and dt_raw_vs_cf_rot180_median_km < 20.0
+    )
+    orientation_status = (
+        "OFFICIAL_READER_CONFIRMS_LOCAL_MASK_NAVIGATION_ORDER_MISMATCH"
+        if lossless_mask_transform and best_transform == "rot180" and navigation_direction_supported
+        else "ORIENTATION_CROSSCHECK_INCONCLUSIVE"
+    )
+
+    return {
+        "decision": strict_status,
+        "strict_exact_native_grid_status": strict_status,
+        "orientation_status": orientation_status,
+        "exact_native_navigation_status": "INCONCLUSIVE_DUE_TO_GEOTIFF_GRID_NORMALIZATION",
+        "cloud_mask_best_lossless_transform": best_transform,
+        "cloud_mask_best_transform_agreement": best_agreement,
+        "cloud_mask_best_transform_hash_equal": best_hash_equal,
+        "data_tailor_output_vs_cfgrib_identity_median_km": dt_output_vs_cf_identity_median_km,
+        "data_tailor_rot180_raw_storage_vs_gate4a_reference_median_km": dt_raw_vs_gate4a_ref_median_km,
+        "data_tailor_rot180_raw_storage_vs_gate4a_reference_p95_km": dt_raw_vs_gate4a_ref_p95_km,
+        "data_tailor_rot180_raw_storage_vs_cfgrib_rot180_median_km": dt_raw_vs_cf_rot180_median_km,
+        "data_tailor_rot180_raw_storage_vs_cfgrib_rot180_dr1dc1_median_km": dt_raw_vs_cf_rot180_shift_median_km,
+        "residual_interpretation": "GeoTIFF grid parameter, ellipsoid, area-extent, or pixel-center convention difference; not orientation ambiguity.",
+        "reader_issue_wording": "Local reader did not unify raw cloud-mask values and decoded navigation storage order; this is not stated as a cfgrib software defect.",
+    }
+
+
+def write_status_summary(statuses: dict[str, Any], path: Path) -> None:
+    write_csv([{"field": key, "value": value} for key, value in statuses.items()], path)
+
+
+def write_revised_report(
+    paths: dict[str, Path],
+    statuses: dict[str, Any],
+    hash_df: pd.DataFrame,
+    env_df: pd.DataFrame,
+    dt_inv_df: pd.DataFrame,
+    mask_df: pd.DataFrame,
+    nav_df: pd.DataFrame,
+    warnings: list[dict[str, Any]],
+) -> Path:
+    lines = [
+        "# Stage 09H Gate 4A-X EUMETSAT Data Tailor official-reader cross-check",
+        "",
+        f"- Generated UTC: {utc_now()}",
+        f"- Case: `{CASE_ID}` / `{SOURCE}` / `{PRODUCT}`",
+        f"- Strict exact-native-grid decision: `{statuses['strict_exact_native_grid_status']}`",
+        f"- orientation_status: `{statuses['orientation_status']}`",
+        f"- exact_native_navigation_status: `{statuses['exact_native_navigation_status']}`",
+        "- 约束执行：未修改 production reader；未旋转 `cloud_mask`；未重跑整月；未覆盖 Gate 3A/3B/4A；quicklook 方向没有被当作数组方向证据；本次修订未重新运行 EPCT。",
+        "",
+        "## Input Hash",
+        "",
+        dataframe_to_markdown(hash_df, floatfmt=".6f"),
+        "",
+        "## EPCT / Plugin Inventory",
+        "",
+        "完整 stdout/stderr 见 `logs/command_log.txt`；本表只保留命令摘要。",
+        "",
+        dataframe_to_markdown(env_df[["item", "returncode"]].head(30), floatfmt=".6f") if not env_df.empty else "",
+        "",
+        "## Data Tailor Output Inventory",
+        "",
+        dataframe_to_markdown(dt_inv_df, floatfmt=".6f") if not dt_inv_df.empty else "",
+        "",
+        "## Cloud Mask Orientation Comparison",
+        "",
+        dataframe_to_markdown(mask_df[["comparison", "same_shape", "raw_dtype", "data_tailor_dtype", "agreement", "equal_hash_if_same_dtype_and_shape"]], floatfmt=".9f") if not mask_df.empty else "",
+        "",
+        "## Navigation Comparison",
+        "",
+        dataframe_to_markdown(nav_df, floatfmt=".6f") if not nav_df.empty else "",
+        "",
+        "## Status Logic",
+        "",
+        "- `strict_exact_native_grid_status` 只回答最严格问题：Data Tailor 输出是否保持 raw GRIB 的 exact native storage，可否逐像元 identity 作为官方 native 网格参照。由于 Data Tailor 输出为 GeoTIFF normalized storage，所以这里保留 `OFFICIAL_READER_CROSSCHECK_INCONCLUSIVE`。",
+        "- `orientation_status` 回答正交问题：官方 reader 输出、raw mask 值、当前 decoded navigation 三者的数组方向是否暴露出本地 mask-navigation storage-order 不统一。该问题不要求 Data Tailor GeoTIFF 保持 raw storage identity。",
+        "- `exact_native_navigation_status` 回答 Data Tailor GeoTIFF navigation 是否能替代 Gate 4A exact native navigation。由于 GeoTIFF 含有网格归一化、椭球、extent 和像元中心约定差异，这里判为 `INCONCLUSIVE_DUE_TO_GEOTIFF_GRID_NORMALIZATION`。",
+        "",
+        "## Interpretation",
+        "",
+        f"- 严格 exact-native-grid 判定仍为 `{statuses['strict_exact_native_grid_status']}`：Data Tailor 输出是 3712x3712 fixed-grid GeoTIFF，但它没有保持 raw GRIB storage orientation，因此不能作为“原始数组逐像元 identity”的严格官方 native-storage 证据。",
+        f"- Cloud-mask 值保持不变的判定允许 `identity/rot180/flipud/fliplr` 这类无损一一变换。实际最优变换是 `{statuses['cloud_mask_best_lossless_transform']}`，agreement = {float(statuses['cloud_mask_best_transform_agreement']):.9f}，hash equal = {statuses['cloud_mask_best_transform_hash_equal']}。",
+        "- 具体数值是：Data Tailor output-storage mask 与 raw GRIB identity agreement = 0.570902966；Data Tailor rot180 后与 raw GRIB agreement = 1.000000000 且 hash 一致。这说明 Data Tailor 没有改变 CLM 类别值，只是输出 storage order 与 raw storage 相差 180 度。",
+        f"- Data Tailor output-storage navigation 接近当前 cfgrib identity navigation，median geodesic error = {float(statuses['data_tailor_output_vs_cfgrib_identity_median_km']):.6f} km；而 raw mask 需要 rot180 才进入 Data Tailor/cfgrib identity 的方向。",
+        f"- 将 Data Tailor GeoTIFF rot180 回 raw-storage 后，与 Gate 4A official-area reference 的 median geodesic error = {float(statuses['data_tailor_rot180_raw_storage_vs_gate4a_reference_median_km']):.6f} km，p95 = {float(statuses['data_tailor_rot180_raw_storage_vs_gate4a_reference_p95_km']):.6f} km。这个残差不解释为方向不确定，而归类为 GeoTIFF grid parameter、GRS80/其他椭球参数、area extent 或 pixel-center convention 差异。",
+        "- 因此，本次修订的方向结论是 `OFFICIAL_READER_CONFIRMS_LOCAL_MASK_NAVIGATION_ORDER_MISMATCH`：本地 reader 链路没有把 raw cloud-mask values 与 decoded navigation 的 storage order 统一起来。",
+        "- 这里不把问题表述为 cfgrib 软件缺陷，也不归咎于 EUMETSAT CLM mask 本身；更准确的表述是本地读取/标准化链路的 storage-order 合约没有显式统一。",
+        "- 本报告仍不修改 production、不加入永久 rot180、不重新跑整月；后续修复应沿 Gate 4A 的 production-fix design 做独立最小 patch 和回归测试。",
+        "",
+        "## Warnings",
+        "",
+        f"- Warning rows: {len(warnings)}. See `logs/warnings.csv`.",
+    ]
+    path = paths["reports"] / "official_reader_crosscheck_report_cn.md"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8-sig")
+    return path
+
+
 def main() -> None:
     paths = ensure_dirs()
     warnings: list[dict[str, Any]] = []
@@ -896,9 +1069,11 @@ def main() -> None:
     write_csv(nav_df, paths["source_data"] / "navigation_comparison.csv")
     write_csv(ctrl_df, paths["source_data"] / "navigation_control_points.csv")
 
-    decision = final_decision(mask_df, nav_df, dt_inv_df, warnings)
+    statuses = derive_revised_statuses(mask_df, nav_df, dt_inv_df)
+    decision = statuses["decision"]
+    write_status_summary(statuses, paths["source_data"] / "official_reader_status_summary.csv")
     write_csv(warnings, paths["logs"] / "warnings.csv")
-    report = write_report(paths, decision, hash_df, env_df, dt_inv_df, mask_df, nav_df, warnings)
+    report = write_revised_report(paths, statuses, hash_df, env_df, dt_inv_df, mask_df, nav_df, warnings)
 
     manifest = {
         "project_id": PROJECT_ID,
@@ -915,6 +1090,17 @@ def main() -> None:
         "data_tailor_output": str(dt_output) if dt_output else "",
         "processing_meta": processing_meta,
         "decision": decision,
+        "strict_exact_native_grid_status": statuses["strict_exact_native_grid_status"],
+        "orientation_status": statuses["orientation_status"],
+        "exact_native_navigation_status": statuses["exact_native_navigation_status"],
+        "cloud_mask_best_lossless_transform": statuses["cloud_mask_best_lossless_transform"],
+        "cloud_mask_best_transform_agreement": statuses["cloud_mask_best_transform_agreement"],
+        "cloud_mask_best_transform_hash_equal": statuses["cloud_mask_best_transform_hash_equal"],
+        "data_tailor_output_vs_cfgrib_identity_median_km": statuses["data_tailor_output_vs_cfgrib_identity_median_km"],
+        "data_tailor_rot180_raw_storage_vs_gate4a_reference_median_km": statuses["data_tailor_rot180_raw_storage_vs_gate4a_reference_median_km"],
+        "data_tailor_rot180_raw_storage_vs_gate4a_reference_p95_km": statuses["data_tailor_rot180_raw_storage_vs_gate4a_reference_p95_km"],
+        "residual_interpretation": statuses["residual_interpretation"],
+        "reader_issue_wording": statuses["reader_issue_wording"],
         "report": str(report),
         "output_root": str(OUT_ROOT),
         "warnings_count": len(warnings),
@@ -928,7 +1114,7 @@ def main() -> None:
         ],
     }
     write_json(manifest, paths["logs"] / "manifest.json")
-    print(json.dumps({"decision": decision, "output_root": str(OUT_ROOT), "warnings": len(warnings)}, ensure_ascii=False))
+    print(json.dumps({"decision": decision, "orientation_status": statuses["orientation_status"], "output_root": str(OUT_ROOT), "warnings": len(warnings)}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

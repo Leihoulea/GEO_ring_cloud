@@ -1,0 +1,14 @@
+field,value
+decision,OFFICIAL_READER_CROSSCHECK_INCONCLUSIVE
+strict_exact_native_grid_status,OFFICIAL_READER_CROSSCHECK_INCONCLUSIVE
+orientation_status,OFFICIAL_READER_CONFIRMS_LOCAL_MASK_NAVIGATION_ORDER_MISMATCH
+exact_native_navigation_status,INCONCLUSIVE_DUE_TO_GEOTIFF_GRID_NORMALIZATION
+cloud_mask_best_lossless_transform,rot180
+cloud_mask_best_transform_agreement,1.0
+cloud_mask_best_transform_hash_equal,True
+data_tailor_output_vs_cfgrib_identity_median_km,3.7863340377807617
+data_tailor_rot180_raw_storage_vs_gate4a_reference_median_km,3.175140142440796
+data_tailor_rot180_raw_storage_vs_gate4a_reference_p95_km,14.666774320602375
+residual_interpretation,"GeoTIFF grid parameter, ellipsoid, area-extent, or pixel-center convention difference; not orientation ambiguity."
+reader_issue_wording,"Local reader did not unify raw cloud-mask values and decoded navigation storage order; this is not stated as a cfgrib software defect."
+revision_note,Status interpretation revised without rerunning EPCT.

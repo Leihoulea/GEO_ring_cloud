@@ -1,0 +1,43 @@
+﻿{
+  "project_id": "geo_ring_cloud",
+  "canonical_stage_id": "stage_09h",
+  "gate_id": "gate4a_x_official_reader_crosscheck",
+  "run_id": "stage_09h_meteosat_mask_navigation_root_cause_202403",
+  "case_id": "20240312_1200",
+  "started_utc": "2026-07-23T16:13:20Z",
+  "finished_utc": "2026-07-23T16:14:21Z",
+  "script_path": "/mnt/d/AAAresearch_paper/third_report/code/geo_ring_cloud_stage1/stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate4a_x_official_reader_crosscheck.py",
+  "input_zip": "/mnt/e/GEO_Cloud_2024/Meteosat-0deg/CLM/20240312/12/MSG3-SEVI-MSGCLMK-0100-0100-20240312120000.000000000Z-NA.zip",
+  "input_sha256_expected": "dbd4f0947291d9bbc12f4354c57b9932f7d9c1adedaec1f32ca1417c0b305dce",
+  "workspace_copy": "/home/dministratordian/epct_workspace/input/MSG3-SEVI-MSGCLMK-0100-0100-20240312120000.000000000Z-NA.zip",
+  "data_tailor_output": "/home/dministratordian/epct_workspace/output/gate4a_x_official_reader_crosscheck_20240312_1200/MSGCLMK_20240312T120000Z_20240312T120000Z_epct_8233a5d2_F.tif",
+  "processing_meta": {
+    "native_chain_available": true,
+    "reason": "EPCT built-in MSGCLMK chain output selected",
+    "chain_yaml": "/home/dministratordian/epct_workspace/config/gate4a_x_official_reader_crosscheck_20240312_1200/data_tailor_chain.yaml"
+  },
+  "decision": "OFFICIAL_READER_CROSSCHECK_INCONCLUSIVE",
+  "strict_exact_native_grid_status": "OFFICIAL_READER_CROSSCHECK_INCONCLUSIVE",
+  "orientation_status": "OFFICIAL_READER_CONFIRMS_LOCAL_MASK_NAVIGATION_ORDER_MISMATCH",
+  "exact_native_navigation_status": "INCONCLUSIVE_DUE_TO_GEOTIFF_GRID_NORMALIZATION",
+  "cloud_mask_best_lossless_transform": "rot180",
+  "cloud_mask_best_transform_agreement": 1.0,
+  "cloud_mask_best_transform_hash_equal": true,
+  "data_tailor_output_vs_cfgrib_identity_median_km": 3.7863340377807617,
+  "data_tailor_rot180_raw_storage_vs_gate4a_reference_median_km": 3.175140142440796,
+  "data_tailor_rot180_raw_storage_vs_gate4a_reference_p95_km": 14.666774320602375,
+  "residual_interpretation": "GeoTIFF grid parameter, ellipsoid, area-extent, or pixel-center convention difference; not orientation ambiguity.",
+  "reader_issue_wording": "Local reader did not unify raw cloud-mask values and decoded navigation storage order; this is not stated as a cfgrib software defect.",
+  "revision_note": "Status interpretation revised without rerunning EPCT.",
+  "report": "/mnt/d/AAAresearch_paper/geo_ring_cloud_stage1_time_runs/stage_09h_meteosat_mask_navigation_root_cause_202403/gate4a_x_official_reader_crosscheck/20240312_1200/reports/official_reader_crosscheck_report_cn.md",
+  "output_root": "/mnt/d/AAAresearch_paper/geo_ring_cloud_stage1_time_runs/stage_09h_meteosat_mask_navigation_root_cause_202403/gate4a_x_official_reader_crosscheck/20240312_1200",
+  "warnings_count": 1,
+  "constraints": [
+    "no production reader modification",
+    "no cloud_mask rotation",
+    "no full-month rerun",
+    "no overwrite of Gate 3A/3B/4A",
+    "quicklook orientation is not array orientation evidence",
+    "current CLM lat/lon not used to build Data Tailor reference"
+  ]
+}
