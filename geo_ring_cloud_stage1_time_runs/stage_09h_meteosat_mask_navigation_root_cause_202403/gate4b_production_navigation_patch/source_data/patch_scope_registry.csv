@@ -1,0 +1,2 @@
+﻿case_id,source_file,scope_guard_expected,scope_guard_result,navigation_schema_version,source_variable_latitude,source_variable_longitude,status
+20240312_1500,E:\GEO_Cloud_2024\Meteosat-0deg\CLM\20240312\15\MSG3-SEVI-MSGCLMK-0100-0100-20240312150000.000000000Z-NA.zip,True,True,meteosat_0deg_clm_v2,stage09h_verified_seviri_native_area,stage09h_verified_seviri_native_area,PASS

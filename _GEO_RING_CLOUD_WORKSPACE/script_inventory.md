@@ -36,6 +36,7 @@
 | geo_ring_cloud/adapters/claas3.py | geo_ring_cloud |  | product_adapter |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/adapters/cloud_products.py | geo_ring_cloud |  | product_adapter |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/adapters/epic.py | geo_ring_cloud |  | product_adapter |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud/adapters/meteosat_native_navigation.py | geo_ring_cloud |  | product_adapter_navigation |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/quicklooks.py | geo_ring_cloud |  | quicklook_renderer |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/reprojection.py | geo_ring_cloud |  | reprojection |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/run_discovery.py | geo_ring_cloud |  | run_discovery |  | 当前文件系统扫描补充脚本 |  |
@@ -50,6 +51,7 @@
 | stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate3b_navigation_direct_confirmation.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate4a_navigation_exact_mapping_fix_design.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate4a_x_official_reader_crosscheck.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
+| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate4b_production_navigation_patch.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3_integration.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud_time_run_prune_failed.py | geo_ring_cloud |  | time_run_pruning |  | 当前文件系统扫描补充脚本 |  |

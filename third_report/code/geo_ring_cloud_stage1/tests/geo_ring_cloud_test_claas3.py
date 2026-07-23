@@ -37,7 +37,53 @@ def test_directory(name: str):
 
 from geo_ring_cloud.adapters.claas3 import discover_files, parse_filename, read_product, select_for_time  # noqa: E402
 from geo_ring_cloud.adapters.epic import read_epic_cth  # noqa: E402
+from geo_ring_cloud.adapters.meteosat_native_navigation import (  # noqa: E402
+    METEOSAT_0DEG_CLM_GRID_SPEC,
+    NAVIGATION_SCHEMA_VERSION,
+    build_meteosat_0deg_clm_raw_navigation,
+    matches_meteosat_0deg_clm_scope,
+)
 from geo_ring_cloud.run_discovery import discover_run_dirs, resolve_run_dir  # noqa: E402
+
+
+class MeteosatNativeNavigationTests(unittest.TestCase):
+    def test_scope_guard_is_strict_to_audited_msg3_0deg_clm(self) -> None:
+        good = Path(
+            "Meteosat-0deg/CLM/20240312/15/"
+            "MSG3-SEVI-MSGCLMK-0100-0100-20240312150000.000000000Z-NA.zip"
+        )
+        self.assertTrue(
+            matches_meteosat_0deg_clm_scope(
+                good,
+                "CLM",
+                METEOSAT_0DEG_CLM_GRID_SPEC.shape,
+                {"GRIB_subSatellitePointLongitudeInDegrees": 0.0},
+            )
+        )
+        self.assertFalse(matches_meteosat_0deg_clm_scope(good, "CTH", METEOSAT_0DEG_CLM_GRID_SPEC.shape))
+        self.assertFalse(
+            matches_meteosat_0deg_clm_scope(
+                str(good).replace("Meteosat-0deg", "Meteosat-IODC"),
+                "CLM",
+                METEOSAT_0DEG_CLM_GRID_SPEC.shape,
+            )
+        )
+        self.assertFalse(matches_meteosat_0deg_clm_scope(good, "CLM", (1237, 1237)))
+
+    def test_navigation_matches_gate4a_storage_order_controls(self) -> None:
+        lat, lon, meta = build_meteosat_0deg_clm_raw_navigation()
+        self.assertEqual(lat.shape, METEOSAT_0DEG_CLM_GRID_SPEC.shape)
+        self.assertEqual(lon.shape, METEOSAT_0DEG_CLM_GRID_SPEC.shape)
+        self.assertEqual(meta["navigation_schema_version"], NAVIGATION_SCHEMA_VERSION)
+        self.assertEqual(meta["mask_transform"], "identity")
+        self.assertEqual(meta["navigation_row_order"], "south_to_north")
+        self.assertEqual(meta["navigation_column_order"], "east_to_west")
+        self.assertLess(float(lat[100, 1855]), -60.0)
+        self.assertGreater(float(lat[-101, 1855]), 60.0)
+        self.assertGreater(float(lon[1855, 100]), 60.0)
+        self.assertLess(float(lon[1855, -101]), -60.0)
+        self.assertAlmostEqual(float(lat[1855, 1855]), 0.0, places=3)
+        self.assertAlmostEqual(float(lon[1855, 1855]), 0.0, places=3)
 from geo_ring_cloud.sources import SOURCE_ID_MAP, tie_order, variable_rules  # noqa: E402
 from geo_ring_cloud_time_run_matrix import REQUIRED_PROFILE_ARTIFACTS, profile_artifacts_complete  # noqa: E402
 from geo_ring_cloud_experiment_profile_pair import (  # noqa: E402

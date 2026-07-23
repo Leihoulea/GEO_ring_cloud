@@ -1,0 +1,8 @@
+﻿status_name,status,detail
+MASK_PRESERVATION,PASS,patched cloud_mask equals legacy raw cfgrib values byte-for-byte
+SCOPE_GUARD,PASS,patch applies only to audited Meteosat-0deg CLM files
+NATIVE_NAVIGATION_REFERENCE,PASS,patched control points match frozen Gate 3B/4A references; legacy remains a negative control
+LEGACY_NAV_NEGATIVE_TEST,PASS,legacy cfgrib identity navigation is still grossly inconsistent with raw-storage reference
+DETERMINISTIC_OUTPUT,PASS,grid spec hash is stable and embedded
+CACHE_INVALIDATION,PASS,new schema version meteosat_0deg_clm_v2 is present for cache keys
+EPIC_DOWNSTREAM_RECOVERY,PASS,patched production EPIC metrics reproduce Gate 4A official-area baseline

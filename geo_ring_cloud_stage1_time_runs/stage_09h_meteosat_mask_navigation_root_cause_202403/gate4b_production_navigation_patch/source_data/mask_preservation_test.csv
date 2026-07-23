@@ -1,0 +1,2 @@
+﻿case_id,source_file,mask_shape,legacy_mask_hash,patched_mask_hash,array_equal,hash_equal,mask_transform,status
+20240312_1500,E:\GEO_Cloud_2024\Meteosat-0deg\CLM\20240312\15\MSG3-SEVI-MSGCLMK-0100-0100-20240312150000.000000000Z-NA.zip,"(3712, 3712)",0bc3ff081e69fa4c4687330a93710e9be89fde6ee95be7c3c05fa9fe0925c972,0bc3ff081e69fa4c4687330a93710e9be89fde6ee95be7c3c05fa9fe0925c972,True,True,identity,PASS

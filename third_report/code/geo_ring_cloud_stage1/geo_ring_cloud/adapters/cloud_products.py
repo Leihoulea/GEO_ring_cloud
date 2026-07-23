@@ -17,6 +17,11 @@ import yaml
 from ..cloud_semantics import add_valid_and_quality
 from ..paths import HIMAWARI_R21_DIR
 from ..pipeline_layout import MAPPING_YAML, STAGE_ROOT
+from .meteosat_native_navigation import (
+    NAVIGATION_SCHEMA_VERSION,
+    build_meteosat_0deg_clm_raw_navigation,
+    matches_meteosat_0deg_clm_scope,
+)
 
 
 COMPONENT_ROLE = "product_adapter"
@@ -466,6 +471,21 @@ def read_meteosat_zip(path: Path, product: str, mapping: dict[str, dict[str, lis
                 if "longitude" not in arrays and "longitude" in ds.coords:
                     arrays["longitude"] = reshape_square_if_needed(np.array(ds["longitude"].values, dtype=np.float32, copy=True))
                     source_variables["longitude"] = "longitude"
+                if "cloud_mask" in arrays and matches_meteosat_0deg_clm_scope(path, product, tuple(np.asarray(arrays["cloud_mask"]).shape), attrs["cfgrib_attrs"]):
+                    cf_lat_shape = tuple(np.asarray(arrays.get("latitude", np.asarray([]))).shape)
+                    cf_lon_shape = tuple(np.asarray(arrays.get("longitude", np.asarray([]))).shape)
+                    lat, lon, nav_meta = build_meteosat_0deg_clm_raw_navigation(tuple(np.asarray(arrays["cloud_mask"]).shape))
+                    arrays["latitude"] = np.array(lat, dtype=np.float32, copy=True)
+                    arrays["longitude"] = np.array(lon, dtype=np.float32, copy=True)
+                    attrs.update(nav_meta)
+                    attrs["reader"] = "zip+cfgrib_cached_extract+stage09h_verified_meteosat_navigation"
+                    attrs["legacy_cfgrib_latitude_shape"] = cf_lat_shape
+                    attrs["legacy_cfgrib_longitude_shape"] = cf_lon_shape
+                    attrs["navigation_patch_scope"] = "Meteosat-0deg CLM MSG3-SEVI-MSGCLMK-0100-0100 3712x3712"
+                    attrs["navigation_patch_final_status_required"] = "PRODUCTION_NAVIGATION_PATCH_VALIDATED"
+                    source_variables["latitude"] = "stage09h_verified_seviri_native_area"
+                    source_variables["longitude"] = "stage09h_verified_seviri_native_area"
+                    warnings.append(f"applied {NAVIGATION_SCHEMA_VERSION} verified Meteosat-0deg CLM navigation; cloud_mask unchanged")
             finally:
                 ds.close()
                 del ds

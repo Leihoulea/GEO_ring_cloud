@@ -1,0 +1,3 @@
+﻿comparison,n_valid,latitude_mae_deg,longitude_circular_mae_deg,median_geodesic_error_km,p95_geodesic_error_km,within_1km_fraction,within_5km_fraction,within_10km_fraction,case_id
+20240312_1500:patched_vs_gate4a_grid_spec,10280821,0.0,0.0,0.0,0.0,1.0,1.0,1.0,20240312_1500
+20240312_1500:legacy_vs_gate4a_grid_spec,10280821,47.7638053894043,55.115291595458984,8664.13671875,15266.8642578125,9.72684963584134e-08,9.72684963584134e-08,8.754164672257206e-07,20240312_1500

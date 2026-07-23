@@ -1,0 +1,2 @@
+﻿timestamp_utc,stage_id,gate_id,severity,warning_code,message
+2026-07-23T17:34:12Z,stage_09h,gate4b_production_navigation_patch,WARN,optional_epic_case_unavailable,20240312_1200 not present in Stage 09D manifest; skipped

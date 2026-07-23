@@ -1,0 +1,2 @@
+﻿case_id,patched_agreement,gate4a_agreement,agreement_abs_delta,patched_mcc,gate4a_mcc,mcc_abs_delta,agreement_tolerance,mcc_tolerance,status
+20240312_1500,0.8016499781644607,0.8016470022817581,2.9758827025938572e-06,0.5963703941483969,0.596364240718307,6.153430089916867e-06,1e-05,1e-05,PASS

@@ -1,0 +1,54 @@
+﻿{
+  "project_id": "geo_ring_cloud",
+  "canonical_stage_id": "stage_09h",
+  "gate_id": "gate4b_production_navigation_patch",
+  "generated_utc": "2026-07-23T17:34:52Z",
+  "cases": [
+    "20240312_1500"
+  ],
+  "navigation_schema_version": "meteosat_0deg_clm_v2",
+  "navigation_grid_spec_sha256": "a6ab231a6b9e985839f7bb50f2f2240d5d84a22f42890cae1cce132f50d1b395",
+  "final_status": "PRODUCTION_NAVIGATION_PATCH_VALIDATED",
+  "statuses": [
+    {
+      "status_name": "MASK_PRESERVATION",
+      "status": "PASS",
+      "detail": "patched cloud_mask equals legacy raw cfgrib values byte-for-byte"
+    },
+    {
+      "status_name": "SCOPE_GUARD",
+      "status": "PASS",
+      "detail": "patch applies only to audited Meteosat-0deg CLM files"
+    },
+    {
+      "status_name": "NATIVE_NAVIGATION_REFERENCE",
+      "status": "PASS",
+      "detail": "patched control points match frozen Gate 3B/4A references; legacy remains a negative control"
+    },
+    {
+      "status_name": "LEGACY_NAV_NEGATIVE_TEST",
+      "status": "PASS",
+      "detail": "legacy cfgrib identity navigation is still grossly inconsistent with raw-storage reference"
+    },
+    {
+      "status_name": "DETERMINISTIC_OUTPUT",
+      "status": "PASS",
+      "detail": "grid spec hash is stable and embedded"
+    },
+    {
+      "status_name": "CACHE_INVALIDATION",
+      "status": "PASS",
+      "detail": "new schema version meteosat_0deg_clm_v2 is present for cache keys"
+    },
+    {
+      "status_name": "EPIC_DOWNSTREAM_RECOVERY",
+      "status": "PASS",
+      "detail": "patched production EPIC metrics reproduce Gate 4A official-area baseline"
+    }
+  ],
+  "inputs": {
+    "stage09d_manifest_dir": "D:\\AAAresearch_paper\\geo_ring_cloud_stage1_time_runs\\stage09d_full_pixel_diagnostics_202403",
+    "gate4a_source_data": "D:\\AAAresearch_paper\\geo_ring_cloud_stage1_time_runs\\stage_09h_meteosat_mask_navigation_root_cause_202403\\source_data",
+    "clm_root": "E:\\GEO_Cloud_2024\\Meteosat-0deg\\CLM\\20240312"
+  }
+}
