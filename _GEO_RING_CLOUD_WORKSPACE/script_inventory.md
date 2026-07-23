@@ -49,6 +49,7 @@
 | stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate3a_l15_clm_mask_side.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate3b_navigation_direct_confirmation.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate4a_navigation_exact_mapping_fix_design.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
+| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate4a_x_official_reader_crosscheck.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3_integration.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud_time_run_prune_failed.py | geo_ring_cloud |  | time_run_pruning |  | 当前文件系统扫描补充脚本 |  |
