@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import gc
 import hashlib
+import functools
+import json
 import math
+import os
 import re
+import shutil
+import subprocess
+import sys
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime
@@ -25,6 +31,18 @@ from .meteosat_native_navigation import (
 
 
 COMPONENT_ROLE = "product_adapter"
+
+IODC_CLM_NAVIGATION_SCHEMA_VERSION = "meteosat_iodc_clm_satpy_v1"
+IODC_CLM_READER_BACKEND = "satpy_seviri_l2_grib"
+IODC_CLM_NAVIGATION_SOURCE = "satpy_area_definition"
+IODC_CLM_MASK_TRANSFORM = "identity"
+IODC_CLM_AREA_ID = "msg_seviri_iodc_3km"
+IODC_CLM_SUBSATELLITE_LONGITUDE = 45.5
+IODC_CLM_SHAPE = (3712, 3712)
+IODC_CLM_AREA_TOLERANCE_DEG = 1e-3
+IODC_CLM_FILENAME_RE = re.compile(r"^MSG2-SEVI-MSGCLMK-0100-0100-\d{14}\.\d+Z-NA\.zip$", re.IGNORECASE)
+
+_DLL_DIRECTORY_HANDLES: list[Any] = []
 
 STANDARD_VARS = [
     "cloud_mask",
@@ -340,6 +358,259 @@ def mask_sentinel_values(arr: np.ndarray) -> np.ndarray:
     return out
 
 
+
+def _json_sha256(payload: dict[str, Any]) -> str:
+    text = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _to_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if math.isfinite(out) else None
+
+
+def _setup_eccodes_runtime(extract_cache: Path, warnings: list[str]) -> None:
+    """Expose ecCodes DLLs for direct interpreter runs on Windows."""
+    if os.name != "nt":
+        return
+    conda_bin = Path(sys.prefix) / "Library" / "bin"
+    if not conda_bin.exists():
+        return
+    try:
+        handle = os.add_dll_directory(str(conda_bin))
+        _DLL_DIRECTORY_HANDLES.append(handle)
+    except (AttributeError, OSError) as exc:
+        warnings.append(f"ecCodes DLL directory registration skipped: {exc}")
+    source = conda_bin / "eccodes.dll"
+    if not source.exists():
+        return
+    dll_cache = extract_cache / "dll"
+    dll_cache.mkdir(parents=True, exist_ok=True)
+    target = dll_cache / "libeccodes.dll"
+    try:
+        if not target.exists() or target.stat().st_size != source.stat().st_size:
+            shutil.copy2(source, target)
+        os.environ.setdefault("ECCODES_PYTHON_USE_FINDLIBS", "1")
+        handle = os.add_dll_directory(str(dll_cache))
+        _DLL_DIRECTORY_HANDLES.append(handle)
+    except (AttributeError, OSError, shutil.Error) as exc:
+        warnings.append(f"ecCodes compatibility DLL setup skipped: {exc}")
+
+
+def _area_metadata(area: Any) -> dict[str, Any]:
+    proj_dict = dict(getattr(area, "proj_dict", {}) or {})
+    area_extent = tuple(float(x) for x in getattr(area, "area_extent", ()))
+    width = int(getattr(area, "width", 0))
+    height = int(getattr(area, "height", 0))
+    payload = {
+        "area_id": str(getattr(area, "area_id", "")),
+        "description": str(getattr(area, "description", "")),
+        "proj_id": str(getattr(area, "proj_id", "")),
+        "shape": [height, width],
+        "proj_dict": proj_dict,
+        "area_extent_m": list(area_extent),
+    }
+    return {
+        **payload,
+        "lon_0": _to_float(proj_dict.get("lon_0")),
+        "grid_spec_sha256": _json_sha256(payload),
+    }
+
+
+class IodcSatpyEnvironmentNotReady(RuntimeError):
+    """Raised when the verified IODC CLM Satpy reader stack is unavailable."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"IODC_SATPY_ENVIRONMENT_NOT_READY: {reason}")
+
+
+class IodcSatpyAreaInvalid(RuntimeError):
+    """Raised when Satpy does not expose the verified IODC CLM AreaDefinition."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"IODC_SATPY_AREA_INVALID: {reason}")
+
+
+def _path_contains_part(path: str | Path, name: str) -> bool:
+    lowered = name.lower()
+    return any(str(part).lower() == lowered for part in Path(path).parts)
+
+
+def is_meteosat_iodc_clm_path(path: str | Path, product: str) -> bool:
+    return _path_contains_part(path, "Meteosat-IODC") and product.upper() == "CLM"
+
+
+def matches_meteosat_iodc_clm_candidate_scope(path: str | Path, product: str) -> tuple[bool, str]:
+    if product.upper() != "CLM":
+        return False, "product_is_not_clm"
+    if not _path_contains_part(path, "Meteosat-IODC"):
+        return False, "path_does_not_contain_meteosat_iodc"
+    if not IODC_CLM_FILENAME_RE.match(Path(path).name):
+        return False, "filename_is_not_msg2_msgclmk_0100_0100"
+    return True, "candidate_msg2_iodc_clm"
+
+
+def validate_meteosat_iodc_clm_area(area_meta: dict[str, Any] | None) -> tuple[bool, str]:
+    if not area_meta:
+        return False, "missing_satpy_area_metadata"
+    area_id = str(area_meta.get("area_id", ""))
+    if area_id != IODC_CLM_AREA_ID:
+        return False, f"area_id_is_{area_id}"
+    area_shape = tuple(area_meta.get("shape", ()))
+    if area_shape != IODC_CLM_SHAPE:
+        return False, f"area_shape_is_{area_shape}"
+    lon0 = _to_float(area_meta.get("lon_0"))
+    if lon0 is None:
+        return False, "missing_satpy_lon_0"
+    if abs(lon0 - IODC_CLM_SUBSATELLITE_LONGITUDE) > IODC_CLM_AREA_TOLERANCE_DEG:
+        return False, f"satpy_lon_0_is_{lon0}"
+    return True, "matched_msg2_iodc_clm_satpy_area"
+
+
+@functools.lru_cache(maxsize=1)
+def _check_iodc_satpy_environment_cached() -> dict[str, Any]:
+    try:
+        import eccodes  # noqa: F401
+    except Exception as exc:
+        raise IodcSatpyEnvironmentNotReady(f"import eccodes failed: {exc}") from exc
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "eccodes", "selfcheck"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=60,
+        )
+    except Exception as exc:
+        raise IodcSatpyEnvironmentNotReady(f"eccodes selfcheck failed to run: {exc}") from exc
+    if proc.returncode != 0:
+        message = (proc.stderr or proc.stdout or "").strip()
+        raise IodcSatpyEnvironmentNotReady(f"eccodes selfcheck failed: {message}")
+    try:
+        import satpy
+        from satpy import available_readers
+    except Exception as exc:
+        raise IodcSatpyEnvironmentNotReady(f"import satpy failed: {exc}") from exc
+    try:
+        readers = set(available_readers())
+    except Exception as exc:
+        raise IodcSatpyEnvironmentNotReady(f"satpy available_readers failed: {exc}") from exc
+    if "seviri_l2_grib" not in readers:
+        raise IodcSatpyEnvironmentNotReady("seviri_l2_grib missing from satpy available_readers")
+    return {
+        "satpy_version": getattr(satpy, "__version__", ""),
+        "eccodes_selfcheck": (proc.stdout or "").strip(),
+        "seviri_l2_grib_available": True,
+    }
+
+
+def _check_iodc_satpy_environment(extract_cache: Path, warnings: list[str]) -> dict[str, Any]:
+    _setup_eccodes_runtime(extract_cache, warnings)
+    return _check_iodc_satpy_environment_cached()
+
+
+def _iodc_clm_navigation_metadata(area_meta: dict[str, Any], dataset_attrs: dict[str, Any], env_meta: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "navigation_schema_version": IODC_CLM_NAVIGATION_SCHEMA_VERSION,
+        "reader_backend": IODC_CLM_READER_BACKEND,
+        "navigation_source": IODC_CLM_NAVIGATION_SOURCE,
+        "mask_transform": IODC_CLM_MASK_TRANSFORM,
+        "navigation_area_id": area_meta.get("area_id", ""),
+        "navigation_area_extent_m_json": json.dumps(area_meta.get("area_extent_m", []), default=str),
+        "navigation_proj_dict_json": json.dumps(area_meta.get("proj_dict", {}), sort_keys=True, default=str),
+        "navigation_grid_spec_sha256": area_meta.get("grid_spec_sha256", ""),
+        "navigation_lon_0": area_meta.get("lon_0"),
+        "navigation_shape": "3712x3712",
+        "navigation_platform_name": dataset_attrs.get("platform_name", ""),
+        "navigation_start_time": str(dataset_attrs.get("start_time", "")),
+        "navigation_reader": IODC_CLM_READER_BACKEND,
+        "navigation_patch_scope": "Meteosat-IODC CLM MSG2-SEVI-MSGCLMK-0100-0100 3712x3712 lon_0=45.5",
+        "navigation_validation_gate": "stage_09j",
+        "satpy_version": env_meta.get("satpy_version", ""),
+        "satpy_dataset_name": "cloud_mask",
+        "satpy_area_description": area_meta.get("description", ""),
+    }
+
+
+def read_meteosat_iodc_clm_satpy_zip(path: Path) -> ReadResult:
+    arrays: dict[str, np.ndarray] = {}
+    source_variables: dict[str, str] = {}
+    warnings: list[str] = []
+    attrs: dict[str, Any] = {
+        "source_file": str(path),
+        "reader": f"zip+{IODC_CLM_READER_BACKEND}+{IODC_CLM_NAVIGATION_SCHEMA_VERSION}",
+        "zip_entries": [],
+    }
+    extract_cache = STAGE_ROOT / "cache" / IODC_CLM_NAVIGATION_SCHEMA_VERSION / "meteosat_extract"
+    extract_cache.mkdir(parents=True, exist_ok=True)
+    attrs["extract_cache"] = str(extract_cache)
+    env_meta = _check_iodc_satpy_environment(extract_cache, warnings)
+    from satpy import Scene
+
+    with zipfile.ZipFile(path) as zf:
+        entries = zf.namelist()
+        attrs["zip_entries"] = entries
+        grib_entries = [e for e in entries if e.lower().endswith((".grb", ".grib", ".grb2", ".bin"))]
+        if not grib_entries:
+            raise IodcSatpyEnvironmentNotReady("no GRIB entry found in ZIP")
+        for entry in grib_entries:
+            suffix = Path(entry).suffix or ".grb"
+            cache_key = hashlib.sha1(f"{path.resolve()}|{entry}|{IODC_CLM_NAVIGATION_SCHEMA_VERSION}".encode("utf-8")).hexdigest()
+            entry_name = Path(entry).name or f"{cache_key}{suffix}"
+            extracted_dir = extract_cache / cache_key
+            extracted_dir.mkdir(parents=True, exist_ok=True)
+            extracted = extracted_dir / entry_name
+            payload = zf.read(entry)
+            if not extracted.exists() or extracted.stat().st_size != len(payload):
+                extracted.write_bytes(payload)
+            scene = Scene(filenames=[str(extracted)], reader="seviri_l2_grib")
+            scene.load(["cloud_mask"])
+            dataset = scene["cloud_mask"]
+            mask = reshape_square_if_needed(np.array(dataset.values, copy=True))
+            if tuple(mask.shape) != IODC_CLM_SHAPE:
+                raise IodcSatpyAreaInvalid(f"cloud_mask shape is {tuple(mask.shape)}")
+            area = dataset.attrs.get("area")
+            area_meta = _area_metadata(area) if area is not None else None
+            area_ok, area_reason = validate_meteosat_iodc_clm_area(area_meta)
+            attrs["meteosat_iodc_clm_scope_reason"] = area_reason
+            if not area_ok:
+                raise IodcSatpyAreaInvalid(area_reason)
+            lon, lat = area.get_lonlats()
+            lat = np.asarray(lat, dtype=np.float64)
+            lon = np.asarray(lon, dtype=np.float64)
+            finite_lon = np.isfinite(lon)
+            lon = lon.copy()
+            lon[finite_lon] = ((lon[finite_lon] + 180.0) % 360.0) - 180.0
+            if lat.shape != mask.shape or lon.shape != mask.shape:
+                raise IodcSatpyAreaInvalid(f"area lon/lat shape {lon.shape}/{lat.shape} does not match mask {mask.shape}")
+            valid = np.isfinite(lon) & np.isfinite(lat) & (lat >= -90.0) & (lat <= 90.0)
+            lat = lat.copy()
+            lon = lon.copy()
+            lat[~valid] = np.nan
+            lon[~valid] = np.nan
+            arrays["cloud_mask"] = mask
+            arrays["latitude"] = lat
+            arrays["longitude"] = lon
+            dataset_attrs = attrs_to_dict(dataset.attrs)
+            attrs["attrs_cloud_mask"] = dataset_attrs
+            attrs.update(_iodc_clm_navigation_metadata(area_meta or {}, dataset_attrs, env_meta))
+            source_variables["cloud_mask"] = "satpy:cloud_mask"
+            source_variables["latitude"] = IODC_CLM_NAVIGATION_SOURCE
+            source_variables["longitude"] = IODC_CLM_NAVIGATION_SOURCE
+            warnings.append(
+                f"applied {IODC_CLM_NAVIGATION_SCHEMA_VERSION} Meteosat-IODC CLM Satpy area navigation; "
+                "cloud_mask unchanged"
+            )
+            break
+    add_valid_and_quality(arrays)
+    return ReadResult(arrays=arrays, attrs=attrs, source_variables=source_variables, warnings=warnings)
+
+
 def read_netcdf_product(path: Path, family: str, product: str, mapping: dict[str, dict[str, list[str]]]) -> ReadResult:
     import netCDF4
 
@@ -423,6 +694,11 @@ def read_meteosat_zip(path: Path, product: str, mapping: dict[str, dict[str, lis
     source_variables: dict[str, str] = {}
     warnings: list[str] = []
     attrs: dict[str, Any] = {"source_file": str(path), "reader": "zip+cfgrib_cached_extract", "zip_entries": []}
+    iodc_candidate, iodc_scope_reason = matches_meteosat_iodc_clm_candidate_scope(path, product)
+    if iodc_candidate:
+        return read_meteosat_iodc_clm_satpy_zip(path)
+    if is_meteosat_iodc_clm_path(path, product):
+        warnings.append(f"{IODC_CLM_NAVIGATION_SCHEMA_VERSION} not applied: {iodc_scope_reason}; using legacy reader path")
     key = product_mapping_key("Meteosat", product)
     product_map = mapping.get(key, {})
     try:
@@ -516,12 +792,17 @@ def read_product(path: Path, family: str, product: str, mapping: dict[str, dict[
 
 
 __all__ = [
+    "IODC_CLM_NAVIGATION_SCHEMA_VERSION", "IODC_CLM_READER_BACKEND", "IODC_CLM_NAVIGATION_SOURCE",
+    "IODC_CLM_MASK_TRANSFORM", "IODC_CLM_AREA_ID", "IODC_CLM_SUBSATELLITE_LONGITUDE",
+    "IODC_CLM_SHAPE", "IodcSatpyEnvironmentNotReady", "IodcSatpyAreaInvalid",
     "STANDARD_VARS", "CORE_PRODUCTS", "PRODUCT_MAPPING_KEYS", "UNIT_TARGETS",
     "ReadResult", "normalize_name", "parse_time", "iso_z", "read_mapping",
     "product_mapping_key", "resolve_variable_names",
     "attr_to_python", "attrs_to_dict", "parse_himawari_r21_time",
     "find_himawari_r21_geometry_file", "read_himawari_r21_geometry", "variable_to_array",
     "convert_units", "mask_sentinel_values", "add_valid_and_quality",
+    "is_meteosat_iodc_clm_path", "matches_meteosat_iodc_clm_candidate_scope",
+    "validate_meteosat_iodc_clm_area", "read_meteosat_iodc_clm_satpy_zip",
     "read_netcdf_product", "read_hdf_product", "read_meteosat_zip",
     "reshape_square_if_needed", "read_product",
 ]

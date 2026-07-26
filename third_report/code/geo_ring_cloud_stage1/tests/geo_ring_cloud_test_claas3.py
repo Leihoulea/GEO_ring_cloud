@@ -37,6 +37,14 @@ def test_directory(name: str):
 
 from geo_ring_cloud.adapters.claas3 import discover_files, parse_filename, read_product, select_for_time  # noqa: E402
 from geo_ring_cloud.adapters.epic import read_epic_cth  # noqa: E402
+from geo_ring_cloud.adapters.cloud_products import (  # noqa: E402
+    IODC_CLM_AREA_ID,
+    IODC_CLM_NAVIGATION_SCHEMA_VERSION,
+    IODC_CLM_SHAPE,
+    IODC_CLM_SUBSATELLITE_LONGITUDE,
+    matches_meteosat_iodc_clm_candidate_scope,
+    validate_meteosat_iodc_clm_area,
+)
 from geo_ring_cloud.adapters.meteosat_native_navigation import (  # noqa: E402
     METEOSAT_0DEG_CLM_GRID_SPEC,
     NAVIGATION_SCHEMA_VERSION,
@@ -47,6 +55,41 @@ from geo_ring_cloud.run_discovery import discover_run_dirs, resolve_run_dir  # n
 
 
 class MeteosatNativeNavigationTests(unittest.TestCase):
+    def test_iodc_clm_satpy_scope_guard_is_strict_to_msg2_3712_lon455_area(self) -> None:
+        good = Path(
+            "Meteosat-IODC/CLM/20240306/13/"
+            "MSG2-SEVI-MSGCLMK-0100-0100-20240306130000.000000000Z-NA.zip"
+        )
+        matched, reason = matches_meteosat_iodc_clm_candidate_scope(good, "CLM")
+        self.assertTrue(matched)
+        self.assertEqual(reason, "candidate_msg2_iodc_clm")
+
+        area = {
+            "shape": list(IODC_CLM_SHAPE),
+            "lon_0": IODC_CLM_SUBSATELLITE_LONGITUDE,
+            "area_id": IODC_CLM_AREA_ID,
+        }
+        area_ok, area_reason = validate_meteosat_iodc_clm_area(area)
+        self.assertTrue(area_ok)
+        self.assertEqual(area_reason, "matched_msg2_iodc_clm_satpy_area")
+        self.assertEqual(IODC_CLM_NAVIGATION_SCHEMA_VERSION, "meteosat_iodc_clm_satpy_v1")
+
+        self.assertFalse(matches_meteosat_iodc_clm_candidate_scope(good, "CTH")[0])
+        self.assertFalse(
+            matches_meteosat_iodc_clm_candidate_scope(
+                str(good).replace("Meteosat-IODC", "Meteosat-0deg"),
+                "CLM",
+            )[0]
+        )
+        self.assertFalse(
+            matches_meteosat_iodc_clm_candidate_scope(
+                str(good).replace("MSG2-SEVI-MSGCLMK", "MSG3-SEVI-MSGCLMK"),
+                "CLM",
+            )[0]
+        )
+        self.assertFalse(validate_meteosat_iodc_clm_area({**area, "lon_0": 41.5})[0])
+        self.assertFalse(validate_meteosat_iodc_clm_area({**area, "shape": [1237, 1237]})[0])
+
     def test_scope_guard_is_strict_to_audited_msg3_0deg_clm(self) -> None:
         good = Path(
             "Meteosat-0deg/CLM/20240312/15/"
