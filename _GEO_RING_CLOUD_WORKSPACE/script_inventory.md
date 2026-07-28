@@ -11,7 +11,6 @@
 | geo_ring_cloud_source_registry.py | geo_ring_cloud |  | compatibility_shim | common | Stable source IDs, processing streams, products, profiles, tolerances, and variable rules |  |
 | path_config.py | geo_ring_cloud |  | compatibility_shim | common | Central environment-overridable paths including GEO_RING_CLAAS3_ROOT |  |
 | stage1_common.py | geo_ring_cloud |  | compatibility_shim | 公共 | 已登记 compatibility shim；权威 API 见 geo_ring_cloud.pipeline_support、pipeline_layout、cloud_semantics 和 diagnostics.summary |  |
-| stage_09d_diagnostic_common.py | geo_ring_cloud |  | compatibility_shim | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | geo_ring_cloud/data_asset_audit.py | geo_ring_cloud |  | data_asset_audit |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/diagnostics/epic_pair.py | geo_ring_cloud |  | diagnostics_library |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/diagnostics/full_pixel.py | geo_ring_cloud |  | diagnostics_library |  | 当前文件系统扫描补充脚本 |  |
@@ -45,13 +44,6 @@
 | run_epic_georing_single_sample.py | geo_ring_cloud |  | runner | 运行器 | EPIC Geo-ring 单时次完整运行流水线（BASE=stage1, RUNS=time_runs） |  |
 | geo_ring_cloud/sources.py | geo_ring_cloud |  | source_registry |  | 当前文件系统扫描补充脚本 |  |
 | summarize_time_run_20240319_1500.py | geo_ring_cloud |  | summary_helper | 汇总 | 汇总 20240319_1500 时次运行结果 |  |
-| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate1_20240310_meteosat0deg.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
-| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate2_meteosat0deg_systematicity.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
-| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate3a_l15_clm_mask_side.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
-| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate3b_navigation_direct_confirmation.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
-| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate4a_navigation_exact_mapping_fix_design.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
-| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate4a_x_official_reader_crosscheck.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
-| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate4b_production_navigation_patch.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3_integration.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud_time_run_prune_failed.py | geo_ring_cloud |  | time_run_pruning |  | 当前文件系统扫描补充脚本 |  |
@@ -124,11 +116,20 @@
 | stage09d_interpretation/answer_stage09d_questions.py | geo_ring_cloud | stage_09d | compatibility_entrypoint | 09d | Stage 09d follow-up questions 历史嵌套路径兼容入口 |  |
 | stage09d_interpretation/audit_meteosat_semantics_stage09d.py | geo_ring_cloud | stage_09d | compatibility_entrypoint | 09d | Stage 09d Meteosat audit 历史嵌套路径兼容入口 |  |
 | stage09d_interpretation/build_stage09d_interpretation_package.py | geo_ring_cloud | stage_09d | compatibility_entrypoint | 09d | Stage 09d interpretation builder 历史嵌套路径兼容入口 |  |
+| stage_09d_diagnostic_common.py | geo_ring_cloud | stage_09d | compatibility_shim | 09d | 当前文件系统扫描补充脚本；推断阶段 09d |  |
 | stage_09e_psf_sel_qc/stage_09e_make_nature_meeting_figures.py | geo_ring_cloud | stage_09e |  | 09e | 当前文件系统扫描补充脚本；推断阶段 09e |  |
 | stage_09e_psf_sel_qc/stage_09e_run_psf_sel_qc.py | geo_ring_cloud | stage_09e |  | 09e | 当前文件系统扫描补充脚本；推断阶段 09e |  |
 | stage_09f_spatial_story_maps/stage_09f_make_spatial_story_maps.py | geo_ring_cloud | stage_09f |  | 09f | 当前文件系统扫描补充脚本；推断阶段 09f |  |
 | stage_09g_orientation_root_cause_audit/stage_09g_run_20240310_meteosat_rotation_diagnostic.py | geo_ring_cloud | stage_09g |  | 09g | 当前文件系统扫描补充脚本；推断阶段 09g |  |
 | stage_09g_orientation_root_cause_audit/stage_09g_run_orientation_root_cause_audit.py | geo_ring_cloud | stage_09g |  | 09g | 当前文件系统扫描补充脚本；推断阶段 09g |  |
+| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate1_20240310_meteosat0deg.py | geo_ring_cloud | stage_09h |  | 09h | 当前文件系统扫描补充脚本 |  |
+| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate2_meteosat0deg_systematicity.py | geo_ring_cloud | stage_09h |  | 09h | 当前文件系统扫描补充脚本 |  |
+| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate3a_l15_clm_mask_side.py | geo_ring_cloud | stage_09h |  | 09h | 当前文件系统扫描补充脚本 |  |
+| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate3b_navigation_direct_confirmation.py | geo_ring_cloud | stage_09h |  | 09h | 当前文件系统扫描补充脚本 |  |
+| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate4a_navigation_exact_mapping_fix_design.py | geo_ring_cloud | stage_09h |  | 09h | 当前文件系统扫描补充脚本 |  |
+| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate4a_x_official_reader_crosscheck.py | geo_ring_cloud | stage_09h |  | 09h | 当前文件系统扫描补充脚本 |  |
+| stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate4b_production_navigation_patch.py | geo_ring_cloud | stage_09h |  | 09h | 当前文件系统扫描补充脚本 |  |
+| stage_09j_meteosat_iodc_satpy_production_integration/stage_09j_run_iodc_satpy_production_regression.py | geo_ring_cloud | stage_09j | production_regression | 09j | 当前文件系统扫描补充脚本 |  |
 | stage_10/stage_10_make_group_meeting_ppt.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
 | stage_10/stage_10_make_meeting_figures.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
 | stage_10/stage_10_make_spatial_earth_figures.py | geo_ring_cloud | stage_10 |  | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
@@ -138,3 +139,5 @@
 | stage_10_cth_validation/stage_10_run_cth_validation.py | geo_ring_cloud | stage_10 | compatibility_entrypoint | 10 | 当前文件系统扫描补充脚本；推断阶段 10 |  |
 | stage_10p_composite_inventory.py | geo_ring_cloud | stage_10p | data_product_audit | 10p | 当前文件系统扫描补充脚本；推断阶段 10p |  |
 | stage_10p2_approx_fov_aggregation/run_stage_10p2_approx_fov.py | geo_ring_cloud | stage_10p2 |  | 10p2 | 当前文件系统扫描补充脚本；推断阶段 10p2 |  |
+| stage_10r_meteosat_cth_satpy_navigation_audit/stage_10r_run_meteosat_cth_satpy_navigation_audit.py | geo_ring_cloud | stage_10r | stage_diagnostic | 10r | 当前文件系统扫描补充脚本 |  |
+| stage_10s_meteosat_cth_production_patch/stage_10s_run_meteosat_cth_production_patch.py | geo_ring_cloud | stage_10s | production_patch_validation | 10s | 当前文件系统扫描补充脚本 |  |

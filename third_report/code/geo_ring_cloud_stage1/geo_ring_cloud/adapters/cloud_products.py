@@ -7,8 +7,8 @@ import json
 import math
 import os
 import re
-import shutil
 import subprocess
+import shutil
 import sys
 import zipfile
 from dataclasses import dataclass
@@ -31,6 +31,13 @@ from .meteosat_native_navigation import (
 
 
 COMPONENT_ROLE = "product_adapter"
+
+METEOSAT_CTH_SHAPE = (1237, 1237)
+METEOSAT_CTH_NAVIGATION_SOURCE = "satpy_seviri_l2_grib_cth_area"
+METEOSAT_CTH_NAVIGATION_GRID = "cth_native_1237x1237_9km"
+METEOSAT_0DEG_CTH_NAVIGATION_SCHEMA_VERSION = "meteosat_0deg_cth_v2"
+METEOSAT_IODC_CTH_NAVIGATION_SCHEMA_VERSION = "meteosat_iodc_cth_v2"
+METEOSAT_CTH_AREA_TOLERANCE_DEG = 1e-6
 
 IODC_CLM_NAVIGATION_SCHEMA_VERSION = "meteosat_iodc_clm_satpy_v1"
 IODC_CLM_READER_BACKEND = "satpy_seviri_l2_grib"
@@ -358,6 +365,13 @@ def mask_sentinel_values(arr: np.ndarray) -> np.ndarray:
     return out
 
 
+def normalize_meteosat_longitude_array(lon: np.ndarray) -> np.ndarray:
+    values = np.asarray(lon, dtype=np.float32)
+    out = np.full(values.shape, np.nan, dtype=np.float32)
+    finite = np.isfinite(values)
+    out[finite] = ((values[finite] + 180.0) % 360.0) - 180.0
+    return out
+
 
 def _json_sha256(payload: dict[str, Any]) -> str:
     text = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
@@ -611,6 +625,94 @@ def read_meteosat_iodc_clm_satpy_zip(path: Path) -> ReadResult:
     return ReadResult(arrays=arrays, attrs=attrs, source_variables=source_variables, warnings=warnings)
 
 
+def read_satpy_meteosat_cth_area(
+    extracted: Path,
+    extract_cache: Path,
+    warnings: list[str] | None = None,
+) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+    local_warnings = warnings if warnings is not None else []
+    _setup_eccodes_runtime(extract_cache, local_warnings)
+    from satpy import Scene
+
+    scene = Scene(filenames=[str(extracted)], reader="seviri_l2_grib")
+    scene.load(["cloud_top_height", "cloud_top_quality"])
+    cth = scene["cloud_top_height"]
+    area = cth.attrs.get("area")
+    if area is None:
+        raise RuntimeError("Satpy seviri_l2_grib did not return a CTH AreaDefinition")
+    lon, lat = area.get_lonlats()
+    lat = np.asarray(lat, dtype=np.float32)
+    lon = normalize_meteosat_longitude_array(np.asarray(lon, dtype=np.float32))
+    valid = np.isfinite(lon) & np.isfinite(lat) & (lat >= -90.0) & (lat <= 90.0)
+    lat = lat.copy()
+    lon = lon.copy()
+    lat[~valid] = np.nan
+    lon[~valid] = np.nan
+    meta = _area_metadata(area)
+    meta["satpy_platform_name"] = str(cth.attrs.get("platform_name", scene.attrs.get("platform_name", "")))
+    meta["satpy_start_time"] = str(cth.attrs.get("start_time", scene.attrs.get("start_time", "")))
+    meta["satpy_end_time"] = str(cth.attrs.get("end_time", scene.attrs.get("end_time", "")))
+    return lat, lon, meta
+
+
+def matches_meteosat_cth_scope(
+    path: str | Path,
+    product: str,
+    value_shape: tuple[int, int],
+    quality_shape: tuple[int, int] | None,
+    area_meta: dict[str, Any] | None,
+) -> tuple[bool, str, str]:
+    """Return CTH navigation eligibility, product line, and reason."""
+    p = Path(path)
+    if product.upper() != "CTH":
+        return False, "", "product_is_not_cth"
+    if not re.match(r"^MSG\d*-SEVI-MSGCLTH-0100-0100-\d{14}\.\d+Z-NA\.zip$", p.name):
+        return False, "", "filename_is_not_msgclth_operational_cth"
+    if tuple(value_shape) != METEOSAT_CTH_SHAPE:
+        return False, "", f"value_shape_is_{value_shape}"
+    if quality_shape is not None and tuple(quality_shape) != METEOSAT_CTH_SHAPE:
+        return False, "", f"quality_shape_is_{quality_shape}"
+    if not area_meta:
+        return False, "", "missing_satpy_area_metadata"
+    area_shape = tuple(area_meta.get("shape", ()))
+    if area_shape != METEOSAT_CTH_SHAPE:
+        return False, "", f"satpy_area_shape_is_{area_shape}"
+    lon0 = _to_float(area_meta.get("lon_0"))
+    if lon0 is None:
+        return False, "", "missing_satpy_lon_0"
+    if abs(lon0) <= METEOSAT_CTH_AREA_TOLERANCE_DEG:
+        return True, "Meteosat-0deg", "matched_msgclth_1237_satpy_lon0_0"
+    if 1.0 < abs(lon0) <= 90.0:
+        return True, "Meteosat-IODC", "matched_msgclth_1237_satpy_iodc_lon0"
+    return False, "", f"unsupported_satpy_lon_0_{lon0}"
+
+
+def meteosat_cth_navigation_metadata(product_line: str, area_meta: dict[str, Any]) -> dict[str, Any]:
+    lon0 = _to_float(area_meta.get("lon_0"))
+    schema = (
+        METEOSAT_0DEG_CTH_NAVIGATION_SCHEMA_VERSION
+        if product_line == "Meteosat-0deg"
+        else METEOSAT_IODC_CTH_NAVIGATION_SCHEMA_VERSION
+    )
+    return {
+        "navigation_schema_version": schema,
+        "navigation_source": METEOSAT_CTH_NAVIGATION_SOURCE,
+        "navigation_grid": METEOSAT_CTH_NAVIGATION_GRID,
+        "navigation_grid_spec_sha256": area_meta.get("grid_spec_sha256", ""),
+        "navigation_area_id": area_meta.get("area_id", ""),
+        "navigation_area_extent_m_json": json.dumps(area_meta.get("area_extent_m", []), default=str),
+        "navigation_proj_dict_json": json.dumps(area_meta.get("proj_dict", {}), sort_keys=True, default=str),
+        "navigation_platform_name": area_meta.get("satpy_platform_name", ""),
+        "navigation_lon_0": lon0,
+        "navigation_shape": "1237x1237",
+        "navigation_reader": "satpy_seviri_l2_grib",
+        "navigation_patch_scope": f"{product_line} CTH MSGCLTH-0100-0100 1237x1237",
+        "navigation_validation_gate": "stage_10s",
+        "cth_transform": "identity",
+        "quality_transform": "identity",
+    }
+
+
 def read_netcdf_product(path: Path, family: str, product: str, mapping: dict[str, dict[str, list[str]]]) -> ReadResult:
     import netCDF4
 
@@ -719,7 +821,10 @@ def read_meteosat_zip(path: Path, product: str, mapping: dict[str, dict[str, lis
         for entry in grib_entries:
             suffix = Path(entry).suffix or ".grb"
             cache_key = hashlib.sha1(f"{path.resolve()}|{entry}".encode("utf-8")).hexdigest()
-            extracted = extract_cache / f"{cache_key}{suffix}"
+            entry_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(entry).name) or f"meteosat{suffix}"
+            extracted_dir = extract_cache / cache_key
+            extracted_dir.mkdir(parents=True, exist_ok=True)
+            extracted = extracted_dir / entry_name
             payload = zf.read(entry)
             if not extracted.exists() or extracted.stat().st_size != len(payload):
                 extracted.write_bytes(payload)
@@ -747,6 +852,41 @@ def read_meteosat_zip(path: Path, product: str, mapping: dict[str, dict[str, lis
                 if "longitude" not in arrays and "longitude" in ds.coords:
                     arrays["longitude"] = reshape_square_if_needed(np.array(ds["longitude"].values, dtype=np.float32, copy=True))
                     source_variables["longitude"] = "longitude"
+                if "cloud_top_height_km" in arrays and product.upper() == "CTH":
+                    cf_lat_shape = tuple(np.asarray(arrays.get("latitude", np.asarray([]))).shape)
+                    cf_lon_shape = tuple(np.asarray(arrays.get("longitude", np.asarray([]))).shape)
+                    try:
+                        satpy_lat, satpy_lon, area_meta = read_satpy_meteosat_cth_area(extracted, extract_cache, warnings)
+                        q_shape = tuple(np.asarray(arrays["quality_flag_raw"]).shape) if "quality_flag_raw" in arrays else None
+                        matched, product_line, scope_reason = matches_meteosat_cth_scope(
+                            path,
+                            product,
+                            tuple(np.asarray(arrays["cloud_top_height_km"]).shape),
+                            q_shape,
+                            area_meta,
+                        )
+                        attrs["meteosat_cth_scope_reason"] = scope_reason
+                        if matched:
+                            if satpy_lat.shape != tuple(np.asarray(arrays["cloud_top_height_km"]).shape):
+                                raise RuntimeError(
+                                    f"Satpy CTH area shape {satpy_lat.shape} does not match CTH values "
+                                    f"{np.asarray(arrays['cloud_top_height_km']).shape}"
+                                )
+                            arrays["latitude"] = np.array(satpy_lat, dtype=np.float32, copy=True)
+                            arrays["longitude"] = np.array(satpy_lon, dtype=np.float32, copy=True)
+                            attrs.update(meteosat_cth_navigation_metadata(product_line, area_meta))
+                            attrs["reader"] = "zip+cfgrib_cached_extract+satpy_seviri_l2_grib_cth_navigation"
+                            attrs["legacy_cfgrib_latitude_shape"] = cf_lat_shape
+                            attrs["legacy_cfgrib_longitude_shape"] = cf_lon_shape
+                            attrs["legacy_cfgrib_navigation_usage"] = "legacy_negative_control_only"
+                            source_variables["latitude"] = METEOSAT_CTH_NAVIGATION_SOURCE
+                            source_variables["longitude"] = METEOSAT_CTH_NAVIGATION_SOURCE
+                            warnings.append(
+                                f"applied {attrs['navigation_schema_version']} Meteosat CTH Satpy area navigation; "
+                                "cloud_top_height and cloud_top_quality unchanged"
+                            )
+                    except Exception as exc:
+                        warnings.append(f"Meteosat CTH Satpy area navigation unavailable: {exc}")
                 if "cloud_mask" in arrays and matches_meteosat_0deg_clm_scope(path, product, tuple(np.asarray(arrays["cloud_mask"]).shape), attrs["cfgrib_attrs"]):
                     cf_lat_shape = tuple(np.asarray(arrays.get("latitude", np.asarray([]))).shape)
                     cf_lon_shape = tuple(np.asarray(arrays.get("longitude", np.asarray([]))).shape)
@@ -792,6 +932,8 @@ def read_product(path: Path, family: str, product: str, mapping: dict[str, dict[
 
 
 __all__ = [
+    "METEOSAT_CTH_SHAPE", "METEOSAT_CTH_NAVIGATION_SOURCE", "METEOSAT_CTH_NAVIGATION_GRID",
+    "METEOSAT_0DEG_CTH_NAVIGATION_SCHEMA_VERSION", "METEOSAT_IODC_CTH_NAVIGATION_SCHEMA_VERSION",
     "IODC_CLM_NAVIGATION_SCHEMA_VERSION", "IODC_CLM_READER_BACKEND", "IODC_CLM_NAVIGATION_SOURCE",
     "IODC_CLM_MASK_TRANSFORM", "IODC_CLM_AREA_ID", "IODC_CLM_SUBSATELLITE_LONGITUDE",
     "IODC_CLM_SHAPE", "IodcSatpyEnvironmentNotReady", "IodcSatpyAreaInvalid",
@@ -801,6 +943,8 @@ __all__ = [
     "attr_to_python", "attrs_to_dict", "parse_himawari_r21_time",
     "find_himawari_r21_geometry_file", "read_himawari_r21_geometry", "variable_to_array",
     "convert_units", "mask_sentinel_values", "add_valid_and_quality",
+    "normalize_meteosat_longitude_array", "matches_meteosat_cth_scope",
+    "meteosat_cth_navigation_metadata", "read_satpy_meteosat_cth_area",
     "is_meteosat_iodc_clm_path", "matches_meteosat_iodc_clm_candidate_scope",
     "validate_meteosat_iodc_clm_area", "read_meteosat_iodc_clm_satpy_zip",
     "read_netcdf_product", "read_hdf_product", "read_meteosat_zip",

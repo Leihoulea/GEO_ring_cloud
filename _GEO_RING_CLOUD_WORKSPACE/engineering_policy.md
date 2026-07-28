@@ -30,7 +30,9 @@ It applies to humans and AI agents.
 
 ## Output lineage
 
-- New stage outputs MUST include a manifest with `project_id`, `canonical_stage_id`, generating script, inputs, outputs, parameters, timestamp, and commit when available.
+- New stage outputs MUST use `geo_ring_cloud.lineage.write_manifest` and include `project_id`, `canonical_stage_id`, generating script, inputs, outputs, parameters, timestamp, and commit when available.
+- `code_commit` identifies repository HEAD at manifest-write time; it is not proof that HEAD contains the executed script. The manifest MUST also record the script SHA-256, Git state, worktree/commit blobs, and `commit_represents_script`.
+- A manifest with `commit_represents_script=false` remains usable evidence only when its lineage warning is retained and the exact script content is preserved separately.
 - Non-stage run manifests MUST include `component_role` and `related_stage_ids`; they MUST NOT place a component label in `canonical_stage_id`.
 - Reports SHOULD be Chinese-first, with English retained for technical terms and variable names.
 - Key outputs SHOULD include concise CSV/Markdown indexes instead of relying only on directory names.
@@ -41,6 +43,9 @@ It applies to humans and AI agents.
 - Python code MUST use `geo_ring_cloud.paths`; PowerShell orchestration MUST dot-source `geo_ring_cloud_path_configuration.ps1` or use the same `GEO_RING_*` environment-variable contract.
 - Active project code MUST NOT hard-code any machine-local drive path unless it is one of the two explicitly allowlisted canonical path-configuration files.
 - Core code MUST NOT depend on `_NON_GEO_ARCHIVE`, `second_report`, `forth`, or EPIC-CERES code/output paths.
+- New stage code MUST live below `third_report/code/geo_ring_cloud_stage1` and new stage outputs below `geo_ring_cloud_stage1_time_runs/<canonical-stage-run>`. Stage-owned directories at repository root are forbidden.
+- `geo_ring_cloud_stage1/reports` is a frozen legacy shared report pool. New stages MUST NOT write there; use a stage-specific directory under `RUNS_ROOT`.
+- Historical source snapshots belong under `geo_ring_cloud_stage1_evidence_pack/source_snapshots`; new code MUST NOT recreate `geo_ring_cloud_stage1/scripts`.
 - Raw data, time runs, evidence packs, SQLite/XLSX indexes, PPTX, images, NetCDF/HDF/HDF5, NPZ, and other large generated artifacts MUST stay out of Git by default.
 - GitHub CI MUST remain independent of local large-data paths; real-data integration tests are explicit local checks.
 

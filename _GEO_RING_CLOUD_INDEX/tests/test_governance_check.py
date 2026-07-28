@@ -391,6 +391,65 @@ class ModuleRegistryTests(unittest.TestCase):
 
         self.assertEqual(findings, [])
 
+    def test_new_stage_requires_registry_and_lineage_helper(self) -> None:
+        script = (
+            "third_report/code/geo_ring_cloud_stage1/"
+            "stage_10z_example/stage_10z_run_example.py"
+        )
+        with isolated_root("new_stage_contract") as root:
+            write(root, script, 'STAGE_ID = "stage_10z"\n')
+            findings = governance_check.check_stage_contract(
+                [script],
+                {script},
+                enforce_index_docs=True,
+            )
+
+        messages = [item.message for item in findings]
+        self.assertTrue(any("is not registered" in message for message in messages))
+        self.assertTrue(any("write_manifest" in message for message in messages))
+
+    def test_new_registered_stage_rejects_legacy_shared_output_pools(self) -> None:
+        script = (
+            "third_report/code/geo_ring_cloud_stage1/"
+            "stage_10z_example/stage_10z_run_example.py"
+        )
+        registry = governance_check.STAGE_REGISTRY_DOC
+        source = (
+            'STAGE_ID = "stage_10z"\n'
+            "from geo_ring_cloud.lineage import write_manifest\n"
+            "from geo_ring_cloud.pipeline_layout import REPORT_DIR\n"
+        )
+        with isolated_root("new_stage_legacy_output") as root:
+            write(root, script, source)
+            write(
+                root,
+                registry,
+                "| project_id | canonical_stage_id |\n"
+                "| --- | --- |\n"
+                "| geo_ring_cloud | stage_10z |\n",
+            )
+            for doc in governance_check.WORKSPACE_INDEX_DOCS:
+                if doc != registry:
+                    write(root, doc, "generated\n")
+            findings = governance_check.check_stage_contract(
+                [script, *governance_check.WORKSPACE_INDEX_DOCS],
+                {script},
+                enforce_index_docs=True,
+            )
+
+        self.assertTrue(any("REPORT_DIR" in item.message for item in findings))
+
+    def test_repository_root_stage_output_is_rejected(self) -> None:
+        relative = "stage_10z_example/stage_10z_summary_cn.md"
+        findings = governance_check.check_product_layout(
+            [relative],
+            {relative},
+            baseline_mode=False,
+        )
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].severity, "ERROR")
+
     def test_unregistered_package_module_is_rejected(self) -> None:
         relative = (
             "third_report/code/geo_ring_cloud_stage1/"

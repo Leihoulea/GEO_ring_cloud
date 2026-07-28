@@ -267,6 +267,11 @@ MODIFIED_STAGE_INDEX_DOCS = {
     "_GEO_RING_CLOUD_WORKSPACE/code_migrations.md",
 }
 MODULE_REGISTRY_DOC = "_GEO_RING_CLOUD_WORKSPACE/module_registry.md"
+STAGE_REGISTRY_DOC = "_GEO_RING_CLOUD_WORKSPACE/stage_registry.md"
+FORBIDDEN_NEW_STAGE_OUTPUT_SYMBOLS = {
+    "REPORT_DIR": "legacy shared report pool",
+    "SCRIPT_DIR": "legacy source-snapshot alias",
+}
 REQUIRED_ENGINEERING_FILES = {
     ".github/workflows/geo-ring-cloud-governance.yml",
     "_GEO_RING_CLOUD_INDEX/ci_check.py",
@@ -478,6 +483,7 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
     added_package_modules: list[str] = []
     normalized_paths = {normalize_path(p) for p in paths}
     normalized_added = {normalize_path(p) for p in added_paths}
+    stage_registry_text = read_text(STAGE_REGISTRY_DOC) or ""
 
     for rel_path in paths:
         normalized = normalize_path(rel_path)
@@ -574,6 +580,37 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
                         f"stage identifier mismatch: path implies {canonical}, but script declares {sorted(script_stage_ids)}",
                     )
                 )
+            is_registered_migration_target = normalized in REGISTERED_STAGE_MIGRATION_TARGETS
+            if (
+                not is_registered_migration_target
+                and f"| geo_ring_cloud | {canonical} |" not in stage_registry_text
+            ):
+                findings.append(
+                    Finding(
+                        "ERROR",
+                        rel_path,
+                        f"{canonical} is not registered in {STAGE_REGISTRY_DOC}; update build_index.py and rebuild the index",
+                    )
+                )
+            text = read_text(rel_path) or ""
+            if not is_registered_migration_target and "write_manifest" not in text:
+                findings.append(
+                    Finding(
+                        "ERROR",
+                        rel_path,
+                        "new stage script must use geo_ring_cloud.lineage.write_manifest",
+                    )
+                )
+            if not is_registered_migration_target:
+                for symbol, purpose in FORBIDDEN_NEW_STAGE_OUTPUT_SYMBOLS.items():
+                    if re.search(rf"\b{re.escape(symbol)}\b", text):
+                        findings.append(
+                            Finding(
+                                "ERROR",
+                                rel_path,
+                                f"new stage script must not write through {symbol} ({purpose}); use a canonical RUNS_ROOT stage directory",
+                            )
+                        )
         else:
             if not Path(normalized).name.startswith("geo_ring_cloud_"):
                 findings.append(
@@ -633,6 +670,23 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
                     "new package module added; run build_index.py and stage the module registry",
                 )
             )
+    return findings
+
+
+def check_product_layout(paths: list[str], added_paths: set[str], baseline_mode: bool) -> list[Finding]:
+    findings: list[Finding] = []
+    for rel_path in paths:
+        normalized = normalize_path(rel_path)
+        first = normalized.split("/", 1)[0]
+        if not re.match(r"^stage_\d{2}(?:_[0-9]+|[a-z0-9]+|_[a-z0-9]+)?(?:_|$)", first, re.IGNORECASE):
+            continue
+        findings.append(
+            Finding(
+                severity_for(rel_path, added_paths, baseline_mode),
+                rel_path,
+                "stage-owned files must not live at repository root; code belongs under the core code root and generated outputs under RUNS_ROOT",
+            )
+        )
     return findings
 
 
@@ -1223,6 +1277,7 @@ def main() -> int:
     findings.extend(check_dynamic_stage_loading(paths, baseline_mode=baseline_mode))
     findings.extend(check_python_structure(paths))
     findings.extend(check_naming(paths, added, baseline_mode=baseline_mode))
+    findings.extend(check_product_layout(paths, added, baseline_mode=baseline_mode))
     findings.extend(check_stage_contract(paths, added, enforce_index_docs=args.staged))
     if args.staged:
         findings.extend(check_generated_artifacts(paths))

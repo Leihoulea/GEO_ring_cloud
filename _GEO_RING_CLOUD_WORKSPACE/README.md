@@ -1,6 +1,6 @@
 # GEO-ring Cloud Workspace
 
-Generated: `2026-07-23T17:34:58Z`
+Generated: `2026-07-28T02:46:29Z`
 
 This folder is a lightweight control surface for the GEO-ring Cloud project. It intentionally does not copy large data products.
 
@@ -20,6 +20,8 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 - `script_inventory.md`: current GEO-ring Cloud stage scripts and non-stage components.
 - `module_registry.md`: canonical Python modules, compatibility shims, public APIs, and migration evidence.
 - `code_migrations.md`: physical stage-code moves, retained compatibility paths, verification, and rollback instructions.
+- `product_migrations.md`: approved output/source-snapshot moves and current-path resolution.
+- `lineage_audit.md`: factual limits of historical manifests whose commits do not contain their generating scripts.
 - `pipeline_stages.md`: stage-level inputs, outputs, and evidence directories.
 - `path_mapping.md`: code/data path dependencies and override strategy.
 - `archive_manifest_dry_run.csv`: dry-run archive candidates generated before physical moves.

@@ -452,9 +452,9 @@ MODULE_REGISTRY = (
         "legacy_module": "geo_ring_cloud_lineage",
         "legacy_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud_lineage.py",
         "migration_status": "canonical_with_compatibility_shim",
-        "public_api": "utc_now, code_commit, write_manifest",
-        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests",
-        "notes": "Manifest schema remains compatible with existing stage outputs.",
+        "public_api": "utc_now, code_commit, generating_script_state, write_manifest",
+        "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests::test_canonical_lineage_manifest_contract",
+        "notes": "Manifest records HEAD plus exact generating-script hash and Git state; code_commit alone is not treated as execution provenance.",
     },
     {
         "project_id": PROJECT_ID,
@@ -476,9 +476,9 @@ MODULE_REGISTRY = (
         "legacy_module": "stage1_common",
         "legacy_path": "third_report/code/geo_ring_cloud_stage1/stage1_common.py",
         "migration_status": "canonical_extracted",
-        "public_api": "Stage 1 input/output paths, PIPELINE_DIRECTORIES, ensure_pipeline_directories",
+        "public_api": "Stage 1 input/output paths, SCRIPT_SNAPSHOT_DIR, PIPELINE_DIRECTORIES, ensure_pipeline_directories",
         "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests,PipelineLayoutTests",
-        "notes": "Filesystem layout is isolated from product reading and scientific semantics.",
+        "notes": "Filesystem layout is isolated from product reading and scientific semantics; historical source snapshots resolve to the evidence pack.",
     },
     {
         "project_id": PROJECT_ID,
@@ -992,6 +992,10 @@ COMPONENT_ROLE_ASSIGNMENT = re.compile(
     r"^\s*\$?COMPONENT_ROLE\s*=\s*['\"]([a-z][a-z0-9_]*)['\"]",
     re.MULTILINE,
 )
+STAGE_ID_ASSIGNMENT = re.compile(
+    r"^\s*(?:STAGE_ID|PROJECT_STAGE_ID)\s*=\s*['\"](?:geo_ring_cloud\.)?(stage_\d{2}(?:_[0-9]+|[a-z0-9]+|_[a-z0-9]+)?)['\"]",
+    re.MULTILINE | re.IGNORECASE,
+)
 TIME_RUN_STAGE_ROOT = re.compile(r"^stage_?\d{2}[a-z0-9_]*", re.IGNORECASE)
 LEGACY_STAGE_FILENAME = re.compile(r"(?:^|[_-])(?:step|stage)\d{1,2}[a-z0-9]*(?:[_-]|$)", re.IGNORECASE)
 CANONICAL_STAGE_FILENAME = re.compile(r"(?:^|[_-])stage_\d{2}(?:_[0-9]+|[a-z0-9]+|_[a-z0-9]+)?(?:[_-]|$)", re.IGNORECASE)
@@ -1023,8 +1027,13 @@ ARTIFACT_STAGE_HINTS = {
     "stage_10_claas3": "stage_10",
     "stage_10p2": "stage_10p2",
     "stage_10p": "stage_10p",
+    "stage_10s": "stage_10s",
+    "stage_10r": "stage_10r",
     "stage_10_cth_validation": "stage_10",
     "stage_10_": "stage_10",
+    "stage_09j": "stage_09j",
+    "stage_09i": "stage_09i",
+    "stage_09h": "stage_09h",
     "stage_09g": "stage_09g",
     "stage_09f": "stage_09f",
     "stage_09e": "stage_09e",
@@ -1100,6 +1109,18 @@ STAGE_SCOPED_DATA_PRODUCT_AUDITS = [
         "notes": "PASS_WITH_WARNINGS on local data; warnings are deterministic duplicate-order records",
     },
     {
+        "audit_id": "stage_09i_remaining_cloud_reader_audit",
+        "primary_path": str(ROOT / "geo_ring_cloud_stage1_time_runs/stage_09i_remaining_cloud_reader_audit/manifest.json"),
+        "canonical_stage_id": "stage_09i",
+        "related_stage_ids": "stage_09h,stage_09i,stage_09j",
+        "data_domain": "Meteosat-IODC / CLAAS-3 / DSCOVR EPIC",
+        "product_family": "Meteosat CLM cloud-reader navigation",
+        "audit_scope": "Minimal Satpy IODC reader smoke test, mask preservation, EPIC comparison, and CLAAS-3 navigation sanity check",
+        "status": "legacy_output_only",
+        "output_root": str(ROOT / "geo_ring_cloud_stage1_time_runs/stage_09i_remaining_cloud_reader_audit"),
+        "notes": "The original audit was executed inline and has no recoverable generating script; Stage 09j consumes its baseline CSV",
+    },
+    {
         "audit_id": "stage_10p_epic_composite_psf_inventory",
         "primary_path": str(ROOT / "third_report/code/geo_ring_cloud_stage1/stage_10p_composite_inventory.py"),
         "canonical_stage_id": "stage_10p",
@@ -1110,6 +1131,18 @@ STAGE_SCOPED_DATA_PRODUCT_AUDITS = [
         "status": "active",
         "output_root": str(ROOT / "geo_ring_cloud_stage1_time_runs/stage_10p_psf_inventory_202401"),
         "notes": "Primary role is data_product_audit; related to Stage 10 validation but not a production pipeline transform",
+    },
+    {
+        "audit_id": "stage_10r_meteosat_cth_satpy_navigation_audit",
+        "primary_path": str(ROOT / "third_report/code/geo_ring_cloud_stage1/stage_10r_meteosat_cth_satpy_navigation_audit/stage_10r_run_meteosat_cth_satpy_navigation_audit.py"),
+        "canonical_stage_id": "stage_10r",
+        "related_stage_ids": "stage_10,stage_10r,stage_10s",
+        "data_domain": "Meteosat-0deg / Meteosat-IODC / DSCOVR EPIC",
+        "product_family": "EUMETSAT operational MSG CTH",
+        "audit_scope": "CTH value and quality preservation, Satpy AreaDefinition navigation, and EPIC before/after diagnostics",
+        "status": "active",
+        "output_root": str(ROOT / "geo_ring_cloud_stage1_time_runs/stage_10r_meteosat_operational_cth_satpy_navigation_audit_202403"),
+        "notes": "Read-only diagnostic feeding the Stage 10s production patch validation",
     },
     {
         "audit_id": "stage_09g_20240310_meteosat_rotation_diagnostic",
@@ -1264,6 +1297,15 @@ def declared_component_role(path: Path) -> str:
         return ""
     match = COMPONENT_ROLE_ASSIGNMENT.search(text)
     return match.group(1) if match else ""
+
+
+def declared_stage_id(path: Path) -> str:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+    match = STAGE_ID_ASSIGNMENT.search(text)
+    return match.group(1).lower() if match else ""
 
 
 def component_role_for_script(path: Path, rel_name: str, canonical: str) -> str:
@@ -1587,9 +1629,13 @@ def insert_stage_registry(conn: sqlite3.Connection) -> None:
         ("stage_09f", "Stage 09F spatial story maps for GEO-ring vs EPIC cloud-mask diagnostics", "geo_ring_cloud_stage1_time_runs/stage_09f_spatial_story_maps_202403,stage_09f_spatial_story_maps/stage_09f_make_spatial_story_maps.py"),
         ("stage_09g", "Stage 09G orientation root-cause audit from raw EPIC/Meteosat to Stage 09F plots", "geo_ring_cloud_stage1_time_runs/stage_09g_orientation_root_cause_audit_202403,stage_09g_orientation_root_cause_audit/stage_09g_run_orientation_root_cause_audit.py"),
         ("stage_09h", "Stage 09H Meteosat mask-navigation root-cause Gate diagnostics", "geo_ring_cloud_stage1_time_runs/stage_09h_meteosat_mask_navigation_root_cause_202403,stage_09h_meteosat_mask_navigation_root_cause/stage_09h_run_gate1_20240310_meteosat0deg.py"),
+        ("stage_09i", "Stage 09I remaining cloud-reader audit and IODC Satpy smoke baseline", "geo_ring_cloud_stage1_time_runs/stage_09i_remaining_cloud_reader_audit"),
+        ("stage_09j", "Stage 09J Meteosat-IODC CLM Satpy production integration regression", "geo_ring_cloud_stage1_time_runs/stage_09j_meteosat_iodc_satpy_production_integration_202403,stage_09j_meteosat_iodc_satpy_production_integration/stage_09j_run_iodc_satpy_production_regression.py"),
         ("stage_10", "Stage 10 fused CTH validation and mechanism diagnostics", "geo_ring_cloud_stage1_time_runs/stage_10_cth_fused_product_validation_202403"),
         ("stage_10p", "Stage 10p related EPIC Composite PSF-aware data product audit", "geo_ring_cloud_stage1_time_runs/stage_10p_psf_inventory_202401"),
         ("stage_10p2", "Stage 10p2 approximate EPIC FOV aggregation diagnostics", "geo_ring_cloud_stage1_time_runs/stage_10p2_approx_epic_fov_aggregation_202403"),
+        ("stage_10r", "Stage 10R Meteosat operational CTH Satpy navigation audit", "geo_ring_cloud_stage1_time_runs/stage_10r_meteosat_operational_cth_satpy_navigation_audit_202403,stage_10r_meteosat_cth_satpy_navigation_audit/stage_10r_run_meteosat_cth_satpy_navigation_audit.py"),
+        ("stage_10s", "Stage 10S Meteosat CTH production navigation patch validation", "geo_ring_cloud_stage1_time_runs/stage_10s_meteosat_cth_production_patch,stage_10s_meteosat_cth_production_patch/stage_10s_run_meteosat_cth_production_patch.py"),
     ]:
         key = (PROJECT_ID, canonical)
         collision_guard = "epic_ceres.stage_09,epic_ceres.stage_09_5" if canonical.startswith("stage_09") else ""
@@ -1626,7 +1672,9 @@ def insert_stage_registry(conn: sqlite3.Connection) -> None:
                 continue
             rel_name = fp.relative_to(code_root).as_posix()
             stage = infer_stage_from_name(rel_name)
-            canonical = canonical_stage_id(stage)
+            canonical = declared_stage_id(fp) or canonical_stage_id(stage)
+            if canonical and not stage:
+                stage = canonical.removeprefix("stage_")
             if not canonical:
                 continue
             key = (PROJECT_ID, canonical)
@@ -1976,11 +2024,11 @@ def build_sqlite():
     for fname, stage, resp in SCRIPTS:
         fp = code_root / fname
         refs = ",".join(sorted(set(refs_by_script.get(fname, []))))
-        canonical = canonical_stage_id(stage)
+        canonical = declared_stage_id(fp) or canonical_stage_id(stage)
+        if canonical and not stage:
+            stage = canonical.removeprefix("stage_")
         declared_role = declared_component_role(fp)
         component_role = declared_role or ("" if canonical else COMPONENT_ROLES.get(stage, "support"))
-        if declared_role and declared_role != "compatibility_entrypoint":
-            canonical = ""
         cur.execute(
             "INSERT INTO scripts(path,filename,stage,project_id,canonical_stage_id,component_role,legacy_stage,responsibility,refs_external_paths) "
             "VALUES(?,?,?,?,?,?,?,?,?)",
@@ -1996,11 +2044,10 @@ def build_sqlite():
             if rel_name in known_script_names:
                 continue
             stage = infer_stage_from_name(rel_name)
-            canonical = canonical_stage_id(stage)
+            canonical = declared_stage_id(fp) or canonical_stage_id(stage)
+            if canonical and not stage:
+                stage = canonical.removeprefix("stage_")
             component_role = component_role_for_script(fp, rel_name, canonical)
-            declared_role = declared_component_role(fp)
-            if declared_role and declared_role != "compatibility_entrypoint":
-                canonical = ""
             cur.execute(
                 "INSERT INTO scripts(path,filename,stage,project_id,canonical_stage_id,component_role,legacy_stage,responsibility,refs_external_paths) "
                 "VALUES(?,?,?,?,?,?,?,?,?)",
@@ -2272,6 +2319,8 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 - `script_inventory.md`: current GEO-ring Cloud stage scripts and non-stage components.
 - `module_registry.md`: canonical Python modules, compatibility shims, public APIs, and migration evidence.
 - `code_migrations.md`: physical stage-code moves, retained compatibility paths, verification, and rollback instructions.
+- `product_migrations.md`: approved output/source-snapshot moves and current-path resolution.
+- `lineage_audit.md`: factual limits of historical manifests whose commits do not contain their generating scripts.
 - `pipeline_stages.md`: stage-level inputs, outputs, and evidence directories.
 - `path_mapping.md`: code/data path dependencies and override strategy.
 - `archive_manifest_dry_run.csv`: dry-run archive candidates generated before physical moves.
@@ -2480,7 +2529,9 @@ It applies to humans and AI agents.
 
 ## Output lineage
 
-- New stage outputs MUST include a manifest with `project_id`, `canonical_stage_id`, generating script, inputs, outputs, parameters, timestamp, and commit when available.
+- New stage outputs MUST use `geo_ring_cloud.lineage.write_manifest` and include `project_id`, `canonical_stage_id`, generating script, inputs, outputs, parameters, timestamp, and commit when available.
+- `code_commit` identifies repository HEAD at manifest-write time; it is not proof that HEAD contains the executed script. The manifest MUST also record the script SHA-256, Git state, worktree/commit blobs, and `commit_represents_script`.
+- A manifest with `commit_represents_script=false` remains usable evidence only when its lineage warning is retained and the exact script content is preserved separately.
 - Non-stage run manifests MUST include `component_role` and `related_stage_ids`; they MUST NOT place a component label in `canonical_stage_id`.
 - Reports SHOULD be Chinese-first, with English retained for technical terms and variable names.
 - Key outputs SHOULD include concise CSV/Markdown indexes instead of relying only on directory names.
@@ -2491,6 +2542,9 @@ It applies to humans and AI agents.
 - Python code MUST use `geo_ring_cloud.paths`; PowerShell orchestration MUST dot-source `geo_ring_cloud_path_configuration.ps1` or use the same `GEO_RING_*` environment-variable contract.
 - Active project code MUST NOT hard-code any machine-local drive path unless it is one of the two explicitly allowlisted canonical path-configuration files.
 - Core code MUST NOT depend on `_NON_GEO_ARCHIVE`, `second_report`, `forth`, or EPIC-CERES code/output paths.
+- New stage code MUST live below `third_report/code/geo_ring_cloud_stage1` and new stage outputs below `geo_ring_cloud_stage1_time_runs/<canonical-stage-run>`. Stage-owned directories at repository root are forbidden.
+- `geo_ring_cloud_stage1/reports` is a frozen legacy shared report pool. New stages MUST NOT write there; use a stage-specific directory under `RUNS_ROOT`.
+- Historical source snapshots belong under `geo_ring_cloud_stage1_evidence_pack/source_snapshots`; new code MUST NOT recreate `geo_ring_cloud_stage1/scripts`.
 - Raw data, time runs, evidence packs, SQLite/XLSX indexes, PPTX, images, NetCDF/HDF/HDF5, NPZ, and other large generated artifacts MUST stay out of Git by default.
 - GitHub CI MUST remain independent of local large-data paths; real-data integration tests are explicit local checks.
 

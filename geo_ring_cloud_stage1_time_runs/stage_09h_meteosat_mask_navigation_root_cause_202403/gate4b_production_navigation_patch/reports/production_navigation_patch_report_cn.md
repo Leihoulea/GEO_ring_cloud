@@ -1,4 +1,4 @@
-﻿# Stage 09H Gate 4B Production Navigation Patch Report
+# Stage 09H Gate 4B Production Navigation Patch Report
 
 - Generated UTC: `2026-07-23T17:34:52Z`
 - Cases: `20240312_1500`

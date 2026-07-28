@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .paths import DATA_CHECK_GEOMETRY_ROOT, DATA_CHECK_ROOT, STAGE_ROOT
+from .paths import DATA_CHECK_GEOMETRY_ROOT, DATA_CHECK_ROOT, EVIDENCE_ROOT, STAGE_ROOT
 
 
 COMPONENT_ROLE = "pipeline_layout"
@@ -15,7 +15,9 @@ PARSED_METADATA = REPORT_ROOT / "parsed_file_metadata.csv"
 VARIABLE_INVENTORY = GEOM_AUDIT_ROOT / "product_variable_inventory_full.csv"
 MAPPING_YAML = REPORT_ROOT / "manual_variable_mapping_by_product.yaml"
 
-SCRIPT_DIR = STAGE_ROOT / "scripts"
+SCRIPT_SNAPSHOT_DIR = EVIDENCE_ROOT / "source_snapshots"
+# Compatibility alias for historical pipeline scripts that snapshot their source.
+SCRIPT_DIR = SCRIPT_SNAPSHOT_DIR
 CONFIG_DIR = STAGE_ROOT / "config"
 TIME_INDEX_DIR = STAGE_ROOT / "time_index"
 NATIVE_DIR = STAGE_ROOT / "standardized_native"
@@ -39,6 +41,7 @@ __all__ = [
     "VARIABLE_INVENTORY",
     "MAPPING_YAML",
     "STAGE_ROOT",
+    "SCRIPT_SNAPSHOT_DIR",
     "SCRIPT_DIR",
     "CONFIG_DIR",
     "TIME_INDEX_DIR",

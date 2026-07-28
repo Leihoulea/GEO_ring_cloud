@@ -42,7 +42,13 @@ from geo_ring_cloud.adapters.cloud_products import (  # noqa: E402
     IODC_CLM_NAVIGATION_SCHEMA_VERSION,
     IODC_CLM_SHAPE,
     IODC_CLM_SUBSATELLITE_LONGITUDE,
+    METEOSAT_0DEG_CTH_NAVIGATION_SCHEMA_VERSION,
+    METEOSAT_CTH_NAVIGATION_SOURCE,
+    METEOSAT_CTH_SHAPE,
+    METEOSAT_IODC_CTH_NAVIGATION_SCHEMA_VERSION,
     matches_meteosat_iodc_clm_candidate_scope,
+    matches_meteosat_cth_scope,
+    meteosat_cth_navigation_metadata,
     validate_meteosat_iodc_clm_area,
 )
 from geo_ring_cloud.adapters.meteosat_native_navigation import (  # noqa: E402
@@ -89,6 +95,56 @@ class MeteosatNativeNavigationTests(unittest.TestCase):
         )
         self.assertFalse(validate_meteosat_iodc_clm_area({**area, "lon_0": 41.5})[0])
         self.assertFalse(validate_meteosat_iodc_clm_area({**area, "shape": [1237, 1237]})[0])
+
+    def test_cth_scope_guard_is_strict_to_msgclth_1237_satpy_area(self) -> None:
+        good = Path(
+            "Meteosat-0deg/CTH/20240310/12/"
+            "MSG3-SEVI-MSGCLTH-0100-0100-20240310120000.000000000Z-NA.zip"
+        )
+        area0 = {
+            "shape": list(METEOSAT_CTH_SHAPE),
+            "lon_0": 0.0,
+            "area_id": "msg_seviri_fes_9km",
+            "proj_dict": {"lon_0": 0.0},
+            "area_extent_m": [-5.568e6, -5.568e6, 5.568e6, 5.568e6],
+            "grid_spec_sha256": "abc",
+        }
+        matched, line, _ = matches_meteosat_cth_scope(good, "CTH", METEOSAT_CTH_SHAPE, METEOSAT_CTH_SHAPE, area0)
+        self.assertTrue(matched)
+        self.assertEqual(line, "Meteosat-0deg")
+        meta0 = meteosat_cth_navigation_metadata(line, area0)
+        self.assertEqual(meta0["navigation_schema_version"], METEOSAT_0DEG_CTH_NAVIGATION_SCHEMA_VERSION)
+        self.assertEqual(meta0["navigation_source"], METEOSAT_CTH_NAVIGATION_SOURCE)
+        self.assertEqual(meta0["cth_transform"], "identity")
+        self.assertEqual(meta0["quality_transform"], "identity")
+
+        area_iodc = {**area0, "lon_0": 41.5, "proj_dict": {"lon_0": 41.5}}
+        matched, line, _ = matches_meteosat_cth_scope(
+            str(good).replace("Meteosat-0deg", "Meteosat-IODC"),
+            "CTH",
+            METEOSAT_CTH_SHAPE,
+            METEOSAT_CTH_SHAPE,
+            area_iodc,
+        )
+        self.assertTrue(matched)
+        self.assertEqual(line, "Meteosat-IODC")
+        self.assertEqual(
+            meteosat_cth_navigation_metadata(line, area_iodc)["navigation_schema_version"],
+            METEOSAT_IODC_CTH_NAVIGATION_SCHEMA_VERSION,
+        )
+
+        self.assertFalse(matches_meteosat_cth_scope(good, "CLM", METEOSAT_CTH_SHAPE, METEOSAT_CTH_SHAPE, area0)[0])
+        self.assertFalse(matches_meteosat_cth_scope(good, "CTT", METEOSAT_CTH_SHAPE, METEOSAT_CTH_SHAPE, area0)[0])
+        self.assertFalse(matches_meteosat_cth_scope(good, "CTH", (3712, 3712), None, area0)[0])
+        self.assertFalse(
+            matches_meteosat_cth_scope(
+                Path(str(good).replace("MSGCLTH", "MSGCLMK")),
+                "CTH",
+                METEOSAT_CTH_SHAPE,
+                METEOSAT_CTH_SHAPE,
+                area0,
+            )[0]
+        )
 
     def test_scope_guard_is_strict_to_audited_msg3_0deg_clm(self) -> None:
         good = Path(
@@ -796,6 +852,11 @@ class PackageBoundaryTests(unittest.TestCase):
         self.assertEqual(payload["component_role"], "diagnostics_library")
         self.assertEqual(payload["related_stage_ids"], ["stage_09d", "stage_10"])
         self.assertEqual(payload["parameter_summary"], {"sample_count": 2})
+        self.assertEqual(payload["code_commit_scope"], "repository_head_at_manifest_write")
+        self.assertIn("sha256", payload["generating_script_state"])
+        self.assertIn("git_state", payload["generating_script_state"])
+        self.assertIn("commit_represents_script", payload["generating_script_state"])
+        self.assertIsInstance(payload["lineage_warnings"], list)
         self.assertEqual(payload["source_registry_version"], REGISTRY_VERSION)
 
 
@@ -1121,11 +1182,16 @@ class PipelineLayoutTests(unittest.TestCase):
             NATIVE_DIR,
             PIPELINE_DIRECTORIES,
             REPORT_DIR,
+            SCRIPT_DIR,
+            SCRIPT_SNAPSHOT_DIR,
             STAGE_ROOT,
         )
+        from geo_ring_cloud.paths import EVIDENCE_ROOT
 
         self.assertEqual(NATIVE_DIR, STAGE_ROOT / "standardized_native")
         self.assertEqual(REPORT_DIR, STAGE_ROOT / "reports")
+        self.assertEqual(SCRIPT_SNAPSHOT_DIR, EVIDENCE_ROOT / "source_snapshots")
+        self.assertEqual(SCRIPT_DIR, SCRIPT_SNAPSHOT_DIR)
         self.assertEqual(PIPELINE_DIRECTORIES[0], STAGE_ROOT)
         self.assertEqual(len(PIPELINE_DIRECTORIES), len(set(PIPELINE_DIRECTORIES)))
 
