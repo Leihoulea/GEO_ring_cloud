@@ -524,7 +524,7 @@ def build_sensitivity_rows(ref_rows: list[dict[str, Any]], ab_rows: list[dict[st
     return rows
 
 
-def write_report(out_dir: Path, outputs: dict[str, Path], summary: dict[str, Any]) -> None:
+def _legacy_write_report_with_mojibake(out_dir: Path, outputs: dict[str, Path], summary: dict[str, Any]) -> None:
     lines = [
         "# Stage 10-QC CTH validation audit",
         "",
@@ -547,6 +547,38 @@ def write_report(out_dir: Path, outputs: dict[str, Path], summary: dict[str, Any
         "Selection regret 中的 `best_available` 是 EPIC-referenced retrospective diagnostic oracle：在同一 EPIC 像元、同一时刻可用的 prefusion GEO CTH 源里，事后选择相对 EPIC A-band effective height 绝对误差最小者。它用于机制诊断，不是生产可用规则，也不是真实 CTH 排名。",
         "",
         "EPIC A/B-band 都是 effective cloud height。Stage10 的 fused/source GEO 变量按本地代码和元数据审计为 cloud top height。二者可做诊断对照，但报告中必须写作“相对 EPIC effective height 的偏离”，不能写作绝对 CTH 误差。",
+        "",
+        "## 输出索引",
+        "",
+    ]
+    for label, path in outputs.items():
+        lines.append(f"- {label}: `{path}`")
+    path = out_dir / "stage_10_qc_report_cn.md"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8-sig")
+
+
+def write_report(out_dir: Path, outputs: dict[str, Path], summary: dict[str, Any]) -> None:
+    lines = [
+        "# Stage 10 CTH 质量控制审计",
+        "",
+        f"生成时间：`{base.utc_now()}`",
+        "",
+        "## 定位",
+        "",
+        "本 QC 读取已有 Stage 06 融合 CTH、样本清单、本地 EPIC L2 Cloud 和 Stage 10 输出；不新增样本、不重跑融合、不修改生产规则。",
+        "",
+        "## 关键结论",
+        "",
+        f"- A/B-band common both-cloud 的 B-A effective height 均值为 `{summary.get('ab_bias_km', math.nan):.3f}` km，MAE 为 `{summary.get('ab_mae_km', math.nan):.3f}` km。",
+        f"- Policy A 使用 B-band 替代 A-band 时，D1 both-cloud 融合 MAE 变化为 `{summary.get('policy_a_b_minus_a_mae_km', math.nan):.3f}` km；融合高云 MAE 变化为 `{summary.get('policy_a_high_b_minus_a_mae_km', math.nan):.3f}` km。",
+        f"- pixel-weighted regret：Policy A ALL_VALID_CTH 像元数 `{summary.get('regret_policy_a_n', 0)}`，current selected MAE `{summary.get('regret_policy_a_current_mae', math.nan):.3f}` km，best-available oracle MAE `{summary.get('regret_policy_a_best_mae', math.nan):.3f}` km，regret `{summary.get('regret_policy_a_regret', math.nan):.3f}` km。",
+        f"- clean-core MAE 为 `{summary.get('clean_core_mae', math.nan):.3f}` km；boundary/broken-cloud MAE 为 `{summary.get('boundary_mae', math.nan):.3f}` km。",
+        "",
+        "## 方法说明",
+        "",
+        "Selection regret 中的 `best_available` 是以 EPIC 为参照的事后诊断 oracle：在同一 EPIC 像元和同一时次可用的 prefusion GEO CTH 来源中，选择相对 EPIC A-band effective height 绝对差最小者。它只用于机制诊断，不是生产可用规则，也不代表真实 CTH 排名。",
+        "",
+        "EPIC A/B-band 均为 effective cloud height。Stage 10 的 GEO 变量按本地代码和元数据解释为 cloud top height；报告中的结果必须表述为相对 EPIC effective height 的差异。",
         "",
         "## 输出索引",
         "",

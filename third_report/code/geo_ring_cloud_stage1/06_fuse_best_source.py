@@ -32,6 +32,8 @@ from geo_ring_cloud.fusion_support import (
     build_candidate,
     build_subpoint_longitude_map,
     build_target_lon_lat,
+    cloud_binary_from_standard,
+    cloud_mask_to_standard,
     load_catalog,
     make_quicklook,
     save_output,

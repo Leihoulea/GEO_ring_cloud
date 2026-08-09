@@ -661,7 +661,7 @@ def process_sample(row: pd.Series, out: Path, epic_cth_var: str | None) -> dict[
     }
 
 
-def write_report(out: Path, summary: dict[str, Any], output_files: dict[str, Path]) -> None:
+def _legacy_write_report_with_mojibake(out: Path, summary: dict[str, Any], output_files: dict[str, Path]) -> None:
     lines = [
         "# Stage 10 GEO-ring fused CTH product validation and mechanism diagnostics",
         "",
@@ -686,6 +686,41 @@ def write_report(out: Path, summary: dict[str, Any], output_files: dict[str, Pat
         "## 解释原则",
         "",
         "CTH 偏差应解释为 fused CTH 与 EPIC effective cloud height 在 EPIC 像元空间中的相对偏离。source selected 区域、valid source count 高值区、云边界/碎云、高云和高 VZA 是机制诊断分层，不应直接写成某个源的真实性排名。",
+        "",
+        "## 输出索引",
+        "",
+    ]
+    for label, path in output_files.items():
+        lines.append(f"- {label}: `{path}`")
+    report = out / "reports" / "stage_10_cth_fused_product_validation_report_cn.md"
+    report.write_text("\n".join(lines) + "\n", encoding="utf-8-sig")
+
+
+def write_report(out: Path, summary: dict[str, Any], output_files: dict[str, Path]) -> None:
+    lines = [
+        "# Stage 10 GEO-ring 融合 CTH 产品验证与机制诊断",
+        "",
+        f"生成时间：`{utc_now()}`",
+        "",
+        "## 定位",
+        "",
+        "本阶段是 `geo_ring_cloud.stage_10` 诊断分析：读取已有 Stage 06 融合 CTH、样本清单和本地 EPIC L2 Cloud 文件。EPIC 在本报告中是独立诊断参照，不是绝对真值。",
+        "",
+        "## 变量与单位",
+        "",
+        "- GEO-ring 主变量：`fused_cloud_top_height_km`，单位 km，按 0-25 km 物理范围过滤。",
+        "- EPIC 主变量：`geophysical_data/A-band_Effective_Cloud_Height`，由 m 转换为 km。该变量是 Oxygen A-band effective cloud height，属于 CTH-like 诊断参照，不等同于严格的几何云顶高度。",
+        "",
+        "## 关键结果",
+        "",
+        f"- 样本数：`{summary.get('sample_count', 0)}`。",
+        f"- Policy A / D1 both-cloud overall：bias `{summary.get('bias_km', math.nan):.3f}` km，MAE `{summary.get('mae_km', math.nan):.3f}` km，RMSE `{summary.get('rmse_km', math.nan):.3f}` km，2 km 内比例 `{summary.get('within_2km_fraction', math.nan):.3f}`。",
+        f"- selected_Meteosat-IODC MAE：`{summary.get('selected_iodc_mae', math.nan):.3f}` km；valid_source_count>=4 MAE：`{summary.get('valid_ge4_mae', math.nan):.3f}` km。",
+        f"- selection regret valid_source_count>=4：`{summary.get('valid_ge4_regret', math.nan):.3f}` km；selected_Meteosat-IODC regret：`{summary.get('iodc_regret', math.nan):.3f}` km。",
+        "",
+        "## 解释原则",
+        "",
+        "CTH 偏差表示融合 CTH 相对 EPIC effective cloud height 在 EPIC 像元空间中的差异。selected source、valid source count、高 VZA、云边界和云高度分层用于机制诊断，不应直接解释为各来源的绝对真实性排名。",
         "",
         "## 输出索引",
         "",

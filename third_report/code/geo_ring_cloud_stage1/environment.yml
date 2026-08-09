@@ -16,3 +16,7 @@ dependencies:
   - boto3=1.42.78
   - botocore=1.42.78
   - satpy=0.60.0
+  - eccodes=2.46.0
+  - python-eccodes=2.46.0
+  - cfgrib=0.9.15.1
+  - pyresample=1.35.0

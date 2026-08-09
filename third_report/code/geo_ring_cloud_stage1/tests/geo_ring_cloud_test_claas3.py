@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import collections
+import csv
 import importlib
 import json
 import os
@@ -49,6 +50,7 @@ from geo_ring_cloud.adapters.cloud_products import (  # noqa: E402
     matches_meteosat_iodc_clm_candidate_scope,
     matches_meteosat_cth_scope,
     meteosat_cth_navigation_metadata,
+    iodc_clm_extracted_path,
     validate_meteosat_iodc_clm_area,
 )
 from geo_ring_cloud.adapters.meteosat_native_navigation import (  # noqa: E402
@@ -61,6 +63,30 @@ from geo_ring_cloud.run_discovery import discover_run_dirs, resolve_run_dir  # n
 
 
 class MeteosatNativeNavigationTests(unittest.TestCase):
+    def test_iodc_clm_extract_cache_remains_short_for_versioned_long_run_root(self) -> None:
+        project_root = CODE_DIR.parents[2]
+        stage_root = (
+            project_root
+            / "geo_ring_cloud_stage1_time_runs"
+            / "stage_09c_epic_80_satpy_navigation_rerun_202403"
+            / "runs"
+            / "20240324_1000"
+        )
+        cache = stage_root / "cache" / "m09j_iodc_clm_v1"
+        source = (
+            project_root
+            / "external_stub"
+            / "Meteosat-IODC"
+            / "CLM"
+            / "20240324"
+            / "10"
+            / "MSG2-SEVI-MSGCLMK-0100-0100-20240324100000.000000000Z-NA.zip"
+        )
+        entry = "MSG2-SEVI-MSGCLMK-0100-0100-20240324100000.000000000Z-NA.grb"
+        extracted = iodc_clm_extracted_path(cache, source, entry)
+        self.assertEqual(extracted.name, entry)
+        self.assertLess(len(str(extracted)), 240)
+
     def test_iodc_clm_satpy_scope_guard_is_strict_to_msg2_3712_lon455_area(self) -> None:
         good = Path(
             "Meteosat-IODC/CLM/20240306/13/"
@@ -192,6 +218,11 @@ from geo_ring_cloud_experiment_profile_pair import (  # noqa: E402
 )
 from geo_ring_cloud import evidence_pack  # noqa: E402
 from run_epic_georing_single_sample import runtime_environment  # noqa: E402
+from geo_ring_cloud_experiment_runner_epic_80 import (  # noqa: E402
+    comparison_id as epic80_comparison_id,
+    load_targets as load_epic80_targets,
+    single_sample_resume_step,
+)
 from geo_ring_cloud.diagnostics.epic_pair import (  # noqa: E402
     POLICIES,
     aggregate_height_samples,
@@ -1687,6 +1718,86 @@ class ProfilePairDiagnosticTests(unittest.TestCase):
         sparse_valid[4, 4] = True
         _, sparse_aggregated_valid = box_binary(values, sparse_valid)
         self.assertFalse(np.any(sparse_aggregated_valid))
+
+
+class Epic80ExperimentRunnerTests(unittest.TestCase):
+    def test_single_sample_resume_uses_first_failed_step_after_ok_prefix(self) -> None:
+        with test_directory("epic80_resume") as root:
+            manifest = {
+                "target_time": "2024-03-24T10:00:00Z",
+                "source_profile": "operational_baseline",
+                "steps": [
+                    {"step": "02_build_standardized_cloud_native", "status": "OK"},
+                    {"step": "03_validate_standardized_cloud_native", "status": "OK"},
+                    {"step": "03_5_semantic_validation_patch", "status": "OK"},
+                    {"step": "05_reproject_cloud_to_grid", "status": "OK"},
+                    {"step": "06_fuse_best_source", "status": "FAILED"},
+                ],
+            }
+            (root / "single_sample_run_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            self.assertEqual(
+                single_sample_resume_step(root, "2024-03-24T10:00:00Z"),
+                "06_fuse_best_source",
+            )
+
+    def test_stage06_imports_shared_cloud_mask_standardization_helpers(self) -> None:
+        script = CODE_DIR / "06_fuse_best_source.py"
+        tree = ast.parse(script.read_text(encoding="utf-8"))
+        imported = {
+            alias.name
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom) and node.module == "geo_ring_cloud.fusion_support"
+            for alias in node.names
+        }
+        self.assertIn("cloud_mask_to_standard", imported)
+        self.assertIn("cloud_binary_from_standard", imported)
+
+    def test_comparison_id_distinguishes_two_epic_observations_in_one_geo_hour(self) -> None:
+        first = epic80_comparison_id(
+            "20240308_1500",
+            "DSCOVR_EPIC_L2_CLOUD_03_20240308145105_03.nc4",
+        )
+        second = epic80_comparison_id(
+            "20240308_1500",
+            "DSCOVR_EPIC_L2_CLOUD_03_20240308145132_03.nc4",
+        )
+        self.assertNotEqual(first, second)
+        self.assertTrue(first.endswith("20240308145105"))
+
+    def test_target_loader_preserves_duplicate_geo_hour_as_unique_comparisons(self) -> None:
+        with test_directory("epic80_target_loader") as root:
+            epic_files = [root / "EPIC_20240308145105.nc4", root / "EPIC_20240308145132.nc4"]
+            for path in epic_files:
+                path.touch()
+            target = root / "targets.csv"
+            fields = [
+                "sample_id",
+                "epic_file",
+                "epic_time_utc",
+                "nearest_georing_time_utc",
+                "time_diff_min",
+                "candidate_group",
+                "estimated_dominant_source",
+            ]
+            with target.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fields)
+                writer.writeheader()
+                for index, path in enumerate(epic_files):
+                    writer.writerow(
+                        {
+                            "sample_id": "20240308_1500",
+                            "epic_file": path,
+                            "epic_time_utc": f"2024-03-08T14:51:{5 + index * 27:02d}Z",
+                            "nearest_georing_time_utc": "2024-03-08T15:00:00Z",
+                            "time_diff_min": "8.5",
+                            "candidate_group": "METEOSAT_DOMINANT_CONTROL",
+                            "estimated_dominant_source": "Meteosat-0deg",
+                        }
+                    )
+            loaded = load_epic80_targets(target, require_full=False)
+            self.assertEqual(len(loaded), 2)
+            self.assertEqual(loaded["sample_id"].nunique(), 1)
+            self.assertEqual(loaded["comparison_id"].nunique(), 2)
 
 
 if __name__ == "__main__":

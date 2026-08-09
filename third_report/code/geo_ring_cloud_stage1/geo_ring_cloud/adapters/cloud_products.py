@@ -40,6 +40,7 @@ METEOSAT_IODC_CTH_NAVIGATION_SCHEMA_VERSION = "meteosat_iodc_cth_v2"
 METEOSAT_CTH_AREA_TOLERANCE_DEG = 1e-6
 
 IODC_CLM_NAVIGATION_SCHEMA_VERSION = "meteosat_iodc_clm_satpy_v1"
+IODC_CLM_CACHE_NAMESPACE = "m09j_iodc_clm_v1"
 IODC_CLM_READER_BACKEND = "satpy_seviri_l2_grib"
 IODC_CLM_NAVIGATION_SOURCE = "satpy_area_definition"
 IODC_CLM_MASK_TRANSFORM = "identity"
@@ -551,6 +552,16 @@ def _iodc_clm_navigation_metadata(area_meta: dict[str, Any], dataset_attrs: dict
     }
 
 
+def iodc_clm_extracted_path(extract_cache: Path, source_zip: Path, entry: str) -> Path:
+    """Keep Satpy's recognizable filename below the Windows legacy path limit."""
+    cache_key = hashlib.sha1(
+        f"{source_zip.resolve()}|{entry}|{IODC_CLM_NAVIGATION_SCHEMA_VERSION}".encode("utf-8")
+    ).hexdigest()
+    suffix = Path(entry).suffix or ".grb"
+    entry_name = Path(entry).name or f"{cache_key}{suffix}"
+    return extract_cache / cache_key[:20] / entry_name
+
+
 def read_meteosat_iodc_clm_satpy_zip(path: Path) -> ReadResult:
     arrays: dict[str, np.ndarray] = {}
     source_variables: dict[str, str] = {}
@@ -560,9 +571,10 @@ def read_meteosat_iodc_clm_satpy_zip(path: Path) -> ReadResult:
         "reader": f"zip+{IODC_CLM_READER_BACKEND}+{IODC_CLM_NAVIGATION_SCHEMA_VERSION}",
         "zip_entries": [],
     }
-    extract_cache = STAGE_ROOT / "cache" / IODC_CLM_NAVIGATION_SCHEMA_VERSION / "meteosat_extract"
+    extract_cache = STAGE_ROOT / "cache" / IODC_CLM_CACHE_NAMESPACE
     extract_cache.mkdir(parents=True, exist_ok=True)
     attrs["extract_cache"] = str(extract_cache)
+    attrs["extract_cache_schema_version"] = IODC_CLM_NAVIGATION_SCHEMA_VERSION
     env_meta = _check_iodc_satpy_environment(extract_cache, warnings)
     from satpy import Scene
 
@@ -573,12 +585,9 @@ def read_meteosat_iodc_clm_satpy_zip(path: Path) -> ReadResult:
         if not grib_entries:
             raise IodcSatpyEnvironmentNotReady("no GRIB entry found in ZIP")
         for entry in grib_entries:
-            suffix = Path(entry).suffix or ".grb"
-            cache_key = hashlib.sha1(f"{path.resolve()}|{entry}|{IODC_CLM_NAVIGATION_SCHEMA_VERSION}".encode("utf-8")).hexdigest()
-            entry_name = Path(entry).name or f"{cache_key}{suffix}"
-            extracted_dir = extract_cache / cache_key
+            extracted = iodc_clm_extracted_path(extract_cache, path, entry)
+            extracted_dir = extracted.parent
             extracted_dir.mkdir(parents=True, exist_ok=True)
-            extracted = extracted_dir / entry_name
             payload = zf.read(entry)
             if not extracted.exists() or extracted.stat().st_size != len(payload):
                 extracted.write_bytes(payload)
