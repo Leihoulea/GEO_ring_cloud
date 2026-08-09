@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import netCDF4
 import numpy as np
+import pandas as pd
 from scipy.ndimage import uniform_filter
 
 
@@ -60,6 +61,12 @@ from geo_ring_cloud.adapters.meteosat_native_navigation import (  # noqa: E402
     matches_meteosat_0deg_clm_scope,
 )
 from geo_ring_cloud.run_discovery import discover_run_dirs, resolve_run_dir  # noqa: E402
+from geo_ring_cloud_epic_80_analysis import (  # noqa: E402
+    confusion_metrics,
+    summarize_clm,
+    summarize_cth,
+)
+from geo_ring_cloud_experiment_runner_epic_80_followup import progress_counts  # noqa: E402
 
 
 class MeteosatNativeNavigationTests(unittest.TestCase):
@@ -1798,6 +1805,100 @@ class Epic80ExperimentRunnerTests(unittest.TestCase):
             self.assertEqual(len(loaded), 2)
             self.assertEqual(loaded["sample_id"].nunique(), 1)
             self.assertEqual(loaded["comparison_id"].nunique(), 2)
+
+    def test_epic80_analysis_confusion_metrics(self) -> None:
+        metrics = confusion_metrics(tp=40, tn=35, fp=10, fn=15)
+        self.assertAlmostEqual(metrics["agreement"], 0.75)
+        self.assertAlmostEqual(metrics["precision"], 0.8)
+        self.assertAlmostEqual(metrics["recall"], 40 / 55)
+        self.assertGreater(metrics["mcc"], 0.49)
+
+    def test_epic80_followup_ignores_a_failure_superseded_by_pass(self) -> None:
+        with test_directory("epic80_followup_status") as root:
+            control = root / "00_control"
+            control.mkdir()
+            rows = [
+                {
+                    "scope": "geo_sample",
+                    "sample_id": "20240324_1000",
+                    "comparison_id": "comparison_a",
+                    "step": "stage_02_to_08c_primary",
+                    "status": "FAIL",
+                },
+                {
+                    "scope": "geo_sample",
+                    "sample_id": "20240324_1000",
+                    "comparison_id": "comparison_a",
+                    "step": "stage_02_to_08c_primary",
+                    "status": "PASS",
+                },
+                {
+                    "scope": "geo_sample",
+                    "sample_id": "20240324_1000",
+                    "comparison_id": "comparison_a",
+                    "step": "navigation_schema_verification",
+                    "status": "PASS",
+                },
+            ]
+            with (control / "epic_80_run_status.csv").open("w", encoding="utf-8-sig", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+                writer.writeheader()
+                writer.writerows(rows)
+            counts = progress_counts(root)
+            self.assertEqual(counts["fail_rows"], 0)
+            self.assertEqual(counts["geo_pass"], 1)
+
+    def test_epic80_analysis_selects_complete_representative_sets(self) -> None:
+        clm_rows = []
+        cth_rows = []
+        for index in range(80):
+            comparison = f"comparison_{index:02d}"
+            for policy in ["A_inclusive_binary", "B_high_confidence_only"]:
+                tp = 700 + index
+                tn = 200
+                fp = 50
+                fn = 50 - index // 2
+                metrics = confusion_metrics(tp=tp, tn=tn, fp=fp, fn=fn)
+                clm_rows.append(
+                    {
+                        "sample_id": f"202403{index % 27 + 5:02d}_{index % 24:02d}00",
+                        "comparison_id": comparison,
+                        "policy": policy,
+                        "status": "OK",
+                        "n": tp + tn + fp + fn,
+                        "tp": tp,
+                        "tn": tn,
+                        "fp": fp,
+                        "fn": fn,
+                        **{key: metrics[key] for key in ["agreement", "f1", "iou", "precision", "recall"]},
+                    }
+                )
+            cth_rows.append(
+                {
+                    "sample_id": comparison,
+                    "policy": "A_inclusive_binary",
+                    "domain": "D1_both_cloud",
+                    "n_valid_cth": 1000 + index,
+                    "bias_km": -0.5 + index / 100,
+                    "mae_km": 1.0 + index / 100,
+                    "rmse_km": 1.4 + index / 100,
+                    "median_abs_error_km": 0.8,
+                    "p90_abs_error_km": 3.0,
+                    "within_1km_fraction": 0.5,
+                    "within_2km_fraction": 0.75,
+                    "within_3km_fraction": 0.9,
+                    "pearson_corr": 0.7,
+                    "spearman_corr": 0.68,
+                    "low_mid_high_class_agreement": 0.72,
+                }
+            )
+        clm_summary, clm_weighted, clm_cases = summarize_clm(pd.DataFrame(clm_rows))
+        cth_summary, cth_cases = summarize_cth(pd.DataFrame(cth_rows))
+        self.assertEqual(len(clm_summary), 2)
+        self.assertEqual(len(clm_weighted), 2)
+        self.assertEqual(set(clm_cases["case_role"]), {"best", "median", "worst"})
+        self.assertEqual(int(cth_summary.iloc[0]["sample_count"]), 80)
+        self.assertEqual(set(cth_cases["case_role"]), {"best", "median", "worst"})
 
 
 if __name__ == "__main__":
