@@ -36,3 +36,84 @@ The smoke test writes:
 
 - `E:\GEO_Cloud_2024\manifests\meteosat_collection_options.json`
 - `E:\GEO_Cloud_2024\manifests\meteosat_smoke_2024-03-12_0000.json`
+
+## Local-to-server transfer batches
+
+Use `geo_ring_cloud_transfer_batch.ps1` to isolate a UTC date range in its own
+local staging directory.  The runner can restrict downloads to GOES and/or
+Meteosat, keeps `.part` downloads non-final, validates source files, and then
+creates a SHA-256 transfer manifest for manual Xftp/SFTP upload.
+
+Inventory uses parallel daily listings and an exact semantic cache. All provider
+traffic is forced to `direct_only`; proxy environment variables are removed by
+both the runner and Python downloader.
+
+S3 objects use bounded 4 MiB Range requests and resume from an existing `.part`
+size. Download concurrency is selectable from 1 to 16; EUMETSAT downloads are
+capped at 8 concurrent workers and use the authenticated Data Store rather than
+AWS.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\code\geo_cloud_download\geo_ring_cloud_transfer_batch.ps1 `
+  -BatchRoot "<local staging directory>" `
+  -ServerRoot "/data04/1/dhr" `
+  -StartDate 2024-04-02 `
+  -EndDate 2024-04-30 `
+  -Platforms "GOES-16,GOES-18" `
+  -InventoryWorkers 8 `
+  -DownloadWorkers 4 `
+  -S3RangeMiB 4
+```
+
+The completed batch contains a `transfer` directory with a JSON/CSV file list,
+SHA-256 values, server destination paths, a Chinese upload plan, and a status
+file.  Upload the data and the standalone
+`geo_ring_cloud_transfer_batch.py` verifier with Xftp.  On the server, run:
+
+```bash
+python3 geo_ring_cloud_transfer_batch.py verify \
+  --manifest geo_ring_cloud_transfer_20240401_20240403_manifest.json \
+  --report server_verification.json \
+  --location server
+```
+
+The transfer tool intentionally has no delete command.  Local raw files may be
+removed only after the server report is `PASS` and the user explicitly confirms
+the deletion.
+
+## Chinese transfer dashboard
+
+Start the local-only dashboard for one batch:
+
+```powershell
+python .\code\geo_cloud_download\geo_ring_cloud_transfer_dashboard.py `
+  --batch-root "<local batch directory>" `
+  --port 8765
+```
+
+Open `http://127.0.0.1:8765`.  The page shows the seven transfer gates,
+per-platform download progress, active `.part` files, disk space, Xftp
+confirmation, server verification, and cleanup approval. It can also create a
+new direct-only download batch with selectable platforms and worker counts. The confirmation
+actions write audit markers only and never delete raw files.  The complete
+Chinese procedure is in `geo_ring_cloud_data_transfer_operation_guide_cn.md`.
+
+The same dashboard can start or resume a conservative automatic SFTP upload.
+The SSH key passphrase must be unlocked in the user's `ssh-agent`; it is never
+stored by the dashboard or uploader:
+
+```powershell
+ssh-add "$env:USERPROFILE\.ssh\id_ed25519_node05"
+python .\code\geo_cloud_download\geo_ring_cloud_transfer_dashboard.py `
+  --batch-root "<local batch directory>" `
+  --ssh-target "dhr@210.45.127.28" `
+  --identity-file "$env:USERPROFILE\.ssh\id_ed25519_node05" `
+  --auto-upload-root "/data04/1/dhr/geo_ring_cloud_auto_upload" `
+  --port 8765
+```
+
+Remote payloads are transferred to `.part`, resumed after interruption, and
+renamed only after SFTP completion. The uploader then runs the standalone
+SHA-256 verifier on the server and retrieves its report. No local deletion is
+implemented.

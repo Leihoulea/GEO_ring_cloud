@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GEO 数据搬运控制台</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #12231e;
+      --muted: #68766f;
+      --paper: #f4f2ec;
+      --panel: #fffdf8;
+      --line: #d8d8cf;
+      --green: #12634c;
+      --green-2: #2d8a69;
+      --mint: #d9eee5;
+      --amber: #b66b20;
+      --amber-bg: #f7e6cf;
+      --red: #a13b35;
+      --red-bg: #f6dedb;
+      --blue: #276b85;
+      --locked: #929992;
+      --shadow: 0 18px 48px rgba(24, 55, 45, .08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 88% 2%, rgba(45,138,105,.12), transparent 28rem),
+        linear-gradient(180deg, #f8f7f2 0, var(--paper) 36rem);
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    }
+    button, a { font: inherit; }
+    .shell { width: min(1460px, calc(100% - 40px)); margin: 0 auto; padding: 26px 0 44px; }
+    header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+    .eyebrow { color: var(--green); font-weight: 800; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { font: 700 clamp(28px, 4vw, 48px)/1.08 Georgia, "Microsoft YaHei", serif; margin: 7px 0 9px; letter-spacing: -.035em; }
+    .subtitle { color: var(--muted); max-width: 800px; line-height: 1.65; }
+    .top-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; justify-content: flex-end; }
+    .button, .ghost {
+      border: 1px solid var(--line); border-radius: 999px; padding: 9px 14px; cursor: pointer;
+      background: var(--panel); color: var(--ink); text-decoration: none; transition: .18s ease;
+    }
+    .button:hover, .ghost:hover { transform: translateY(-1px); border-color: #aebbb4; }
+    .button.primary { background: var(--green); color: white; border-color: var(--green); }
+    .button.warn { background: var(--amber); color: white; border-color: var(--amber); }
+    .button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
+    .live { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; }
+    .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--green-2); box-shadow: 0 0 0 5px rgba(45,138,105,.12); }
+    .card { background: rgba(255,253,248,.92); border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); }
+    .batch-strip { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; padding: 17px 20px; margin-bottom: 16px; }
+    .batch-name { font-weight: 800; font-size: 17px; }
+    .path { color: var(--muted); font: 12px/1.5 Consolas, monospace; word-break: break-all; margin-top: 5px; }
+    .state-pill { border-radius: 999px; padding: 7px 12px; font-size: 12px; font-weight: 800; background: var(--mint); color: var(--green); }
+    .launcher { padding: 20px; margin-bottom: 16px; }
+    .launch-grid { display: grid; grid-template-columns: 1fr 1fr .8fr .8fr; gap: 12px; }
+    .field label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+    .field input, .field select { width: 100%; border: 1px solid var(--line); border-radius: 11px; padding: 10px 11px; background: #fff; color: var(--ink); }
+    .platform-choices { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+    .platform-choice { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 999px; padding: 8px 11px; background: #faf9f4; font-size: 12px; cursor: pointer; }
+    .launch-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+    .launch-note { color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; margin-bottom: 16px; }
+    .metric { padding: 18px; min-width: 0; }
+    .metric-value { font: 700 clamp(24px, 3vw, 36px)/1 Georgia, serif; letter-spacing: -.04em; }
+    .metric-label { color: var(--muted); font-size: 12px; margin-top: 8px; }
+    .track { height: 7px; background: #e4e5df; border-radius: 99px; margin-top: 13px; overflow: hidden; }
+    .fill { height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--green), #56a985); transition: width .35s ease; }
+    .pipeline { padding: 20px; margin-bottom: 16px; overflow-x: auto; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+    .section-head h2 { margin: 0; font-size: 17px; }
+    .hint { color: var(--muted); font-size: 12px; }
+    .stage-row { display: grid; grid-template-columns: repeat(7, minmax(145px, 1fr)); min-width: 1060px; gap: 8px; }
+    .stage { position: relative; border: 1px solid var(--line); border-radius: 14px; padding: 14px 13px; background: #faf9f4; min-height: 106px; }
+    .stage::after { content: "→"; position: absolute; right: -10px; top: 42px; z-index: 2; color: #a7aea8; font-weight: 900; }
+    .stage:last-child::after { display: none; }
+    .stage-index { font: 700 12px Consolas, monospace; color: var(--muted); }
+    .stage-title { font-weight: 800; margin: 7px 0 5px; }
+    .stage-detail { color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .stage.pass { border-color: #a6d2bf; background: #eff8f3; }
+    .stage.running { border-color: #9fc5d5; background: #eef7fa; }
+    .stage.warning { border-color: #e4bd8d; background: #fff8ed; }
+    .stage.fail { border-color: #dfaaa6; background: #fff1ef; }
+    .stage.locked { opacity: .65; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(340px, .8fr); gap: 16px; margin-bottom: 16px; }
+    .panel { padding: 20px; min-width: 0; }
+    .progress-big { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin: 8px 0 14px; }
+    .progress-number { font: 700 clamp(38px, 6vw, 70px)/.9 Georgia, serif; letter-spacing: -.06em; }
+    .progress-copy { color: var(--muted); text-align: right; line-height: 1.5; }
+    .progress-track { height: 15px; background: #e4e5df; border-radius: 99px; overflow: hidden; }
+    .progress-track .fill { background: linear-gradient(90deg, #0f5a45, #58b28b); }
+    .facts { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 9px; margin-top: 15px; }
+    .fact { border-top: 1px solid var(--line); padding-top: 10px; }
+    .fact b { display: block; font-size: 17px; }
+    .fact span { color: var(--muted); font-size: 11px; }
+    .gate { border: 1px solid var(--line); border-radius: 15px; padding: 13px; margin-top: 10px; }
+    .gate-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 800; }
+    .gate p { color: var(--muted); font-size: 12px; line-height: 1.55; margin: 7px 0 10px; }
+    .badge { border-radius: 999px; padding: 4px 8px; font-size: 11px; background: #eceee9; color: #58645e; white-space: nowrap; }
+    .badge.pass { background: var(--mint); color: var(--green); }
+    .badge.fail { background: var(--red-bg); color: var(--red); }
+    .command { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; border: 1px solid var(--line); background: #f2f3ee; border-radius: 12px; padding: 10px; }
+    code { font: 12px/1.5 Consolas, monospace; color: #28443a; word-break: break-all; }
+    .copy { border: 0; background: transparent; color: var(--green); cursor: pointer; font-weight: 800; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid #e8e7e0; text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-weight: 700; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .bar-cell { min-width: 130px; }
+    .small-track { height: 7px; background: #e3e5df; border-radius: 99px; overflow: hidden; }
+    .small-fill { height: 100%; background: var(--green-2); border-radius: inherit; }
+    .lower { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .empty { color: var(--muted); padding: 18px 4px; text-align: center; }
+    .error { display: none; border: 1px solid #dda39e; background: var(--red-bg); color: var(--red); border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; }
+    .toast { position: fixed; right: 22px; bottom: 22px; max-width: 360px; border-radius: 14px; padding: 13px 16px; background: var(--ink); color: white; box-shadow: var(--shadow); opacity: 0; transform: translateY(12px); pointer-events: none; transition: .2s ease; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    @media (max-width: 980px) { .metrics { grid-template-columns: 1fr 1fr; } .layout, .lower { grid-template-columns: 1fr; } .launch-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 620px) { .shell { width: min(100% - 22px, 1460px); padding-top: 16px; } header, .batch-strip { display: block; } .top-actions { justify-content: flex-start; margin-top: 14px; } .metrics { grid-template-columns: 1fr; } .facts { grid-template-columns: 1fr 1fr; } .state-pill { display: inline-block; margin-top: 12px; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div>
+        <div class="eyebrow">Geo Ring Cloud · Data Operations</div>
+        <h1>GEO 数据搬运控制台</h1>
+        <div class="subtitle">把本地下载、自动 SFTP／Xftp 上传、服务器校验和本地清理许可放在一条可审计的流水线上。自动上传支持断点续传，但永远不会自动删除本地原始数据。</div>
+      </div>
+      <div class="top-actions">
+        <span class="live"><span class="pulse"></span><span id="updated">连接中</span></span>
+        <a class="ghost" href="/guide" target="_blank" rel="noopener">中文操作说明</a>
+        <button class="button" id="refreshButton" type="button">立即刷新</button>
+      </div>
+    </header>
+
+    <div id="error" class="error"></div>
+
+    <section class="batch-strip card">
+      <div><div class="batch-name" id="batchName">正在读取批次</div><div class="path" id="batchRoot">--</div></div>
+      <div class="state-pill" id="overallState">加载中</div>
+    </section>
+
+    <section class="launcher card">
+      <div class="section-head"><h2>创建一键下载批次</h2><div class="hint">按天并行清单 · 精确缓存 · 强制直连</div></div>
+      <div class="launch-grid">
+        <div class="field"><label for="startDate">开始日期（UTC）</label><input id="startDate" type="date" value="2024-04-02"></div>
+        <div class="field"><label for="endDate">结束日期（UTC）</label><input id="endDate" type="date" value="2024-04-30"></div>
+        <div class="field"><label for="inventoryWorkers">清单并行数</label><select id="inventoryWorkers"><option>4</option><option selected>8</option><option>12</option><option>16</option></select></div>
+        <div class="field"><label for="downloadWorkers">下载并行数</label><select id="downloadWorkers"><option>2</option><option selected>4</option><option>6</option><option>8</option><option>12</option><option>16</option></select></div>
+      </div>
+      <div class="platform-choices" id="platformChoices">
+        <label class="platform-choice"><input type="checkbox" value="GOES-16" checked>GOES-16</label>
+        <label class="platform-choice"><input type="checkbox" value="GOES-18" checked>GOES-18</label>
+        <label class="platform-choice"><input type="checkbox" value="Himawari-9">Himawari-9</label>
+        <label class="platform-choice"><input type="checkbox" value="Meteosat-0deg">Meteosat 0°</label>
+        <label class="platform-choice"><input type="checkbox" value="Meteosat-IODC">Meteosat IODC</label>
+        <span class="platform-choice" title="CM SAF 要求注册并登录后提交订单，不能与匿名对象存储使用同一种直下载流程。">
+          <input type="checkbox" value="CLAAS3-0deg" disabled>CLAAS-3（CMA/CTX/CPP）· 需先下单
+        </span>
+        <a class="platform-choice" href="https://wui.cmsaf.eu/safira/action/viewDoiDetails?acronym=CLAAS_V003" target="_blank" rel="noopener">打开 CLAAS-3 官方订单页 ↗</a>
+      </div>
+      <div class="launch-actions">
+        <div class="launch-note"><label><input id="refreshInventory" type="checkbox"> 强制刷新清单（通常不勾选，重复任务会复用缓存）</label><br>网络模式固定为 <b>direct_only</b>，不会读取或启用代理；任务完成后不会自动删除本地文件。CLAAS-3 是 CM SAF 订单型数据源，须先登录官方页面下单，不能在此处伪装成直接下载。</div>
+        <button class="button primary" id="startDownloadButton" type="button">创建并启动新批次</button>
+      </div>
+    </section>
+
+    <section class="metrics">
+      <div class="metric card"><div class="metric-value" id="downloadPercent">--</div><div class="metric-label">本地下载完成率</div><div class="track"><div class="fill" id="downloadMiniBar"></div></div></div>
+      <div class="metric card"><div class="metric-value" id="fileCount">--</div><div class="metric-label">已完成 / 目标文件</div></div>
+      <div class="metric card"><div class="metric-value" id="partCount">--</div><div class="metric-label">活动 `.part` 文件</div></div>
+      <div class="metric card"><div class="metric-value" id="diskFree">--</div><div class="metric-label">本地磁盘剩余空间</div><div class="track"><div class="fill" id="diskMiniBar"></div></div></div>
+    </section>
+
+    <section class="pipeline card">
+      <div class="section-head"><h2>七步门禁</h2><div class="hint">只有服务器复核 PASS 后，清理许可才会解锁</div></div>
+      <div class="stage-row" id="stageRow"></div>
+    </section>
+
+    <section class="layout">
+      <div class="panel card">
+        <div class="section-head"><h2>本地下载</h2><div class="hint" id="downloadUpdated">--</div></div>
+        <div class="progress-big"><div class="progress-number" id="bigPercent">--</div><div class="progress-copy" id="progressCopy">等待数据</div></div>
+        <div class="progress-track"><div class="fill" id="downloadBar"></div></div>
+        <div class="facts">
+          <div class="fact"><b id="completedBytes">--</b><span>日志确认体量</span></div>
+          <div class="fact"><b id="recentHour">--</b><span>近一小时完成</span></div>
+          <div class="fact"><b id="eta">--</b><span>预计剩余时间</span></div>
+          <div class="fact"><b id="partSpeed">--</b><span>临时文件增长</span></div>
+        </div>
+        <div class="section-head" style="margin-top:24px"><h2>卫星进度</h2><div class="hint">按远端清单统计</div></div>
+        <div id="platformTable"></div>
+      </div>
+
+      <aside class="panel card">
+        <div class="section-head"><h2>传输与复核</h2><div class="hint">自动与人工操作均留下审计记录</div></div>
+        <div class="gate">
+          <div class="gate-title">传输清单 <span class="badge" id="manifestBadge">等待</span></div>
+          <p id="manifestCopy">下载结束后生成逐文件大小和 SHA-256。</p>
+        </div>
+        <div class="gate">
+          <div class="gate-title">自动 SFTP 上传 <span class="badge" id="autoUploadBadge">等待</span></div>
+          <p id="autoUploadCopy">传输清单就绪后可一键开始；中断后再次点击即可从服务器 `.part` 文件续传。</p>
+          <div class="path" id="autoUploadPath">服务器目录：--</div>
+          <div class="track"><div class="fill" id="autoUploadBar"></div></div>
+          <button class="button primary" id="autoUploadButton" type="button" disabled style="margin-top:12px">开始／续传自动上传</button>
+        </div>
+        <div class="gate">
+          <div class="gate-title">人工 Xftp 备用 <span class="badge" id="xftpBadge">未确认</span></div>
+          <p>只有改用 Xftp 手工上传时才点击；确认队列全部完成且无失败后记录状态。</p>
+          <button class="button primary" id="xftpButton" type="button" disabled>标记 Xftp 已完成</button>
+        </div>
+        <div class="gate">
+          <div class="gate-title">服务器 SHA-256 <span class="badge" id="serverBadge">等待</span></div>
+          <p>在服务器运行以下只读验证命令，再把报告下载回批次的 `transfer` 目录。</p>
+          <div class="command"><code id="serverCommand">--</code><button class="copy" id="copyCommand" type="button">复制</button></div>
+        </div>
+        <div class="gate">
+          <div class="gate-title">本地清理许可 <span class="badge" id="cleanupBadge">锁定</span></div>
+          <p>按钮只记录明确许可，不执行删除。服务器未PASS时无法点击。</p>
+          <button class="button warn" id="cleanupButton" type="button" disabled>确认允许清理</button>
+        </div>
+      </aside>
+    </section>
+
+    <section class="lower">
+      <div class="panel card">
+        <div class="section-head"><h2>活动临时文件</h2><div class="hint" id="partHint">--</div></div>
+        <div id="partTable"></div>
+      </div>
+      <div class="panel card">
+        <div class="section-head"><h2>最近完成记录</h2><div class="hint">UTC</div></div>
+        <div id="recentTable"></div>
+      </div>
+    </section>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const nf = new Intl.NumberFormat("zh-CN");
+    const stateNames = {
+      running: "本地处理中", blocked: "服务器复核失败", ready_for_xftp: "等待上传",
+      launch_failed: "批次启动失败",
+      auto_uploading: "自动上传中", upload_failed: "自动上传失败",
+      awaiting_server_verification: "等待服务器复核", server_verified: "服务器已验证",
+      cleanup_approved: "已批准清理（未删除）"
+    };
+    const statusNames = {pass:"通过", running:"进行中", pending:"等待", warning:"警告", fail:"失败", locked:"锁定"};
+    function esc(value){ return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch])); }
+    function pct(value){ return Number(value || 0).toFixed(1) + "%"; }
+    function setWidth(id, value){ $(id).style.width = Math.max(0, Math.min(100, Number(value || 0))) + "%"; }
+    function eta(hours){ if(hours === null || hours === undefined) return "估算中"; if(hours < 1) return Math.max(1, Math.round(hours*60)) + " 分钟"; return Number(hours).toFixed(1) + " 小时"; }
+    function toast(message){ const node=$("toast"); node.textContent=message; node.classList.add("show"); setTimeout(()=>node.classList.remove("show"),2600); }
+    function badge(node, status, text){ node.className = "badge " + (status === "PASS" || status === true ? "pass" : status === "FAIL" ? "fail" : ""); node.textContent = text; }
+
+    function renderStages(stages){
+      $("stageRow").innerHTML = stages.map((item,index)=>`<div class="stage ${esc(item.status)}"><div class="stage-index">0${index+1} · ${esc(statusNames[item.status] || item.status)}</div><div class="stage-title">${esc(item.title)}</div><div class="stage-detail">${esc(item.detail)}</div></div>`).join("");
+    }
+    function renderPlatforms(items){
+      if(!items.length){ $("platformTable").innerHTML='<div class="empty">等待远端清单</div>'; return; }
+      $("platformTable").innerHTML='<table><tr><th>平台</th><th class="num">完成</th><th class="num">目标</th><th>进度</th></tr>'+items.map(x=>`<tr><td><b>${esc(x.platform)}</b></td><td class="num">${nf.format(x.completed)}</td><td class="num">${nf.format(x.found)}</td><td class="bar-cell"><div class="small-track"><div class="small-fill" style="width:${Math.min(100,x.percent)}%"></div></div></td></tr>`).join("")+'</table>';
+    }
+    function renderParts(parts){
+      $("partHint").textContent = `${parts.count || 0} 个 · ${parts.total_rate_label || "测量中"}`;
+      if(!parts.items?.length){ $("partTable").innerHTML='<div class="empty">当前没有 `.part`；可能处于清单、校验、重试或已完成状态。</div>'; return; }
+      $("partTable").innerHTML='<table><tr><th>文件</th><th>大小</th><th>增长</th></tr>'+parts.items.slice(0,8).map(x=>`<tr><td><code title="${esc(x.path)}">${esc(x.name)}</code></td><td>${esc(x.size_label)}</td><td>${esc(x.rate_label)}</td></tr>`).join("")+'</table>';
+    }
+    function renderRecent(items){
+      if(!items?.length){ $("recentTable").innerHTML='<div class="empty">暂无完成记录</div>'; return; }
+      $("recentTable").innerHTML='<table><tr><th>时次</th><th>平台</th><th>产品</th></tr>'+items.slice().reverse().map(x=>`<tr><td><code>${esc((x.target || "").replace("T"," ").replace("+00:00","Z"))}</code></td><td>${esc(x.platform)}</td><td>${esc(x.product)}</td></tr>`).join("")+'</table>';
+    }
+
+    async function refresh(){
+      try{
+        const data = await fetch('/api/status',{cache:'no-store'}).then(async response=>{ if(!response.ok) throw new Error(await response.text()); return response.json(); });
+        $("error").style.display='none';
+        $("updated").textContent = '更新 ' + new Date(data.generated_at).toLocaleTimeString('zh-CN');
+        $("batchName").textContent = data.batch_name;
+        $("batchRoot").textContent = data.batch_root;
+        $("overallState").textContent = stateNames[data.overall_state] || data.overall_state;
+        const batchRunning=data.raw_batch_status?.status==='running' || ['STARTING','RUNNING'].includes(data.launcher_status?.status);
+        $("startDownloadButton").disabled=batchRunning;
+        $("startDownloadButton").title=batchRunning?'当前批次仍在运行，完成后可创建下一批次':'';
+        const download=data.download.combined || {}, disk=data.disk || {}, parts=data.active_parts || {items:[]};
+        $("downloadPercent").textContent=pct(download.percent); setWidth('downloadMiniBar',download.percent);
+        $("fileCount").textContent=`${nf.format(download.overall_completed || 0)} / ${nf.format(download.total || 0)}`;
+        $("partCount").textContent=nf.format(parts.count || 0);
+        $("diskFree").textContent=disk.free_label || '--'; setWidth('diskMiniBar',100-(disk.used_percent || 0));
+        $("bigPercent").textContent=pct(download.percent); setWidth('downloadBar',download.percent);
+        const s3=data.download.s3 || {}, met=data.download.meteosat || {};
+        $("progressCopy").innerHTML=`已完成 <b>${nf.format(download.overall_completed || 0)}</b> / ${nf.format(download.total || 0)} 个<br>失败记录 ${nf.format(download.failed || 0)}`;
+        $("completedBytes").textContent=s3.completed_bytes_label || met.completed_bytes_label || '--';
+        $("recentHour").textContent=nf.format((s3.recent_hour_files || 0)+(met.recent_hour_files || 0))+' 个';
+        const etaValues=[s3.eta_hours,met.eta_hours].filter(x=>x!==null&&x!==undefined); $("eta").textContent=eta(etaValues.length?Math.max(...etaValues):null);
+        $("partSpeed").textContent=parts.total_rate_label || '测量中';
+        $("downloadUpdated").textContent=s3.updated_at ? '日志更新 '+new Date(s3.updated_at).toLocaleTimeString('zh-CN') : '等待日志';
+        renderStages(data.pipeline_stages || []); renderPlatforms(data.platforms || []); renderParts(parts); renderRecent(data.download.recent || []);
+
+        const manifest=data.transfer_manifest || {}, autoUpload=data.auto_upload || {}, uploadConfig=data.auto_upload_config || {}, xftp=data.xftp || {}, server=data.server_verification || {}, cleanup=data.cleanup_approval || {};
+        badge($("manifestBadge"),manifest.status,manifest.exists ? manifest.status : '等待');
+        $("manifestCopy").textContent=manifest.exists ? `${nf.format(manifest.file_count || 0)} 个文件，${manifest.total_size_label || '--'}` : '下载结束后生成逐文件大小和 SHA-256。';
+        const uploadRunning=['RUNNING','STARTING'].includes(autoUpload.status);
+        const uploadPassed=autoUpload.status==='PASS';
+        badge($("autoUploadBadge"),autoUpload.status,uploadRunning?'进行中':uploadPassed?'PASS':autoUpload.status==='FAIL'?'FAIL':'等待');
+        setWidth('autoUploadBar',autoUpload.percent || 0);
+        $("autoUploadPath").textContent='服务器目录：'+(uploadConfig.server_root || '--');
+        $("autoUploadCopy").textContent=uploadRunning
+          ? `${nf.format(autoUpload.completed_files || 0)} / ${nf.format(autoUpload.file_count || 0)} 个文件，${pct(autoUpload.percent)}；${autoUpload.current_file || autoUpload.phase || ''}`
+          : uploadPassed
+            ? `自动上传与服务器 SHA-256 复核均已通过，共 ${nf.format(autoUpload.completed_files || 0)} 个文件。`
+            : autoUpload.status==='FAIL'
+              ? `失败：${autoUpload.error || '请查看自动上传日志；修正后可续传。'}`
+              : uploadConfig.enabled
+                ? '传输清单就绪后可一键开始；中断后再次点击即可续传。密钥口令只由本机 ssh-agent 管理。'
+                : '自动上传尚未配置 SSH 目标或密钥文件。';
+        $("autoUploadButton").disabled=!manifest.exists || manifest.status!=='READY_FOR_XFTP_UPLOAD' || uploadRunning || uploadPassed || !uploadConfig.enabled;
+        badge($("xftpBadge"),xftp.exists,xftp.exists?(xftp.payload?.status==='AUTOMATED_SFTP_COMPLETE'?'自动上传完成':'已人工确认'):'未确认');
+        $("xftpButton").disabled=!manifest.exists || xftp.exists || uploadRunning;
+        badge($("serverBadge"),server.status,server.status || '等待');
+        $("serverCommand").textContent=data.server_verify_command;
+        badge($("cleanupBadge"),cleanup.exists,cleanup.exists?'已批准':'锁定');
+        $("cleanupButton").disabled=server.status!=='PASS' || !xftp.exists || cleanup.exists;
+      }catch(error){ $("error").style.display='block'; $("error").textContent='读取状态失败：'+error.message; }
+    }
+    async function postAction(path){
+      const response=await fetch(path,{method:'POST'}); const data=await response.json();
+      if(!response.ok || !data.ok) throw new Error(data.error || '操作失败');
+      await refresh(); return data;
+    }
+    async function postJson(path,payload){
+      const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const data=await response.json();
+      if(!response.ok || !data.ok) throw new Error(data.error || '操作失败');
+      await refresh(); return data;
+    }
+    $("refreshButton").addEventListener('click',refresh);
+    $("startDownloadButton").addEventListener('click',async()=>{
+      const platforms=[...document.querySelectorAll('#platformChoices input:checked')].map(node=>node.value);
+      const payload={start_date:$("startDate").value,end_date:$("endDate").value,platforms,inventory_workers:Number($("inventoryWorkers").value),download_workers:Number($("downloadWorkers").value),refresh_inventory:$("refreshInventory").checked};
+      if(!platforms.length){toast('请至少选择一个卫星平台');return;}
+      if(!confirm(`启动 ${payload.start_date} 至 ${payload.end_date} 的新批次？\n清单按天并行且只走直连；不会自动删除本地文件。`)) return;
+      const button=$("startDownloadButton"); button.disabled=true;
+      try{const data=await postJson('/api/actions/start-download',payload);toast('新批次已在后台启动：'+data.download.batch_root);}catch(error){toast(error.message);}finally{button.disabled=false;}
+    });
+    $("autoUploadButton").addEventListener('click',async()=>{ if(!confirm('开始或续传到专用服务器目录？程序不会删除本地文件，也不会覆盖大小异常的服务器正式文件。')) return; try{await postAction('/api/actions/start-auto-upload');toast('自动上传已启动；页面将持续刷新进度');}catch(error){toast(error.message);} });
+    $("xftpButton").addEventListener('click',async()=>{ if(!confirm('确认 Xftp 队列已经全部完成且无失败？此操作只写标记，不上传或删除文件。')) return; try{await postAction('/api/actions/mark-xftp-complete');toast('已记录 Xftp 完成确认');}catch(error){toast(error.message);} });
+    $("cleanupButton").addEventListener('click',async()=>{ if(!confirm('确认服务器验证为 PASS，并允许后续单独执行本地清理？本按钮本身不会删除数据。')) return; try{await postAction('/api/actions/approve-cleanup');toast('已记录清理许可；尚未删除任何文件');}catch(error){toast(error.message);} });
+    $("copyCommand").addEventListener('click',async()=>{ try{await navigator.clipboard.writeText($("serverCommand").textContent);toast('服务器验证命令已复制');}catch(_){toast('浏览器未允许复制，请手工选择命令');} });
+    refresh(); setInterval(refresh,5000);
+  </script>
+</body>
+</html>

@@ -11,35 +11,46 @@ from __future__ import annotations
 import argparse
 import calendar
 import csv
+import hashlib
 import json
 import os
 import re
 import shutil
 import sys
+import threading
 import time
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
 if str(CORE_CODE_ROOT) not in sys.path:
     sys.path.insert(0, str(CORE_CODE_ROOT))
 
-from geo_ring_cloud.paths import EXTERNAL_GEO_CLOUD_ROOT  # noqa: E402
+from geo_ring_cloud.lineage import write_manifest as write_lineage_manifest  # noqa: E402
+from geo_ring_cloud.paths import EXTERNAL_GEO_CLOUD_ROOT, PROJECT_ROOT  # noqa: E402
 
 
+COMPONENT_ROLE = "data_download_orchestrator"
 DOWNLOAD_MONTHS = [(2024, 1), (2024, 3), (2024, 5)]
 TEST_DAY = "2024-03-12"
 DEFAULT_ROOT = EXTERNAL_GEO_CLOUD_ROOT
 RETRY_DELAYS_SECONDS = [5, 10, 20, 40, 60, 120, 180, 300]
-S3_CHUNK_SIZE = 1024 * 1024
+DEFAULT_S3_RANGE_MIB = 4
+DEFAULT_INVENTORY_WORKERS = 8
+MAX_S3_WORKERS = 16
+MAX_INVENTORY_WORKERS = 16
+MAX_METEOSAT_WORKERS = 8
 EUMETSAT_CHUNK_SIZE = 1024 * 512
 EUMETSAT_SEARCH_URL = "https://api.eumetsat.int/data/search-products/1.0.0/os"
 EUMETSAT_TOKEN_URL = "https://api.eumetsat.int/token"
 _EUMETSAT_BEARER_TOKEN: Optional[str] = None
+_EUMETSAT_TOKEN_LOCK = threading.Lock()
+INVENTORY_SCHEMA_VERSION = 2
+RELATED_STAGE_IDS = ("stage_00", "stage_00f")
 
 GOES_CONFIG = {
     "GOES-16": {
@@ -72,6 +83,12 @@ METEOSAT_CONFIG = {
         "EO:EUM:DAT:MSG:CTH-IODC": "CTH",
     },
 }
+
+PLATFORM_CHOICES = tuple(
+    list(GOES_CONFIG)
+    + [HIMAWARI_CONFIG["platform"]]
+    + list(METEOSAT_CONFIG)
+)
 
 MANIFEST_FIELDS = [
     "target_time_utc",
@@ -124,6 +141,78 @@ def iter_target_times_between(start_date: str, end_date: str) -> Iterable[dateti
         for hour in range(24):
             yield current.replace(hour=hour)
         current += timedelta(days=1)
+
+
+def iter_days_between(start_date: str, end_date: str) -> Iterable[datetime]:
+    start = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+    end = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)
+    current = start
+    while current <= end:
+        yield current
+        current += timedelta(days=1)
+
+
+def validate_worker_count(value: int, maximum: int, label: str) -> int:
+    if value < 1 or value > maximum:
+        raise ValueError(f"{label} must be between 1 and {maximum}, got {value}")
+    return value
+
+
+def disable_proxy_environment() -> None:
+    """Force every supported provider to use a direct network connection."""
+    for name in (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "GEO_CLOUD_GOES_PROXY",
+        "GEO_CLOUD_HIMAWARI_PROXY",
+        "GEO_CLOUD_S3_PROXY",
+        "GEO_RING_LOCAL_PROXY",
+    ):
+        os.environ.pop(name, None)
+    os.environ["NO_PROXY"] = "*"
+    os.environ["no_proxy"] = "*"
+
+
+def inventory_request(
+    kind: str,
+    start_date: str,
+    end_date: str,
+    platforms: Iterable[str],
+    inventory_workers: int,
+) -> dict:
+    semantic_payload = {
+        "schema_version": INVENTORY_SCHEMA_VERSION,
+        "kind": kind,
+        "start_date": start_date,
+        "end_date": end_date,
+        "platforms": sorted(set(platforms)),
+        "network_mode": "direct_only",
+    }
+    canonical = json.dumps(semantic_payload, sort_keys=True, separators=(",", ":"))
+    payload = {**semantic_payload, "inventory_workers": inventory_workers}
+    payload["fingerprint"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return payload
+
+
+def inventory_cache_matches(
+    csv_path: Path,
+    lineage_path: Path,
+    request: dict,
+) -> bool:
+    if not csv_path.is_file() or not lineage_path.is_file():
+        return False
+    try:
+        payload = json.loads(lineage_path.read_text(encoding="utf-8"))
+        if payload.get("inventory_fingerprint") != request["fingerprint"]:
+            return False
+        rows = read_manifest(csv_path)
+        return bool(rows) and int(payload.get("row_count", -1)) == len(rows)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return False
 
 
 def ensure_dirs(root: Path) -> None:
@@ -183,22 +272,22 @@ def read_manifest(path: Path) -> list[dict]:
         return list(csv.DictReader(handle))
 
 
-def get_s3_client(proxy_url: str = ""):
+def get_s3_client():
     import boto3
     from botocore import UNSIGNED
     from botocore.config import Config
 
-    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else {}
-    return boto3.client("s3", config=Config(signature_version=UNSIGNED, proxies=proxies))
-
-
-def s3_proxy_for_row(row: dict) -> str:
-    platform = row.get("platform", "")
-    if platform.startswith("GOES-"):
-        return os.environ.get("GEO_CLOUD_GOES_PROXY", "").strip()
-    if platform.startswith("Himawari-"):
-        return os.environ.get("GEO_CLOUD_HIMAWARI_PROXY", "").strip()
-    return os.environ.get("GEO_CLOUD_S3_PROXY", "").strip()
+    return boto3.client(
+        "s3",
+        config=Config(
+            signature_version=UNSIGNED,
+            proxies={},
+            connect_timeout=20,
+            read_timeout=45,
+            retries={"max_attempts": 3, "mode": "standard"},
+            tcp_keepalive=True,
+        ),
+    )
 
 
 def list_s3_objects(s3_client, bucket: str, prefix: str) -> list[dict]:
@@ -250,12 +339,19 @@ def pick_goes_candidate(objects: list[dict], target_time: datetime) -> Optional[
     return min(candidates, key=lambda item: abs((item.start_time - target_time).total_seconds()))
 
 
-def inventory_goes(root: Path, s3_client, target_time: datetime) -> list[dict]:
+def inventory_goes(
+    root: Path,
+    s3_client,
+    target_time: datetime,
+    platforms: Optional[set[str]] = None,
+) -> list[dict]:
     rows: list[dict] = []
     year = target_time.strftime("%Y")
     doy = target_time.strftime("%j")
     hour = target_time.strftime("%H")
     for platform, cfg in GOES_CONFIG.items():
+        if platforms is not None and platform not in platforms:
+            continue
         for full_product, short_product in cfg["short_products"].items():
             prefix = f"{full_product}/{year}/{doy}/{hour}/"
             try:
@@ -365,6 +461,125 @@ def inventory_himawari(root: Path, s3_client, target_time: datetime) -> list[dic
     return rows
 
 
+def inventory_goes_day(root: Path, day: datetime, platform: str, full_product: str) -> list[dict]:
+    """List one daily prefix once, then select all 24 hourly targets locally."""
+    cfg = GOES_CONFIG[platform]
+    short_product = cfg["short_products"][full_product]
+    prefix = f"{full_product}/{day:%Y}/{day:%j}/"
+    try:
+        objects = list_s3_objects(get_s3_client(), cfg["bucket"], prefix)
+        listing_error = ""
+    except Exception as exc:
+        objects = []
+        listing_error = f"{type(exc).__name__}: {exc}"
+
+    rows: list[dict] = []
+    for hour in range(24):
+        target_time = day.replace(hour=hour)
+        candidate = pick_goes_candidate(objects, target_time)
+        if candidate:
+            filename = Path(candidate.remote_id).name
+            rows.append(
+                base_row(
+                    target_time,
+                    platform,
+                    cfg["service"],
+                    short_product,
+                    "",
+                    "s3",
+                    cfg["bucket"],
+                    candidate.remote_id,
+                    candidate.start_time,
+                    candidate.end_time,
+                    candidate.size_bytes or "",
+                    "found",
+                    local_path_for(root, platform, short_product, target_time, filename),
+                    f"daily_prefix={prefix};{candidate.note}",
+                )
+            )
+        else:
+            rows.append(
+                base_row(
+                    target_time,
+                    platform,
+                    cfg["service"],
+                    short_product,
+                    "",
+                    "s3",
+                    cfg["bucket"],
+                    "",
+                    None,
+                    None,
+                    "",
+                    "error" if listing_error else "missing",
+                    "",
+                    listing_error or f"no_candidate_within_5min daily_prefix={prefix}",
+                )
+            )
+    return rows
+
+
+def inventory_himawari_day(root: Path, day: datetime) -> list[dict]:
+    """List one Himawari daily prefix once and build the hourly rows locally."""
+    cfg = HIMAWARI_CONFIG
+    prefix = f"{cfg['base_prefix']}/{day:%Y/%m/%d}/"
+    try:
+        objects = list_s3_objects(get_s3_client(), cfg["bucket"], prefix)
+        listing_error = ""
+    except Exception as exc:
+        objects = []
+        listing_error = f"{type(exc).__name__}: {exc}"
+
+    rows: list[dict] = []
+    for hour in range(24):
+        target_time = day.replace(hour=hour)
+        hour_prefix = f"{prefix}{hour:02d}00/"
+        hourly = [obj for obj in objects if obj.get("Key", "").startswith(hour_prefix)]
+        for file_prefix, short_product in cfg["prefixes"].items():
+            matching = [obj for obj in hourly if Path(obj["Key"]).name.startswith(file_prefix)]
+            if matching:
+                obj = min(matching, key=lambda item: item["Key"])
+                filename = Path(obj["Key"]).name
+                rows.append(
+                    base_row(
+                        target_time,
+                        cfg["platform"],
+                        cfg["service"],
+                        short_product,
+                        "",
+                        "s3",
+                        cfg["bucket"],
+                        obj["Key"],
+                        target_time,
+                        None,
+                        int(obj.get("Size", 0)),
+                        "found",
+                        local_path_for(root, cfg["platform"], short_product, target_time, filename),
+                        f"daily_prefix={prefix}",
+                    )
+                )
+            else:
+                rows.append(
+                    base_row(
+                        target_time,
+                        cfg["platform"],
+                        cfg["service"],
+                        short_product,
+                        "",
+                        "s3",
+                        cfg["bucket"],
+                        "",
+                        None,
+                        None,
+                        "",
+                        "error" if listing_error else "missing",
+                        "",
+                        listing_error or f"no_file_prefix={file_prefix} hourly_prefix={hour_prefix}",
+                    )
+                )
+    return rows
+
+
 def get_eumdac_datastore():
     import eumdac
 
@@ -388,49 +603,59 @@ def get_eumetsat_bearer_token() -> str:
     if not key or not secret:
         raise RuntimeError("EUMETSAT_CONSUMER_KEY/SECRET are not set")
 
-    last_error: Optional[str] = None
-    for delay_index, delay in enumerate([0] + RETRY_DELAYS_SECONDS[:5]):
-        if delay:
-            time.sleep(delay)
-        try:
-            response = requests.post(
-                EUMETSAT_TOKEN_URL,
-                auth=(key, secret),
-                data={"grant_type": "client_credentials"},
-                timeout=60,
-            )
-            response.raise_for_status()
-            token = response.json().get("access_token")
-            if not token:
-                raise RuntimeError("token_response_missing_access_token")
-            _EUMETSAT_BEARER_TOKEN = str(token)
+    with _EUMETSAT_TOKEN_LOCK:
+        if _EUMETSAT_BEARER_TOKEN:
             return _EUMETSAT_BEARER_TOKEN
-        except Exception as exc:
-            last_error = f"{type(exc).__name__}: {exc}"
-            if delay_index == len(RETRY_DELAYS_SECONDS[:5]):
-                raise RuntimeError(f"eumetsat_token_failed: {last_error}") from exc
+        last_error: Optional[str] = None
+        session = requests.Session()
+        session.trust_env = False
+        for delay_index, delay in enumerate([0] + RETRY_DELAYS_SECONDS[:5]):
+            if delay:
+                time.sleep(delay)
+            try:
+                response = session.post(
+                    EUMETSAT_TOKEN_URL,
+                    auth=(key, secret),
+                    data={"grant_type": "client_credentials"},
+                    timeout=60,
+                )
+                response.raise_for_status()
+                token = response.json().get("access_token")
+                if not token:
+                    raise RuntimeError("token_response_missing_access_token")
+                _EUMETSAT_BEARER_TOKEN = str(token)
+                return _EUMETSAT_BEARER_TOKEN
+            except Exception as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                if delay_index == len(RETRY_DELAYS_SECONDS[:5]):
+                    raise RuntimeError(f"eumetsat_token_failed: {last_error}") from exc
     raise RuntimeError(f"eumetsat_token_failed: {last_error}")
 
 
-def eumetsat_search_features(collection_id: str, target_time: datetime) -> list[dict]:
+def eumetsat_search_features_range(
+    collection_id: str,
+    start_search: datetime,
+    end_search: datetime,
+    count: int = 1000,
+) -> list[dict]:
     import requests
 
-    start_search = target_time - timedelta(minutes=5)
-    end_search = target_time + timedelta(minutes=20)
     params = {
         "format": "json",
         "pi": collection_id,
         "si": 0,
-        "c": 100,
+        "c": count,
         "dtstart": start_search.isoformat(),
         "dtend": end_search.isoformat(),
     }
     last_error: Optional[str] = None
+    session = requests.Session()
+    session.trust_env = False
     for delay_index, delay in enumerate([0] + RETRY_DELAYS_SECONDS[:6]):
         if delay:
             time.sleep(delay)
         try:
-            response = requests.get(
+            response = session.get(
                 EUMETSAT_SEARCH_URL,
                 headers={"Authorization": f"Bearer {get_eumetsat_bearer_token()}"},
                 params=params,
@@ -439,7 +664,7 @@ def eumetsat_search_features(collection_id: str, target_time: datetime) -> list[
             if response.status_code == 401:
                 global _EUMETSAT_BEARER_TOKEN
                 _EUMETSAT_BEARER_TOKEN = None
-                response = requests.get(
+                response = session.get(
                     EUMETSAT_SEARCH_URL,
                     headers={"Authorization": f"Bearer {get_eumetsat_bearer_token()}"},
                     params=params,
@@ -453,6 +678,15 @@ def eumetsat_search_features(collection_id: str, target_time: datetime) -> list[
             if delay_index == len(RETRY_DELAYS_SECONDS[:6]):
                 raise RuntimeError(f"eumetsat_search_failed: {last_error}") from exc
     raise RuntimeError(f"eumetsat_search_failed: {last_error}")
+
+
+def eumetsat_search_features(collection_id: str, target_time: datetime) -> list[dict]:
+    return eumetsat_search_features_range(
+        collection_id,
+        target_time - timedelta(minutes=5),
+        target_time + timedelta(minutes=20),
+        count=100,
+    )
 
 
 def product_time_attr(product, names: list[str]) -> Optional[datetime]:
@@ -671,7 +905,12 @@ def run_meteosat_smoke(root: Path, date: str, hour: int, minute: int = 0) -> Pat
     return out_path
 
 
-def run_meteosat_inventory_range(root: Path, start_date: str, end_date: str) -> Path:
+def run_meteosat_inventory_range(
+    root: Path,
+    start_date: str,
+    end_date: str,
+    platforms: Optional[set[str]] = None,
+) -> Path:
     ensure_dirs(root)
     rows: list[dict] = []
     log_path = root / "logs" / "meteosat_inventory.log"
@@ -680,7 +919,7 @@ def run_meteosat_inventory_range(root: Path, start_date: str, end_date: str) -> 
         log.write(f"{utc_now()} meteosat_inventory_start start={start_date} end={end_date}\n")
         times = iter_target_times_between(start_date, end_date)
         for idx, target_time in enumerate(times, start=1):
-            rows.extend(inventory_meteosat(root, target_time))
+            rows.extend(inventory_meteosat(root, target_time, platforms))
             if idx % 24 == 0:
                 log.write(f"{utc_now()} inventoried_through={target_time.isoformat()}\n")
                 log.flush()
@@ -707,8 +946,18 @@ def write_meteosat_inventory_summary(root: Path, rows: list[dict]) -> None:
     )
 
 
-def run_download_meteosat_range(root: Path, start_date: str, end_date: str) -> Path:
-    inventory = manifest_path(root, "manifest_meteosat_inventory.csv")
+def run_download_meteosat_range(
+    root: Path,
+    start_date: str,
+    end_date: str,
+    platforms: Optional[set[str]] = None,
+    max_workers: int = 2,
+) -> Path:
+    disable_proxy_environment()
+    max_workers = validate_worker_count(max_workers, MAX_METEOSAT_WORKERS, "max_workers")
+    combined_inventory = manifest_path(root, "manifest_inventory.csv")
+    meteosat_inventory = manifest_path(root, "manifest_meteosat_inventory.csv")
+    inventory = combined_inventory if combined_inventory.exists() else meteosat_inventory
     if not inventory.exists():
         raise FileNotFoundError(f"Meteosat inventory not found: {inventory}")
 
@@ -717,6 +966,8 @@ def run_download_meteosat_range(root: Path, start_date: str, end_date: str) -> P
     rows = []
     for row in read_manifest(inventory):
         if row["status"] != "found" or row["remote_type"] != "eumetsat":
+            continue
+        if platforms is not None and row.get("platform") not in platforms:
             continue
         target_dt = parse_iso_utc(row["target_time_utc"])
         if row["target_time_utc"] >= start_prefix and target_dt < end_dt:
@@ -757,27 +1008,45 @@ def run_download_meteosat_range(root: Path, start_date: str, end_date: str) -> P
     if not ok_space:
         raise RuntimeError(f"Not enough free space: {space}")
 
-    datastore = get_eumdac_datastore()
     downloaded: list[dict] = list(skipped)
+    thread_state = threading.local()
     log_path = root / "logs" / "download_meteosat_range.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as log:
         log.write(
             f"{utc_now()} download_meteosat_range_start start={start_date} end={end_date} "
-            f"rows={len(rows)} skipped_existing={len(skipped)} pending={len(pending)} max_workers=1\n"
+            f"rows={len(rows)} skipped_existing={len(skipped)} pending={len(pending)} "
+            f"max_workers={max_workers} network_mode=direct_only\n"
         )
         log.flush()
-        for index, row in enumerate(pending, start=1):
-            success, note = download_eumetsat_row(datastore, row)
+
+        def worker(row: dict) -> dict:
+            if not hasattr(thread_state, "datastore"):
+                thread_state.datastore = get_eumdac_datastore()
+            success, note = download_eumetsat_row(thread_state.datastore, row)
             out = dict(row)
             out["status"] = "downloaded" if success else "corrupt"
             out["note"] = note
-            downloaded.append(out)
-            log.write(
-                f"{utc_now()} {index}/{len(pending)} {out['status']} "
-                f"{row['platform']} {row['product']} {row['target_time_utc']} {note}\n"
-            )
-            log.flush()
+            return out
+
+        completed = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(worker, row) for row in pending]
+            for future in as_completed(futures):
+                completed += 1
+                try:
+                    out = future.result()
+                except Exception as exc:
+                    out = {field: "" for field in MANIFEST_FIELDS}
+                    out["status"] = "corrupt"
+                    out["note"] = f"{type(exc).__name__}: {exc}"
+                downloaded.append(out)
+                log.write(
+                    f"{utc_now()} {completed}/{len(pending)} {out['status']} "
+                    f"{out.get('platform', '')} {out.get('product', '')} "
+                    f"{out.get('target_time_utc', '')} {out['note']}\n"
+                )
+                log.flush()
 
     out_path = manifest_path(root, "manifest_meteosat_downloaded.csv")
     write_csv(out_path, downloaded)
@@ -797,9 +1066,15 @@ def write_meteosat_download_summary(root: Path, rows: list[dict]) -> None:
     )
 
 
-def inventory_meteosat(root: Path, target_time: datetime) -> list[dict]:
+def inventory_meteosat(
+    root: Path,
+    target_time: datetime,
+    platforms: Optional[set[str]] = None,
+) -> list[dict]:
     rows: list[dict] = []
     for service, collections in METEOSAT_CONFIG.items():
+        if platforms is not None and service not in platforms:
+            continue
         for collection_id, short_product in collections.items():
             try:
                 features = eumetsat_search_features(collection_id, target_time)
@@ -851,6 +1126,84 @@ def inventory_meteosat(root: Path, target_time: datetime) -> list[dict]:
     return rows
 
 
+def inventory_meteosat_day(
+    root: Path,
+    day: datetime,
+    service: str,
+    collection_id: str,
+) -> list[dict]:
+    """Search one EUMETSAT collection once for a day, then select 24 hourly targets."""
+    short_product = METEOSAT_CONFIG[service][collection_id]
+    start_search = day - timedelta(minutes=5)
+    end_search = day + timedelta(days=1, minutes=20)
+    try:
+        features = eumetsat_search_features_range(collection_id, start_search, end_search)
+        listing_error = ""
+    except Exception as exc:
+        features = []
+        listing_error = f"{type(exc).__name__}: {exc}"
+
+    rows: list[dict] = []
+    for hour in range(24):
+        target_time = day.replace(hour=hour)
+        window_start = target_time - timedelta(minutes=5)
+        window_end = target_time + timedelta(minutes=20)
+        hourly_features = []
+        for feature in features:
+            feature_start = feature_time_attr(feature, "start")
+            feature_end = feature_time_attr(feature, "end")
+            if feature_start and feature_end:
+                if feature_end >= window_start and feature_start <= window_end:
+                    hourly_features.append(feature)
+            elif feature_start and window_start <= feature_start <= window_end:
+                hourly_features.append(feature)
+        picked = pick_meteosat_feature(hourly_features, target_time)
+        if picked is None:
+            rows.append(
+                base_row(
+                    target_time,
+                    service,
+                    service,
+                    short_product,
+                    collection_id,
+                    "eumetsat",
+                    "",
+                    "",
+                    None,
+                    None,
+                    "",
+                    "error" if listing_error else "missing",
+                    "",
+                    listing_error or "no_product_in_daily_search",
+                )
+            )
+            continue
+        feature, start, end = picked
+        remote_id = feature_identifier(feature)
+        filename = safe_filename(remote_id)
+        if not filename.lower().endswith(".zip"):
+            filename += ".zip"
+        rows.append(
+            base_row(
+                target_time,
+                service,
+                service,
+                short_product,
+                collection_id,
+                "eumetsat",
+                "",
+                remote_id,
+                start,
+                end,
+                feature_size(feature) or "",
+                "found",
+                local_path_for(root, service, short_product, target_time, filename),
+                "daily_rest_search",
+            )
+        )
+    return rows
+
+
 def base_row(
     target_time: datetime,
     platform: str,
@@ -895,27 +1248,128 @@ def run_inventory(
     include_meteosat: bool = True,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    platforms: Optional[set[str]] = None,
+    inventory_workers: int = DEFAULT_INVENTORY_WORKERS,
+    refresh_inventory: bool = False,
 ) -> Path:
+    disable_proxy_environment()
     ensure_dirs(root)
-    s3_client = get_s3_client()
-    datastore = get_eumdac_datastore() if include_meteosat else None
+    inventory_workers = validate_worker_count(
+        inventory_workers, MAX_INVENTORY_WORKERS, "inventory_workers"
+    )
+    selected = set(PLATFORM_CHOICES) if platforms is None else set(platforms)
+    unknown = selected.difference(PLATFORM_CHOICES)
+    if unknown:
+        raise ValueError(f"Unknown platforms: {','.join(sorted(unknown))}")
+    include_goes = bool(selected.intersection(GOES_CONFIG))
+    include_himawari = HIMAWARI_CONFIG["platform"] in selected
+    include_selected_meteosat = include_meteosat and bool(selected.intersection(METEOSAT_CONFIG))
+    if bool(start_date) != bool(end_date):
+        raise ValueError("start_date and end_date must be supplied together")
+    if start_date and end_date:
+        days = list(iter_days_between(start_date, end_date))
+        effective_start = start_date
+        effective_end = end_date
+    else:
+        days = [
+            day
+            for year, month in DOWNLOAD_MONTHS
+            for day in iter_days_between(
+                f"{year:04d}-{month:02d}-01",
+                f"{year:04d}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}",
+            )
+        ]
+        effective_start = ",".join(f"{year:04d}-{month:02d}" for year, month in DOWNLOAD_MONTHS)
+        effective_end = effective_start
+
+    out_path = manifest_path(root, "manifest_inventory.csv")
+    lineage_path = manifest_path(root, "manifest_inventory.lineage.json")
+    request = inventory_request(
+        "combined_daily_inventory",
+        effective_start,
+        effective_end,
+        selected,
+        inventory_workers,
+    )
+    if not refresh_inventory and inventory_cache_matches(out_path, lineage_path, request):
+        with (root / "logs" / "inventory.log").open("a", encoding="utf-8") as log:
+            log.write(f"{utc_now()} inventory_cache_hit fingerprint={request['fingerprint']}\n")
+        return out_path
+
+    jobs: list[tuple[str, Callable[[], list[dict]]]] = []
+    for day in days:
+        if include_goes:
+            for platform in sorted(selected.intersection(GOES_CONFIG)):
+                for full_product in GOES_CONFIG[platform]["short_products"]:
+                    jobs.append(
+                        (
+                            f"{day:%Y-%m-%d} {platform} {full_product}",
+                            lambda day=day, platform=platform, full_product=full_product: inventory_goes_day(
+                                root, day, platform, full_product
+                            ),
+                        )
+                    )
+        if include_himawari:
+            jobs.append(
+                (
+                    f"{day:%Y-%m-%d} {HIMAWARI_CONFIG['platform']}",
+                    lambda day=day: inventory_himawari_day(root, day),
+                )
+            )
+        if include_selected_meteosat:
+            for service in sorted(selected.intersection(METEOSAT_CONFIG)):
+                for collection_id in METEOSAT_CONFIG[service]:
+                    jobs.append(
+                        (
+                            f"{day:%Y-%m-%d} {service} {collection_id}",
+                            lambda day=day, service=service, collection_id=collection_id: inventory_meteosat_day(
+                                root, day, service, collection_id
+                            ),
+                        )
+                    )
+
     rows: list[dict] = []
     log_path = root / "logs" / "inventory.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as log:
-        log.write(f"{utc_now()} inventory_start include_meteosat={include_meteosat}\n")
-        times = iter_target_times_between(start_date, end_date) if start_date and end_date else iter_target_times()
-        for idx, target_time in enumerate(times, start=1):
-            rows.extend(inventory_goes(root, s3_client, target_time))
-            rows.extend(inventory_himawari(root, s3_client, target_time))
-            if include_meteosat and datastore is not None:
-                rows.extend(inventory_meteosat(root, target_time))
-            if idx % 24 == 0:
-                log.write(f"{utc_now()} inventoried_through={target_time.isoformat()}\n")
+        log.write(
+            f"{utc_now()} inventory_start include_meteosat={include_selected_meteosat} "
+            f"platforms={','.join(sorted(selected))} daily_jobs={len(jobs)} "
+            f"inventory_workers={inventory_workers} network_mode=direct_only\n"
+        )
+        completed = 0
+        with ThreadPoolExecutor(max_workers=inventory_workers) as executor:
+            futures = {executor.submit(job): label for label, job in jobs}
+            for future in as_completed(futures):
+                label = futures[future]
+                completed += 1
+                try:
+                    rows.extend(future.result())
+                    status = "ok"
+                except Exception as exc:
+                    status = f"error={type(exc).__name__}:{exc}"
+                log.write(f"{utc_now()} inventory_job={completed}/{len(jobs)} {status} {label}\n")
                 log.flush()
-    out_path = manifest_path(root, "manifest_inventory.csv")
+    rows.sort(key=lambda row: (row["target_time_utc"], row["platform"], row["product"]))
     write_csv(out_path, rows)
     write_inventory_summary(root, rows)
+    write_lineage_manifest(
+        lineage_path,
+        canonical_stage_id="",
+        component_role=COMPONENT_ROLE,
+        related_stage_ids=RELATED_STAGE_IDS,
+        generating_script=Path(__file__).resolve(),
+        input_paths=[],
+        output_paths=[out_path, manifest_path(root, "inventory_summary.json")],
+        parameters=request,
+        project_root=PROJECT_ROOT,
+        extra={
+            "inventory_fingerprint": request["fingerprint"],
+            "row_count": len(rows),
+            "daily_job_count": len(jobs),
+            "cache_policy": "exact_semantic_fingerprint_and_row_count",
+        },
+    )
     return out_path
 
 
@@ -1013,7 +1467,12 @@ def find_root_from_path(path: Path) -> Optional[Path]:
     return None
 
 
-def download_s3_row(s3_client, row: dict) -> tuple[bool, str]:
+def download_s3_row(
+    s3_client,
+    row: dict,
+    range_mib: int = DEFAULT_S3_RANGE_MIB,
+) -> tuple[bool, str]:
+    """Download one S3 object with resumable bounded Range requests."""
     target = Path(row["local_path"])
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(target.name + ".part")
@@ -1021,28 +1480,85 @@ def download_s3_row(s3_client, row: dict) -> tuple[bool, str]:
         ok, note = validate_file(target, row)
         if ok:
             return True, f"skipped_existing:{note}"
-    for delay_index, delay in enumerate([0] + RETRY_DELAYS_SECONDS):
-        if delay:
-            time.sleep(delay)
-        try:
-            if tmp.exists():
-                tmp.unlink()
-            response = s3_client.get_object(Bucket=row["bucket"], Key=row["remote_key_or_product_id"])
-            with tmp.open("wb") as handle:
-                for chunk in iter(lambda: response["Body"].read(S3_CHUNK_SIZE), b""):
-                    handle.write(chunk)
-            ok, note = validate_file(tmp, row)
-            if not ok:
-                raise RuntimeError(note)
-            replace_with_retry(tmp, target)
-            return True, note
-        except Exception as exc:
-            last_error = f"{type(exc).__name__}: {exc}"
-            if tmp.exists():
-                tmp.unlink()
-            if delay_index == len(RETRY_DELAYS_SECONDS):
-                return False, last_error
-    return False, "unreachable_retry_state"
+    if range_mib < 1 or range_mib > 64:
+        raise ValueError(f"range_mib must be between 1 and 64, got {range_mib}")
+    expected_size_text = str(row.get("size_bytes", ""))
+    if expected_size_text.isdigit() and int(expected_size_text) > 0:
+        expected_size = int(expected_size_text)
+    else:
+        metadata = s3_client.head_object(
+            Bucket=row["bucket"], Key=row["remote_key_or_product_id"]
+        )
+        expected_size = int(metadata["ContentLength"])
+    range_bytes = range_mib * 1024 * 1024
+    if tmp.exists() and tmp.stat().st_size > expected_size:
+        platform_root = next(
+            (ancestor for ancestor in target.parents if ancestor.name in PLATFORM_CHOICES),
+            None,
+        )
+        quarantine_dir = (
+            platform_root.parent / "quarantine" if platform_root is not None else target.parent
+        )
+        quarantine_dir.mkdir(parents=True, exist_ok=True)
+        quarantine = quarantine_dir / f"{tmp.name}.oversize.{int(time.time())}"
+        replace_with_retry(tmp, quarantine)
+
+    resumed_from = tmp.stat().st_size if tmp.exists() else 0
+    offset = resumed_from
+    while offset < expected_size:
+        range_end = min(offset + range_bytes - 1, expected_size - 1)
+        last_error = ""
+        segment_complete = False
+        for delay_index, delay in enumerate([0] + RETRY_DELAYS_SECONDS):
+            if delay:
+                time.sleep(delay)
+            body = None
+            try:
+                response = s3_client.get_object(
+                    Bucket=row["bucket"],
+                    Key=row["remote_key_or_product_id"],
+                    Range=f"bytes={offset}-{range_end}",
+                )
+                body = response["Body"]
+                segment = body.read()
+                required = range_end - offset + 1
+                if len(segment) != required:
+                    raise RuntimeError(
+                        f"short_range expected={required} actual={len(segment)} "
+                        f"range={offset}-{range_end}"
+                    )
+                with tmp.open("ab") as handle:
+                    handle.write(segment)
+                    handle.flush()
+                offset += len(segment)
+                segment_complete = True
+                break
+            except Exception as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                if delay_index == len(RETRY_DELAYS_SECONDS):
+                    return False, (
+                        f"range_failed offset={offset} expected_size={expected_size} "
+                        f"preserved_part={tmp.exists()} error={last_error}"
+                    )
+            finally:
+                if body is not None:
+                    try:
+                        body.close()
+                    except Exception:
+                        pass
+        if not segment_complete:
+            return False, f"unreachable_range_retry_state offset={offset} error={last_error}"
+
+    try:
+        if tmp.stat().st_size != expected_size:
+            return False, f"size_mismatch expected={expected_size} actual={tmp.stat().st_size}"
+        ok, note = validate_file(tmp, row)
+        if not ok:
+            return False, note
+        replace_with_retry(tmp, target)
+        return True, f"{note};range_mib={range_mib};resumed_from={resumed_from}"
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc};preserved_part={tmp.exists()}"
 
 
 def locate_eumetsat_product(datastore, row: dict):
@@ -1135,7 +1651,13 @@ def run_download_s3_range(
     start_date: str,
     end_date: str,
     max_workers: int = 8,
+    platforms: Optional[set[str]] = None,
+    range_mib: int = DEFAULT_S3_RANGE_MIB,
 ) -> Path:
+    disable_proxy_environment()
+    max_workers = validate_worker_count(max_workers, MAX_S3_WORKERS, "max_workers")
+    if range_mib < 1 or range_mib > 64:
+        raise ValueError(f"range_mib must be between 1 and 64, got {range_mib}")
     inventory = manifest_path(root, "manifest_inventory.csv")
     if not inventory.exists():
         raise FileNotFoundError(f"Inventory not found: {inventory}")
@@ -1145,6 +1667,8 @@ def run_download_s3_range(
     rows = []
     for row in read_manifest(inventory):
         if row["status"] != "found" or row["remote_type"] != "s3":
+            continue
+        if platforms is not None and row.get("platform") not in platforms:
             continue
         target_dt = parse_iso_utc(row["target_time_utc"])
         if row["target_time_utc"] >= start_prefix and target_dt < end_dt:
@@ -1189,13 +1713,13 @@ def run_download_s3_range(
         log.write(
             f"{utc_now()} download_s3_range_start start={start_date} end={end_date} "
             f"rows={len(rows)} skipped_existing={len(skipped)} pending={len(pending)} "
-            f"max_workers={max_workers}\n"
+            f"max_workers={max_workers} range_mib={range_mib} network_mode=direct_only\n"
         )
         log.flush()
 
         def worker(row: dict) -> dict:
-            s3_client = get_s3_client(s3_proxy_for_row(row))
-            success, note = download_s3_row(s3_client, row)
+            s3_client = get_s3_client()
+            success, note = download_s3_row(s3_client, row, range_mib=range_mib)
             out = dict(row)
             out["status"] = "downloaded" if success else "corrupt"
             out["note"] = note
@@ -1275,6 +1799,23 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     inventory_parser.add_argument("--skip-meteosat", action="store_true", help="Do not query EUMETSAT.")
     inventory_parser.add_argument("--start-date", help="Optional inventory start date, YYYY-MM-DD.")
     inventory_parser.add_argument("--end-date", help="Optional inventory end date, YYYY-MM-DD.")
+    inventory_parser.add_argument(
+        "--inventory-workers",
+        type=int,
+        default=DEFAULT_INVENTORY_WORKERS,
+        help=f"Concurrent daily inventory requests (1-{MAX_INVENTORY_WORKERS}).",
+    )
+    inventory_parser.add_argument(
+        "--refresh-inventory",
+        action="store_true",
+        help="Ignore a matching inventory cache and query providers again.",
+    )
+    inventory_parser.add_argument(
+        "--platform",
+        action="append",
+        choices=PLATFORM_CHOICES,
+        help="Limit inventory to one or more platforms; repeat this option.",
+    )
 
     test_parser = sub.add_parser("download-test-day", help="Download and validate the test day.")
     test_parser.add_argument("--date", default=TEST_DAY, help="UTC test day, YYYY-MM-DD.")
@@ -1283,6 +1824,18 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     s3_parser.add_argument("--start-date", required=True, help="UTC start date, YYYY-MM-DD.")
     s3_parser.add_argument("--end-date", required=True, help="UTC end date, YYYY-MM-DD.")
     s3_parser.add_argument("--max-workers", type=int, default=8, help="Concurrent S3 downloads.")
+    s3_parser.add_argument(
+        "--range-mib",
+        type=int,
+        default=DEFAULT_S3_RANGE_MIB,
+        help="Resumable S3 Range request size in MiB (1-64).",
+    )
+    s3_parser.add_argument(
+        "--platform",
+        action="append",
+        choices=PLATFORM_CHOICES,
+        help="Limit downloads to one or more platforms; repeat this option.",
+    )
 
     sub.add_parser("validate", help="Validate downloaded files and write reports.")
 
@@ -1296,10 +1849,28 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     met_inventory = sub.add_parser("meteosat-inventory", help="Build Meteosat-only inventory for a date range.")
     met_inventory.add_argument("--start-date", required=True, help="UTC start date, YYYY-MM-DD.")
     met_inventory.add_argument("--end-date", required=True, help="UTC end date, YYYY-MM-DD.")
+    met_inventory.add_argument(
+        "--platform",
+        action="append",
+        choices=tuple(METEOSAT_CONFIG),
+        help="Limit inventory to one or more Meteosat services; repeat this option.",
+    )
 
     met_download = sub.add_parser("download-meteosat-range", help="Download Meteosat rows from Meteosat inventory.")
     met_download.add_argument("--start-date", required=True, help="UTC start date, YYYY-MM-DD.")
     met_download.add_argument("--end-date", required=True, help="UTC end date, YYYY-MM-DD.")
+    met_download.add_argument(
+        "--max-workers",
+        type=int,
+        default=2,
+        help=f"Concurrent EUMETSAT downloads (1-{MAX_METEOSAT_WORKERS}).",
+    )
+    met_download.add_argument(
+        "--platform",
+        action="append",
+        choices=tuple(METEOSAT_CONFIG),
+        help="Limit downloads to one or more Meteosat services; repeat this option.",
+    )
 
     first = sub.add_parser("first-round", help="Run inventory then test-day download.")
     first.add_argument("--date", default=TEST_DAY, help="UTC test day, YYYY-MM-DD.")
@@ -1316,13 +1887,23 @@ def main(argv: Optional[list[str]] = None) -> int:
                 include_meteosat=not args.skip_meteosat,
                 start_date=args.start_date,
                 end_date=args.end_date,
+                platforms=set(args.platform) if args.platform else None,
+                inventory_workers=args.inventory_workers,
+                refresh_inventory=args.refresh_inventory,
             )
             print(out)
         elif args.command == "download-test-day":
             out = run_download_test_day(root, args.date)
             print(out)
         elif args.command == "download-s3-range":
-            out = run_download_s3_range(root, args.start_date, args.end_date, args.max_workers)
+            out = run_download_s3_range(
+                root,
+                args.start_date,
+                args.end_date,
+                args.max_workers,
+                set(args.platform) if args.platform else None,
+                args.range_mib,
+            )
             print(out)
         elif args.command == "validate":
             run_validate(root)
@@ -1334,10 +1915,21 @@ def main(argv: Optional[list[str]] = None) -> int:
             out = run_meteosat_smoke(root, args.date, args.hour, args.minute)
             print(out)
         elif args.command == "meteosat-inventory":
-            out = run_meteosat_inventory_range(root, args.start_date, args.end_date)
+            out = run_meteosat_inventory_range(
+                root,
+                args.start_date,
+                args.end_date,
+                set(args.platform) if args.platform else None,
+                args.max_workers,
+            )
             print(out)
         elif args.command == "download-meteosat-range":
-            out = run_download_meteosat_range(root, args.start_date, args.end_date)
+            out = run_download_meteosat_range(
+                root,
+                args.start_date,
+                args.end_date,
+                set(args.platform) if args.platform else None,
+            )
             print(out)
         elif args.command == "first-round":
             run_inventory(root, include_meteosat=True)
