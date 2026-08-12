@@ -11,9 +11,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from path_config import BASE_STAGE_ROOT, CLAAS3_ROOT, PROJECT_ROOT, RUNS_ROOT
-from geo_ring_cloud_lineage import code_commit
-from geo_ring_cloud_source_registry import REGISTRY_VERSION, validate_profile
+from geo_ring_cloud.lineage import code_commit
+from geo_ring_cloud.paths import BASE_STAGE_ROOT, CLAAS3_ROOT, PROJECT_ROOT, RUNS_ROOT
+from geo_ring_cloud.sources import REGISTRY_VERSION, validate_profile
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_BASE_STAGE_ROOT = BASE_STAGE_ROOT
@@ -100,6 +100,9 @@ def build_report(out_root: Path, args: argparse.Namespace, rows: list[dict[str, 
 
 def run_pipeline(args: argparse.Namespace) -> tuple[str, Path]:
     args.source_profile = validate_profile(args.source_profile)
+    excluded_satellites = set(args.exclude_satellite)
+    if excluded_satellites and not args.exclusion_reason.strip():
+        raise ValueError("--exclusion-reason is required with --exclude-satellite")
     out_root = Path(args.output_root) if args.output_root else Path(args.runs_root) / args.time_tag
     out_root.mkdir(parents=True, exist_ok=True)
     log_dir = out_root / "logs" / "pipeline"
@@ -115,6 +118,8 @@ def run_pipeline(args: argparse.Namespace) -> tuple[str, Path]:
             "GEO_RING_RUN_ID": args.run_id,
             "GEO_RING_SOURCE_PROFILE": args.source_profile,
             "GEO_RING_CLAAS3_ROOT": args.claas3_root,
+            "GEO_RING_EXCLUDED_SATELLITES": ",".join(sorted(excluded_satellites)),
+            "GEO_RING_SOURCE_EXCLUSION_REASON": args.exclusion_reason,
         }
     )
 
@@ -147,11 +152,22 @@ def run_pipeline(args: argparse.Namespace) -> tuple[str, Path]:
             False,
         ),
     ]
+    exclusion_args: list[str] = []
+    for satellite in sorted(excluded_satellites):
+        exclusion_args.extend(["--exclude-satellite", satellite])
+    if exclusion_args:
+        exclusion_args.extend(["--exclusion-reason", args.exclusion_reason])
+        for index in (0, 1, 2, 3, 4):
+            steps[index][1].extend(exclusion_args)
     if args.reuse_operational_root:
         if args.source_profile != "claas3_candidate":
             raise RuntimeError("--reuse-operational-root is only valid for claas3_candidate")
         steps[0][1].extend(["--reuse-operational-native-root", str(Path(args.reuse_operational_root) / "standardized_native")])
         steps[3][1].extend(["--reuse-operational-reprojected-root", str(Path(args.reuse_operational_root) / "reprojected_grid")])
+    if args.reuse_completed_native_root:
+        steps[0][1].extend(["--reuse-completed-native-root", str(Path(args.reuse_completed_native_root))])
+    if args.reuse_completed_reprojected_root:
+        steps[3][1].extend(["--reuse-completed-reprojected-root", str(Path(args.reuse_completed_reprojected_root))])
 
     rows: list[dict[str, Any]] = []
     all_step_names = [name for name, _, _ in steps]
@@ -193,7 +209,17 @@ def run_pipeline(args: argparse.Namespace) -> tuple[str, Path]:
         "generating_script": str(Path(__file__)),
         "input_paths": [args.epic_l2, str(Path(args.base_stage_root) / "time_index" / "core_time_index.csv")],
         "output_paths": [str(out_root)],
-        "parameter_summary": {"target_time": args.target_time, "time_tag": args.time_tag, "source_profile": args.source_profile, "reuse_operational_root": args.reuse_operational_root},
+        "parameter_summary": {
+            "target_time": args.target_time,
+            "time_tag": args.time_tag,
+            "source_profile": args.source_profile,
+            "reuse_operational_root": args.reuse_operational_root,
+            "reuse_completed_native_root": args.reuse_completed_native_root,
+            "reuse_completed_reprojected_root": args.reuse_completed_reprojected_root,
+            "excluded_satellites": sorted(excluded_satellites),
+            "source_exclusion_reason": args.exclusion_reason,
+            "missing_source_policy": "explicit_exclusion",
+        },
         "code_commit": code_commit(PROJECT_ROOT),
         "target_time": args.target_time,
         "time_tag": args.time_tag,
@@ -225,6 +251,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--python-exe", default=sys.executable)
     p.add_argument("--start-step", default="", help="Resume from a named step after validating all prior manifest steps are OK")
     p.add_argument("--reuse-operational-root", default="", help="Reuse immutable operational native/reprojected assets and add only CLAAS layers")
+    p.add_argument("--reuse-completed-native-root", default="", help="Reuse an immutable completed native directory without copying arrays")
+    p.add_argument("--reuse-completed-reprojected-root", default="", help="Reuse an immutable completed reprojected directory without copying arrays")
+    p.add_argument("--exclude-satellite", action="append", default=[], help="Explicitly exclude an unavailable source from this sensitivity run")
+    p.add_argument("--exclusion-reason", default="", help="Auditable reason required for every explicit source exclusion")
     return p
 
 

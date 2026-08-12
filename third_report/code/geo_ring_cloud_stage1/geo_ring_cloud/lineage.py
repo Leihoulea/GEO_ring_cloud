@@ -45,7 +45,10 @@ def _git_output(project_root: Path, args: list[str]) -> tuple[int, str]:
             errors="replace",
             check=False,
         )
-        return result.returncode, result.stdout.strip()
+        # Git porcelain uses the first two columns as state. Preserve leading
+        # spaces and remove line terminators only, otherwise `` M`` is
+        # misclassified as a staged change.
+        return result.returncode, result.stdout.rstrip("\r\n")
     except OSError:
         return 1, ""
 

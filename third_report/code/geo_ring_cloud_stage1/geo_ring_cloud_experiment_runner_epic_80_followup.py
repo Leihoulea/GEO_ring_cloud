@@ -17,7 +17,8 @@ from typing import Any
 
 from PIL import Image, ImageStat
 
-from geo_ring_cloud.paths import CODE_ROOT, RUNS_ROOT
+from geo_ring_cloud.lineage import write_manifest
+from geo_ring_cloud.paths import CODE_ROOT, PROJECT_ROOT, RUNS_ROOT
 
 
 COMPONENT_ROLE = "experiment_runner"
@@ -105,6 +106,41 @@ def progress_counts(stage09c: Path) -> dict[str, int]:
     }
 
 
+def build_completed_sample_manifest(stage09c: Path, destination: Path) -> tuple[Path, int, int]:
+    source = stage09c / "00_control" / "stage_10_epic_80_sample_manifest.csv"
+    metrics = stage09c / "08_clm_epic" / "epic_80_cloud_mask_sensitivity_metrics.csv"
+    if not source.is_file() or not metrics.is_file():
+        raise RuntimeError("completed-sample filtering requires the Stage 10 source manifest and CLM metrics")
+    with metrics.open("r", encoding="utf-8-sig", newline="") as handle:
+        metric_rows = list(csv.DictReader(handle))
+    completed_ids = {
+        row.get("comparison_id", "")
+        for row in metric_rows
+        if row.get("status", "").upper() == "OK" and row.get("comparison_id", "")
+    }
+    with source.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or [])
+        rows = [row for row in reader if row.get("sample_id", "") in completed_ids]
+    if "has_epic_file" not in fieldnames:
+        fieldnames.append("has_epic_file")
+    for row in rows:
+        row["has_epic_file"] = "True"
+    selected_ids = {row.get("sample_id", "") for row in rows}
+    if selected_ids != completed_ids:
+        missing = sorted(completed_ids - selected_ids)
+        raise RuntimeError(f"completed CLM comparisons are missing from the Stage 10 manifest: {missing}")
+    if not rows:
+        raise RuntimeError("no completed comparisons are available for Stage 10")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    unique_geo = len({row.get("geo_sample_id", "") for row in rows if row.get("geo_sample_id", "")})
+    return destination, len(rows), unique_geo
+
+
 def write_status_report(path: Path, payload: dict[str, Any]) -> None:
     lines = [
         "# EPIC 80 自动分析与汇报接力状态",
@@ -129,6 +165,8 @@ def runtime_env(python_exe: Path) -> dict[str, str]:
     library_bin = python_exe.resolve().parent / "Library" / "bin"
     if library_bin.is_dir():
         env["PATH"] = str(library_bin) + os.pathsep + env.get("PATH", "")
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(CODE_ROOT) + (os.pathsep + existing_pythonpath if existing_pythonpath else "")
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     return env
@@ -322,6 +360,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--poll-seconds", type=int, default=120)
     parser.add_argument("--timeout-hours", type=float, default=168.0)
     parser.add_argument("--dead-polls-before-fail", type=int, default=3)
+    parser.add_argument(
+        "--allow-partial",
+        action="store_true",
+        help="Analyze completed comparisons from a finalized PARTIAL_WITH_FAILURES frozen run.",
+    )
     return parser
 
 
@@ -362,7 +405,9 @@ def main() -> int:
             write_status_report(report_path, payload)
             if s09 == "PASS" and s10 == "PASS":
                 break
-            if counts["fail_rows"]:
+            if args.allow_partial and s09 == "PARTIAL_WITH_FAILURES" and not alive:
+                break
+            if counts["fail_rows"] and not args.allow_partial:
                 raise RuntimeError("main experiment status log contains FAIL")
             dead_polls = 0 if alive else dead_polls + 1
             if dead_polls >= args.dead_polls_before_fail:
@@ -371,7 +416,71 @@ def main() -> int:
                 raise TimeoutError(f"follow-up watcher exceeded {args.timeout_hours} hours")
             time.sleep(max(5, args.poll_seconds))
 
-        payload.update({"status": "RUNNING_ANALYSIS", "updated_utc": utc_now()})
+        completed_manifest, completed_comparisons, completed_geo = build_completed_sample_manifest(
+            stage09c,
+            control / "stage_10_completed_sample_manifest.csv",
+        )
+        payload.update(
+            {
+                "status": "RUNNING_STAGE10_CTH",
+                "updated_utc": utc_now(),
+                "completed_comparisons": completed_comparisons,
+                "completed_geo": completed_geo,
+                "frozen_comparisons": 80,
+                "frozen_geo": 79,
+            }
+        )
+        atomic_json(status_path, payload)
+        write_status_report(report_path, payload)
+        run_logged(
+            [
+                str(args.python_exe.resolve()),
+                "-B",
+                str(CODE_ROOT / "stage_10_cth_validation" / "stage_10_run_cth_validation.py"),
+                "--sample-manifest",
+                str(completed_manifest),
+                "--output-dir",
+                str(stage10),
+            ],
+            control / "logs" / "stage_10_cth_validation.log",
+            cwd=CODE_ROOT,
+            env=runtime_env(args.python_exe.resolve()),
+        )
+        run_logged(
+            [
+                str(args.python_exe.resolve()),
+                "-B",
+                str(CODE_ROOT / "stage_10_cth_validation" / "stage_10_qc_audit.py"),
+                "--sample-manifest",
+                str(completed_manifest),
+                "--stage10-output-dir",
+                str(stage10),
+            ],
+            control / "logs" / "stage_10_cth_qc.log",
+            cwd=CODE_ROOT,
+            env=runtime_env(args.python_exe.resolve()),
+        )
+        write_manifest(
+            stage10 / "manifest.json",
+            canonical_stage_id="stage_10",
+            component_role="diagnostics_workflow",
+            related_stage_ids=("stage_09c",),
+            generating_script=CODE_ROOT / "stage_10_cth_validation" / "stage_10_run_cth_validation.py",
+            input_paths=(completed_manifest, stage09c / "manifest.json"),
+            output_paths=(stage10,),
+            parameters={
+                "frozen_comparison_count": 80,
+                "analyzed_comparison_count": completed_comparisons,
+                "analyzed_unique_geo_count": completed_geo,
+                "partial_run_accepted": args.allow_partial,
+            },
+            project_root=PROJECT_ROOT,
+            run_id="stage10_epic80_completed_subset_cth_202403",
+            source_profile="operational_baseline",
+            extra={"final_status": "PASS", "coverage_status": f"{completed_comparisons}/80"},
+        )
+
+        payload.update({"status": "RUNNING_ANALYSIS", "updated_utc": utc_now(), "stage10_status": "PASS"})
         atomic_json(status_path, payload)
         write_status_report(report_path, payload)
         run_logged(
@@ -385,6 +494,11 @@ def main() -> int:
                 str(stage10),
                 "--output-root",
                 str(analysis_root),
+                "--expected-comparisons",
+                str(completed_comparisons),
+                "--expected-geo-samples",
+                str(completed_geo),
+                "--allow-partial",
             ],
             control / "logs" / "epic_80_analysis.log",
             cwd=CODE_ROOT,

@@ -364,11 +364,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Stage 03.5 semantic and per-variable mask gate")
     parser.add_argument("--source-profile", default="operational_baseline", choices=["operational_baseline", "claas3_candidate"])
     parser.add_argument("--run-id", default="")
+    parser.add_argument("--exclude-satellite", action="append", default=[])
+    parser.add_argument("--exclusion-reason", default="")
     args = parser.parse_args()
+    excluded_satellites = set(args.exclude_satellite)
+    if excluded_satellites and not args.exclusion_reason.strip():
+        parser.error("--exclusion-reason is required with --exclude-satellite")
     source_profile = validate_profile(args.source_profile)
     ensure_dirs()
     shutil.copy2(__file__, SCRIPT_DIR / Path(__file__).name)
     inventory = pd.read_csv(NATIVE_DIR / "standardized_native_inventory.csv")
+    inventory = inventory[~inventory["satellite_group"].isin(excluded_satellites)].copy()
     all_issues: list[dict[str, Any]] = []
     all_code_rows: list[dict[str, Any]] = []
     for _, row in inventory.iterrows():
@@ -410,7 +416,11 @@ def main() -> int:
         generating_script=Path(__file__),
         input_paths=inventory["npz_file"].dropna().astype(str).tolist(),
         output_paths=[OUT_ISSUES, OUT_CODE_TABLES, OUT_REPORT],
-        parameters={"profile_gate": source_profile},
+        parameters={
+            "profile_gate": source_profile,
+            "excluded_satellites": sorted(excluded_satellites),
+            "exclusion_reason": args.exclusion_reason,
+        },
         project_root=path_config.PROJECT_ROOT,
         extra={"registry_version": REGISTRY_VERSION, "product_versions": {"CLAAS3": "405"} if source_profile == "claas3_candidate" else {}, "status": status},
     )

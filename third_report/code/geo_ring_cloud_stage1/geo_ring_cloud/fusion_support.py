@@ -46,6 +46,21 @@ EARTH_RADIUS_KM = 6378.137
 GEO_ALTITUDE_KM = 35786.023
 SATELLITE_RADIUS_KM = EARTH_RADIUS_KM + GEO_ALTITUDE_KM
 
+
+def configure_source_set(source_profile: str, excluded_satellites: set[str] | None = None) -> None:
+    global SOURCE_PROFILE, TIE_ORDER, VARIABLE_RULES
+    excluded_satellites = excluded_satellites or set()
+    SOURCE_PROFILE = validate_profile(source_profile)
+    TIE_ORDER = [sat for sat in tie_order(SOURCE_PROFILE) if sat not in excluded_satellites]
+    VARIABLE_RULES = {
+        variable: [
+            {"satellite": item["source_key"], "product": item["product"]}
+            for item in rules
+            if item["source_key"] not in excluded_satellites
+        ]
+        for variable, rules in variable_rules(SOURCE_PROFILE).items()
+    }
+
 def parse_output_filename(path: Path) -> tuple[str, str, str] | None:
     name = path.name
     if not name.endswith(f"_grid_{TIME_TAG}.npz"):

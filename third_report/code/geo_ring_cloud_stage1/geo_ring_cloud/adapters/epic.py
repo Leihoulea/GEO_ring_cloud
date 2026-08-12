@@ -45,6 +45,8 @@ def _find_existing_variable(ds: netCDF4.Dataset, names: tuple[str, ...]) -> str 
 def _read_array(ds: netCDF4.Dataset, name: str) -> np.ndarray:
     values = ds[name][:]
     if np.ma.isMaskedArray(values):
+        if not np.issubdtype(values.dtype, np.inexact):
+            values = values.astype(np.float32)
         values = values.filled(np.nan)
     return np.asarray(values)
 

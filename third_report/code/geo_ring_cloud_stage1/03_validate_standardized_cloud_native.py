@@ -100,8 +100,14 @@ def read_availability(path: Path) -> tuple[dict[str, bool], dict[str, object], l
     return availability, metadata, stats_rows
 
 
-def validate(mode: str, source_profile: str) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
+def validate(
+    mode: str,
+    source_profile: str,
+    excluded_satellites: set[str] | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
+    excluded_satellites = excluded_satellites or set()
     inv = load_npz_inventory()
+    inv = inv[~inv["satellite_group"].isin(excluded_satellites)].copy()
     rows: list[dict[str, object]] = []
     stats_rows: list[dict[str, object]] = []
     group_available: dict[str, set[str]] = {}
@@ -154,6 +160,16 @@ def validate(mode: str, source_profile: str) -> tuple[pd.DataFrame, pd.DataFrame
     any_fail = False
     any_warn = False
     for group, required in REQUIRED_BY_GROUP.items():
+        if group in excluded_satellites:
+            group_status[group] = {
+                "status": "EXCLUDED_SOURCE_UNAVAILABLE",
+                "available_variables": [],
+                "missing_required": [],
+                "warnings": [],
+                "semantic_failures": [],
+            }
+            any_warn = True
+            continue
         if group == "CLAAS3-0deg" and source_profile != "claas3_candidate":
             continue
         have = group_available.get(group, set())
@@ -174,7 +190,13 @@ def validate(mode: str, source_profile: str) -> tuple[pd.DataFrame, pd.DataFrame
             "semantic_failures": semantic_failures.get(group, []),
         }
     overall = "FAIL" if any_fail else ("PASS_WITH_WARNINGS" if any_warn else "PASS")
-    summary = {"mode": mode, "source_profile": source_profile, "overall_status": overall, "group_status": group_status}
+    summary = {
+        "mode": mode,
+        "source_profile": source_profile,
+        "overall_status": overall,
+        "group_status": group_status,
+        "excluded_satellites": sorted(excluded_satellites),
+    }
     return pd.DataFrame(rows), pd.DataFrame(stats_rows), summary
 
 
@@ -184,6 +206,7 @@ def write_report(validate_rows: pd.DataFrame, stats: pd.DataFrame, summary: dict
         "",
         f"- Generated UTC: {utc_now()}",
         f"- Overall status: **{summary['overall_status']}**",
+        f"- Explicitly excluded unavailable sources: {', '.join(summary.get('excluded_satellites', [])) or 'none'}",
         "- Scope: 01-03 prototype only; no reprojection or fusion.",
         "",
         "## Satellite Group Status",
@@ -272,11 +295,16 @@ def main() -> int:
     parser.add_argument("--mode", default="prototype", choices=["prototype"])
     parser.add_argument("--source-profile", default="operational_baseline", choices=["operational_baseline", "claas3_candidate"])
     parser.add_argument("--run-id", default="")
+    parser.add_argument("--exclude-satellite", action="append", default=[])
+    parser.add_argument("--exclusion-reason", default="")
     args = parser.parse_args()
+    excluded_satellites = set(args.exclude_satellite)
+    if excluded_satellites and not args.exclusion_reason.strip():
+        parser.error("--exclusion-reason is required with --exclude-satellite")
     source_profile = validate_profile(args.source_profile)
     ensure_dirs()
     shutil.copy2(__file__, SCRIPT_DIR / Path(__file__).name)
-    validate_rows, stats, summary = validate(args.mode, source_profile)
+    validate_rows, stats, summary = validate(args.mode, source_profile, excluded_satellites)
     validate_rows.to_csv(NATIVE_DIR / "standardized_native_file_validation.csv", index=False, encoding="utf-8-sig")
     stats.to_csv(NATIVE_DIR / "standardized_native_variable_stats_validated.csv", index=False, encoding="utf-8-sig")
     write_report(validate_rows, stats, summary)
@@ -288,7 +316,11 @@ def main() -> int:
         generating_script=Path(__file__),
         input_paths=validate_rows["npz_file"].astype(str).tolist(),
         output_paths=[NATIVE_DIR / "standardized_native_file_validation.csv", NATIVE_DIR / "standardized_native_variable_stats_validated.csv", REPORT_DIR / "standardized_native_validate_report.md"],
-        parameters={"mode": args.mode},
+        parameters={
+            "mode": args.mode,
+            "excluded_satellites": sorted(excluded_satellites),
+            "exclusion_reason": args.exclusion_reason,
+        },
         project_root=path_config.PROJECT_ROOT,
         extra={"registry_version": REGISTRY_VERSION, "product_versions": {"CLAAS3": "405"} if source_profile == "claas3_candidate" else {}, "status": summary["overall_status"]},
     )

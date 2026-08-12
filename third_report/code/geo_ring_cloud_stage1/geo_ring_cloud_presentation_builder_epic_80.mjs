@@ -122,30 +122,35 @@ async function buildDeck(summary, outputPath, previewDir) {
   const a = summary.clm.policy_a;
   const b = summary.clm.policy_b;
   const c = summary.cth.policy_a_d1;
+  const analyzed = Number(summary.comparison_count);
+  const frozen = Number(summary.frozen_comparison_count);
+  const geo = Number(summary.unique_geo_count);
+  const navChecks = geo * 4;
+  const coverage = `${analyzed}/${frozen}`;
 
   // Codex Grid slide-01 hierarchy: small eyebrow, dominant lower title, compact subtitle.
   {
     const slide = presentation.slides.add();
     slide.background.fill = COLOR.white;
     rect(slide, { left: 0, top: 0, width: 15, height: H }, COLOR.blue, "title-accent");
-    textbox(slide, "GEO RING CLOUD · 80 时次回归", { left: M, top: 40, width: 620, height: 40 }, { fontSize: 25, bold: true, color: COLOR.blue, autoFit: "none" });
+    textbox(slide, `GEO RING CLOUD · 冻结 80 配对（有效 ${analyzed}）`, { left: M, top: 40, width: 760, height: 40 }, { fontSize: 25, bold: true, color: COLOR.blue, autoFit: "none" });
     textbox(slide, "CLM 与 CTH\nEPIC 对比实验", { left: M, top: 178, width: 900, height: 235 }, { fontSize: 74, bold: true, autoFit: "none", verticalAlignment: "bottom" });
-    textbox(slide, "Satpy 导航修复后的 80 个冻结配对结果分析", { left: M, top: 486, width: 840, height: 65 }, { fontSize: 29, color: COLOR.muted, autoFit: "none" });
-    textbox(slide, "2024-03-05 至 2024-03-31 样本子集 · 2026-08-10", { left: M, top: 628, width: 720, height: 28 }, { fontSize: 16, color: COLOR.muted, autoFit: "none" });
+    textbox(slide, `Satpy 导航修复后的有效样本分析 · 覆盖 ${coverage}`, { left: M, top: 486, width: 940, height: 65 }, { fontSize: 29, color: COLOR.muted, autoFit: "none" });
+    textbox(slide, "2024-03-05 至 2024-03-31 样本子集 · 2026-08-12", { left: M, top: 628, width: 720, height: 28 }, { fontSize: 16, color: COLOR.muted, autoFit: "none" });
     slide.speakerNotes.textFrame.setText(`[Sources]\n- ${summary.assets.report}\n- ${summary.assets.tables.clm_weighted}\n- ${summary.assets.tables.cth_summary}`);
     slide.speakerNotes.setVisible(true);
   }
 
   {
     const slide = baseSlide(presentation, "实验完成门槛与分析范围", "01 · 实验设计", 2, "Stage 09C/10 manifests; frozen target manifest; navigation verification");
-    metricLine(slide, "80", "EPIC 独立配对", 76, 176, COLOR.blue);
-    metricLine(slide, "79", "唯一 GEO 时次", 365, 176, COLOR.cyan);
-    metricLine(slide, "316", "导航 schema 检查全部 PASS", 654, 176, COLOR.orange);
+    metricLine(slide, coverage, "有效 / 冻结 EPIC 配对", 76, 176, COLOR.blue);
+    metricLine(slide, String(geo), "有效 GEO 时次", 365, 176, COLOR.cyan);
+    metricLine(slide, String(navChecks), "有效样本导航检查 PASS", 654, 176, COLOR.orange);
     metricLine(slide, "2", "CLM 语义策略 A / B", 943, 176, COLOR.red);
     rect(slide, { left: M, top: 352, width: W - 2 * M, height: 1 }, COLOR.line, "mid-rule");
     textbox(slide, "重建链路", { left: 78, top: 389, width: 230, height: 35 }, { fontSize: 23, bold: true });
     textbox(slide, "Stage 02 → 03 → 03.5 → 05 → 06 → 08c → Stage 10 CTH/QC", { left: 78, top: 438, width: 1110, height: 50 }, { fontSize: 27, color: COLOR.blue });
-    textbox(slide, "硬门槛：两个最终 manifest 均为 PASS；不存在 FAIL 状态；80/79 覆盖完整；四类 Meteosat CLM/CTH 导航 schema 对每个 GEO 时次均通过。", { left: 78, top: 516, width: 1100, height: 90 }, { fontSize: 20, color: COLOR.muted });
+    textbox(slide, `分析门槛：冻结 80 配对全部尝试；${analyzed} 个成功配对进入统计；${frozen - analyzed} 个失败配对显式排除；四类 Meteosat CLM/CTH 导航 schema 对 ${geo} 个有效 GEO 时次均通过。`, { left: 78, top: 516, width: 1100, height: 90 }, { fontSize: 20, color: COLOR.muted });
   }
 
   {
@@ -199,7 +204,7 @@ async function buildDeck(summary, outputPath, previewDir) {
   }
 
   {
-    const slide = baseSlide(presentation, "结论：80 时次回归已形成可复核证据链", "05 · 结论", 10, summary.assets.report);
+    const slide = baseSlide(presentation, `结论：${coverage} 有效样本已形成可复核证据链`, "05 · 结论", 10, summary.assets.report);
     textbox(slide, "CLM", { left: 70, top: 172, width: 220, height: 45 }, { fontSize: 27, bold: true, color: COLOR.blue });
     textbox(slide, `Policy A agreement ${percent(a.agreement)}，F1 ${fixed(a.f1)}，IoU ${fixed(a.iou)}；时间序列和代表性 quicklook 未显示系统性漂移。`, { left: 70, top: 226, width: 1110, height: 88 }, { fontSize: 25 });
     rect(slide, { left: 70, top: 337, width: 1110, height: 1 }, COLOR.line, "conclusion-rule-1");
@@ -230,7 +235,7 @@ async function main() {
   const previewDir = path.join(path.dirname(outputPath), "artifact_tool_previews");
   const summaryText = await fs.readFile(path.join(analysisRoot, "analysis_summary.json"), "utf8");
   const summary = JSON.parse(summaryText.replace(/^\uFEFF/, ""));
-  if (summary.status !== "EPIC80_CLM_CTH_ANALYSIS_PASS") throw new Error(`analysis is not PASS: ${summary.status}`);
+  if (!/^EPIC80_VALID\d+_CLM_CTH_ANALYSIS_PASS$/.test(summary.status)) throw new Error(`analysis is not PASS: ${summary.status}`);
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   await fs.writeFile(
     path.join(path.dirname(outputPath), "source-notes.txt"),

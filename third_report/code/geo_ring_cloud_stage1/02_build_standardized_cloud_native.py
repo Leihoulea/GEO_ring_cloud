@@ -308,7 +308,15 @@ def main() -> int:
     parser.add_argument("--claas3-root", type=Path, default=path_config.CLAAS3_ROOT)
     parser.add_argument("--run-id", default=os.environ.get("GEO_RING_RUN_ID", ""))
     parser.add_argument("--reuse-operational-native-root", type=Path)
+    parser.add_argument("--reuse-completed-native-root", type=Path)
+    parser.add_argument("--exclude-satellite", action="append", default=[])
+    parser.add_argument("--exclusion-reason", default="")
     args = parser.parse_args()
+    excluded_satellites = set(args.exclude_satellite)
+    if excluded_satellites and not args.exclusion_reason.strip():
+        parser.error("--exclusion-reason is required with --exclude-satellite")
+    if args.reuse_operational_native_root and args.reuse_completed_native_root:
+        parser.error("native reuse modes are mutually exclusive")
     source_profile = validate_profile(args.source_profile)
     ensure_dirs()
     shutil.copy2(__file__, SCRIPT_DIR / Path(__file__).name)
@@ -329,18 +337,24 @@ def main() -> int:
         rows = rows[rows["satellite_group"] != "CLAAS3-0deg"]
     elif args.reuse_operational_native_root:
         rows = rows[rows["satellite_group"] == "CLAAS3-0deg"]
-    fy4b_geo_arrays = load_fy4b_geo(rows, mapping)
+    rows = rows[~rows["satellite_group"].isin(excluded_satellites)].copy()
+    fy4b_geo_arrays = load_fy4b_geo(rows, mapping) if "FY4B" not in excluded_satellites else {}
     inventory_rows: list[dict[str, object]] = []
     stats_rows: list[dict[str, object]] = []
     reused_input_paths: list[str] = []
-    if args.reuse_operational_native_root:
-        base_inventory_path = args.reuse_operational_native_root / "standardized_native_inventory.csv"
-        base_stats_path = args.reuse_operational_native_root / "standardized_native_variable_stats.csv"
+    reuse_native_root = args.reuse_completed_native_root or args.reuse_operational_native_root
+    if reuse_native_root:
+        base_inventory_path = reuse_native_root / "standardized_native_inventory.csv"
+        base_stats_path = reuse_native_root / "standardized_native_variable_stats.csv"
         base_inventory = pd.read_csv(base_inventory_path)
         base_stats = pd.read_csv(base_stats_path)
+        base_inventory = base_inventory[~base_inventory["satellite_group"].isin(excluded_satellites)].copy()
+        base_stats = base_stats[~base_stats["satellite_group"].isin(excluded_satellites)].copy()
         inventory_rows.extend(base_inventory.to_dict("records"))
         stats_rows.extend(base_stats.to_dict("records"))
         reused_input_paths.extend([str(base_inventory_path), str(base_stats_path)])
+        if args.reuse_completed_native_root:
+            rows = rows.iloc[0:0].copy()
     for _, row in rows.iterrows():
         satellite_group = str(row["satellite_group"])
         family = str(row["satellite_family"])
@@ -394,7 +408,14 @@ def main() -> int:
         generating_script=Path(__file__),
         input_paths=[*reused_input_paths, *(inventory["source_file"].dropna().astype(str).tolist() if not inventory.empty else [])],
         output_paths=inventory["npz_file"].dropna().astype(str).tolist() if not inventory.empty else [],
-        parameters={"nominal_time": nominal_time, "claas3_root": str(args.claas3_root), "reuse_operational_native_root": str(args.reuse_operational_native_root or "")},
+        parameters={
+            "nominal_time": nominal_time,
+            "claas3_root": str(args.claas3_root),
+            "reuse_operational_native_root": str(args.reuse_operational_native_root or ""),
+            "reuse_completed_native_root": str(args.reuse_completed_native_root or ""),
+            "excluded_satellites": sorted(excluded_satellites),
+            "exclusion_reason": args.exclusion_reason,
+        },
         project_root=path_config.PROJECT_ROOT,
         extra={"registry_version": REGISTRY_VERSION, "product_versions": {"CLAAS3": "405"} if source_profile == "claas3_candidate" else {}},
     )

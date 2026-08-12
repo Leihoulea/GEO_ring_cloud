@@ -21,8 +21,8 @@ from geo_ring_cloud.lineage import write_manifest
 from geo_ring_cloud.paths import BASE_STAGE_ROOT, CODE_ROOT, PROJECT_ROOT, RUNS_ROOT
 
 
-STAGE_ID = "stage_09c"
 COMPONENT_ROLE = "experiment_runner"
+RELATED_STAGE_IDS = ("stage_09c", "stage_10")
 RUN_ID = "stage09c_epic80_satpy_navigation_rerun_202403"
 DEFAULT_TARGET_LIST = (
     RUNS_ROOT
@@ -395,7 +395,14 @@ def aggregate_clm_metrics(metric_records: list[dict[str, str]], output_root: Pat
         frames.append(frame)
     out = output_root / "08_clm_epic" / "epic_80_cloud_mask_sensitivity_metrics.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
-    pd.concat(frames, ignore_index=True).to_csv(out, index=False, encoding="utf-8-sig")
+    if frames:
+        pd.concat(frames, ignore_index=True).to_csv(out, index=False, encoding="utf-8-sig")
+    else:
+        pd.DataFrame(columns=["sample_id", "comparison_id", "epic_file"]).to_csv(
+            out,
+            index=False,
+            encoding="utf-8-sig",
+        )
     return out
 
 
@@ -481,6 +488,8 @@ def main() -> int:
     metric_records: list[dict[str, str]] = []
     completed_geo = 0
     completed_comparisons = 0
+    failed_geo = 0
+    failed_comparisons = 0
     env = runtime_environment()
     for sample_id, group in targets.groupby("sample_id", sort=False):
         ordered = group.sort_values("epic_time_utc").reset_index(drop=True)
@@ -491,16 +500,42 @@ def main() -> int:
             and sample_id in prior_passed
             and metric_file_for_primary(sample_dir, sample_id).is_file()
         )
-        if not can_resume:
-            sample_dir = run_geo_sample(
-                primary,
-                python_exe=args.python_exe.resolve(),
-                output_root=output_root,
-                base_stage_root=args.base_stage_root.resolve(),
-                status_path=status_path,
-                resume=args.resume,
+        try:
+            if not can_resume:
+                sample_dir = run_geo_sample(
+                    primary,
+                    python_exe=args.python_exe.resolve(),
+                    output_root=output_root,
+                    base_stage_root=args.base_stage_root.resolve(),
+                    status_path=status_path,
+                    resume=args.resume,
+                )
+            verified = verify_navigation(sample_dir, sample_id)
+        except Exception as exc:
+            failed_geo += 1
+            failed_comparisons += len(ordered)
+            append_status(
+                status_path,
+                {
+                    "scope": "batch_case",
+                    "sample_id": sample_id,
+                    "comparison_id": str(primary["comparison_id"]),
+                    "step": "geo_case_orchestration",
+                    "status": "FAIL",
+                    "returncode": 1,
+                    "elapsed_sec": "0",
+                    "log_path": "",
+                    "message": str(exc),
+                },
             )
-        verified = verify_navigation(sample_dir, sample_id)
+            write_progress_report(
+                output_root,
+                targets,
+                completed_geo,
+                completed_comparisons,
+                "RUNNING_WITH_FAILURES",
+            )
+            continue
         navigation_rows.extend(verified)
         append_status(
             status_path,
@@ -520,7 +555,29 @@ def main() -> int:
 
         primary_metric = metric_file_for_primary(sample_dir, sample_id)
         if not primary_metric.is_file():
-            raise RuntimeError(f"primary CLM metric file missing: {primary_metric}")
+            failed_comparisons += len(ordered)
+            append_status(
+                status_path,
+                {
+                    "scope": "batch_case",
+                    "sample_id": sample_id,
+                    "comparison_id": str(primary["comparison_id"]),
+                    "step": "geo_case_orchestration",
+                    "status": "FAIL",
+                    "returncode": 1,
+                    "elapsed_sec": "0",
+                    "log_path": "",
+                    "message": f"primary CLM metric file missing: {primary_metric}",
+                },
+            )
+            write_progress_report(
+                output_root,
+                targets,
+                completed_geo,
+                completed_comparisons,
+                "RUNNING_WITH_FAILURES",
+            )
+            continue
         metric_records.append(
             {
                 "sample_id": sample_id,
@@ -531,21 +588,43 @@ def main() -> int:
         )
         completed_comparisons += 1
 
+        group_failed_comparisons = 0
         for _, extra in ordered.iloc[1:].iterrows():
-            extra_metric = (
-                output_root
-                / "clm_epic_comparisons"
-                / str(extra["comparison_id"])
-                / "epic_georing_cloud_mask_sensitivity_metrics.csv"
-            )
-            if not (args.resume and extra_metric.is_file()):
-                extra_metric = run_extra_clm_comparison(
-                    extra,
-                    python_exe=args.python_exe.resolve(),
-                    sample_dir=sample_dir,
-                    output_root=output_root,
-                    status_path=status_path,
+            try:
+                extra_metric = (
+                    output_root
+                    / "clm_epic_comparisons"
+                    / str(extra["comparison_id"])
+                    / "epic_georing_cloud_mask_sensitivity_metrics.csv"
                 )
+                if not (args.resume and extra_metric.is_file()):
+                    extra_metric = run_extra_clm_comparison(
+                        extra,
+                        python_exe=args.python_exe.resolve(),
+                        sample_dir=sample_dir,
+                        output_root=output_root,
+                        status_path=status_path,
+                    )
+                if not extra_metric.is_file():
+                    raise RuntimeError(f"extra CLM metric file missing: {extra_metric}")
+            except Exception as exc:
+                failed_comparisons += 1
+                group_failed_comparisons += 1
+                append_status(
+                    status_path,
+                    {
+                        "scope": "batch_case",
+                        "sample_id": sample_id,
+                        "comparison_id": str(extra["comparison_id"]),
+                        "step": "epic_comparison_orchestration",
+                        "status": "FAIL",
+                        "returncode": 1,
+                        "elapsed_sec": "0",
+                        "log_path": "",
+                        "message": str(exc),
+                    },
+                )
+                continue
             metric_records.append(
                 {
                     "sample_id": sample_id,
@@ -555,6 +634,25 @@ def main() -> int:
                 }
             )
             completed_comparisons += 1
+
+        append_status(
+            status_path,
+            {
+                "scope": "batch_case",
+                "sample_id": sample_id,
+                "comparison_id": str(primary["comparison_id"]),
+                "step": "geo_case_orchestration",
+                "status": "PASS" if group_failed_comparisons == 0 else "FAIL",
+                "returncode": 0 if group_failed_comparisons == 0 else 1,
+                "elapsed_sec": "0",
+                "log_path": "",
+                "message": (
+                    "all comparisons completed"
+                    if group_failed_comparisons == 0
+                    else f"{group_failed_comparisons} EPIC comparison(s) failed; batch continued"
+                ),
+            },
+        )
 
         write_csv(
             output_root / "00_control" / "navigation_schema_verification.csv",
@@ -579,46 +677,76 @@ def main() -> int:
     clm_metrics = aggregate_clm_metrics(metric_records, output_root)
     stage10_manifest = build_stage10_manifest(targets, output_root)
     is_full_run = len(targets) == EXPECTED_TARGET_COUNT and targets["sample_id"].nunique() == EXPECTED_UNIQUE_GEO_COUNT
+    all_selected_complete = (
+        completed_geo == targets["sample_id"].nunique()
+        and completed_comparisons == len(targets)
+        and failed_geo == 0
+        and failed_comparisons == 0
+    )
+    ready_for_stage10 = is_full_run and all_selected_complete
     cth_outputs: list[Path] = []
     if not args.skip_cth:
-        if not is_full_run:
-            raise RuntimeError("Stage 10 aggregation is only allowed after all frozen 80 targets complete")
-        run_command(
-            [
-                str(args.python_exe.resolve()),
-                "-B",
-                str(CODE_ROOT / "stage_10_cth_validation" / "stage_10_run_cth_validation.py"),
-                "--sample-manifest",
-                str(stage10_manifest),
-                "--output-dir",
-                str(cth_output_root),
-            ],
-            name="stage_10_cth_validation",
-            log_path=cth_output_root / "logs" / "stage_10_cth_validation.log",
-            status_path=status_path,
-            scope="cth_epic_aggregate",
-            env=env,
-        )
-        cth_outputs.append(cth_output_root)
-        if not args.skip_cth_qc:
+        if ready_for_stage10:
             run_command(
                 [
                     str(args.python_exe.resolve()),
                     "-B",
-                    str(CODE_ROOT / "stage_10_cth_validation" / "stage_10_qc_audit.py"),
+                    str(CODE_ROOT / "stage_10_cth_validation" / "stage_10_run_cth_validation.py"),
                     "--sample-manifest",
                     str(stage10_manifest),
-                    "--stage10-output-dir",
+                    "--output-dir",
                     str(cth_output_root),
                 ],
-                name="stage_10_cth_qc",
-                log_path=cth_output_root / "logs" / "stage_10_cth_qc.log",
+                name="stage_10_cth_validation",
+                log_path=cth_output_root / "logs" / "stage_10_cth_validation.log",
                 status_path=status_path,
                 scope="cth_epic_aggregate",
                 env=env,
             )
+            cth_outputs.append(cth_output_root)
+            if not args.skip_cth_qc:
+                run_command(
+                    [
+                        str(args.python_exe.resolve()),
+                        "-B",
+                        str(CODE_ROOT / "stage_10_cth_validation" / "stage_10_qc_audit.py"),
+                        "--sample-manifest",
+                        str(stage10_manifest),
+                        "--stage10-output-dir",
+                        str(cth_output_root),
+                    ],
+                    name="stage_10_cth_qc",
+                    log_path=cth_output_root / "logs" / "stage_10_cth_qc.log",
+                    status_path=status_path,
+                    scope="cth_epic_aggregate",
+                    env=env,
+                )
+        else:
+            append_status(
+                status_path,
+                {
+                    "scope": "cth_epic_aggregate",
+                    "sample_id": "",
+                    "comparison_id": "",
+                    "step": "stage_10_cth_validation",
+                    "status": "SKIP",
+                    "returncode": "",
+                    "elapsed_sec": "0",
+                    "log_path": "",
+                    "message": (
+                        "incomplete continue-on-error batch: "
+                        f"completed_geo={completed_geo}/{targets['sample_id'].nunique()}, "
+                        f"completed_comparisons={completed_comparisons}/{len(targets)}"
+                    ),
+                },
+            )
 
-    final_status = "PASS" if is_full_run and not args.skip_cth else "PREFLIGHT_PASS"
+    if not all_selected_complete:
+        final_status = "PARTIAL_WITH_FAILURES"
+    elif is_full_run and not args.skip_cth:
+        final_status = "PASS"
+    else:
+        final_status = "PREFLIGHT_PASS"
     report = write_progress_report(
         output_root,
         targets,
@@ -628,7 +756,7 @@ def main() -> int:
     )
     manifest_path = write_manifest(
         output_root / "manifest.json",
-        canonical_stage_id=STAGE_ID,
+        canonical_stage_id="stage_09c",
         component_role=COMPONENT_ROLE,
         related_stage_ids=("stage_02", "stage_03", "stage_05", "stage_06", "stage_10"),
         generating_script=Path(__file__).resolve(),
@@ -641,6 +769,11 @@ def main() -> int:
             "source_profile": "operational_baseline",
             "resume": args.resume,
             "skip_cth": args.skip_cth,
+            "continue_on_error": True,
+            "completed_geo_count": completed_geo,
+            "completed_comparison_count": completed_comparisons,
+            "failed_geo_count": failed_geo,
+            "failed_comparison_count": failed_comparisons,
         },
         project_root=PROJECT_ROOT,
         run_id=RUN_ID,
@@ -663,7 +796,7 @@ def main() -> int:
             extra={"final_status": final_status},
         )
     print(f"{final_status}: report={report} manifest={manifest_path}", flush=True)
-    return 0
+    return 1 if final_status == "PARTIAL_WITH_FAILURES" else 0
 
 
 if __name__ == "__main__":

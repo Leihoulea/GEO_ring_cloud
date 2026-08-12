@@ -14,6 +14,7 @@ import unittest
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import netCDF4
 import numpy as np
@@ -66,7 +67,10 @@ from geo_ring_cloud_epic_80_analysis import (  # noqa: E402
     summarize_clm,
     summarize_cth,
 )
-from geo_ring_cloud_experiment_runner_epic_80_followup import progress_counts  # noqa: E402
+from geo_ring_cloud_experiment_runner_epic_80_followup import (  # noqa: E402
+    build_completed_sample_manifest,
+    progress_counts,
+)
 
 
 class MeteosatNativeNavigationTests(unittest.TestCase):
@@ -225,6 +229,8 @@ from geo_ring_cloud_experiment_profile_pair import (  # noqa: E402
 )
 from geo_ring_cloud import evidence_pack  # noqa: E402
 from run_epic_georing_single_sample import runtime_environment  # noqa: E402
+import geo_ring_cloud_experiment_runner_epic_80 as epic80_runner  # noqa: E402
+import geo_ring_cloud_experiment_runner_epic_80_followup as epic80_followup  # noqa: E402
 from geo_ring_cloud_experiment_runner_epic_80 import (  # noqa: E402
     comparison_id as epic80_comparison_id,
     load_targets as load_epic80_targets,
@@ -897,6 +903,49 @@ class PackageBoundaryTests(unittest.TestCase):
         self.assertIsInstance(payload["lineage_warnings"], list)
         self.assertEqual(payload["source_registry_version"], REGISTRY_VERSION)
 
+    def test_generating_script_state_distinguishes_git_states(self) -> None:
+        from geo_ring_cloud.lineage import generating_script_state
+
+        with test_directory("lineage_git_states") as root:
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "lineage-test@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Lineage Test"],
+                cwd=root,
+                check=True,
+            )
+            script = root / "stage_09d_lineage_probe.py"
+            script.write_text("VALUE = 1\n", encoding="utf-8")
+            subprocess.run(["git", "add", script.name], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "initial"], cwd=root, check=True)
+
+            clean = generating_script_state(script, root)
+            self.assertEqual(clean["git_state"], "clean")
+            self.assertTrue(clean["commit_represents_script"])
+
+            script.write_text("VALUE = 2\n", encoding="utf-8")
+            modified = generating_script_state(script, root)
+            self.assertEqual(modified["git_state"], "modified")
+            self.assertFalse(modified["commit_represents_script"])
+
+            subprocess.run(["git", "add", script.name], cwd=root, check=True)
+            staged = generating_script_state(script, root)
+            self.assertEqual(staged["git_state"], "staged")
+
+            script.write_text("VALUE = 3\n", encoding="utf-8")
+            staged_and_modified = generating_script_state(script, root)
+            self.assertEqual(staged_and_modified["git_state"], "staged_and_modified")
+
+            untracked_script = root / "stage_09d_untracked_probe.py"
+            untracked_script.write_text("VALUE = 1\n", encoding="utf-8")
+            untracked = generating_script_state(untracked_script, root)
+            self.assertEqual(untracked["git_state"], "untracked")
+            self.assertFalse(untracked["git_tracked"])
+
 
 class FullPixelDiagnosticTests(unittest.TestCase):
     def test_sampling_policy_and_source_mapping_contract(self) -> None:
@@ -1038,6 +1087,20 @@ class FullPixelDiagnosticTests(unittest.TestCase):
 
 
 class FusionAndOverlapSupportTests(unittest.TestCase):
+    def test_fusion_source_set_can_explicitly_exclude_unavailable_fy4b(self) -> None:
+        from geo_ring_cloud import fusion_support
+
+        try:
+            fusion_support.configure_source_set(
+                "operational_baseline",
+                excluded_satellites={"FY4B"},
+            )
+            self.assertNotIn("FY4B", fusion_support.TIE_ORDER)
+            for rules in fusion_support.VARIABLE_RULES.values():
+                self.assertNotIn("FY4B", {rule["satellite"] for rule in rules})
+        finally:
+            fusion_support.configure_source_set("operational_baseline")
+
     def test_fusion_cloud_mapping_and_binary_contract(self) -> None:
         from geo_ring_cloud import fusion_support
 
@@ -1448,7 +1511,7 @@ def make_cpp(path: Path) -> None:
         processing[:] = np.full((2, 2), 33, dtype=np.uint16)
 
 
-def make_epic_cth(path: Path) -> None:
+def make_epic_cth(path: Path, height_dtype: str = "f4") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with netCDF4.Dataset(path, "w") as ds:
         ds.createDimension("y", 2)
@@ -1462,7 +1525,7 @@ def make_epic_cth(path: Path) -> None:
         cloud_mask = geophysical.createVariable("Cloud_Mask", "i1", ("y", "x"))
         cloud_mask[:] = [[1, 2], [3, 4]]
         height = geophysical.createVariable(
-            "A-band_Effective_Cloud_Height", "f4", ("y", "x"), fill_value=-999.0
+            "A-band_Effective_Cloud_Height", height_dtype, ("y", "x"), fill_value=-999
         )
         height.units = "m"
         height[:] = [[1000.0, 2000.0], [-999.0, 26000.0]]
@@ -1551,6 +1614,16 @@ class EpicAdapterTests(unittest.TestCase):
         self.assertEqual(result["cth_units_standardized"], "km")
         self.assertTrue(np.isnan(result["epic_vza"]).all())
         self.assertTrue(np.isnan(result["sza"]).all())
+
+    def test_integer_masked_cth_is_promoted_before_nan_fill(self) -> None:
+        with test_directory("epic_adapter_integer") as root:
+            path = root / "epic_integer.nc"
+            make_epic_cth(path, height_dtype="i2")
+            result = read_epic_cth(path, "geophysical_data/A-band_Effective_Cloud_Height")
+
+        self.assertTrue(np.issubdtype(result["cth_km"].dtype, np.floating))
+        self.assertTrue(np.isnan(result["cth_km"][1, 0]))
+        np.testing.assert_array_equal(result["cth_valid"], [[True, True], [False, False]])
 
 
 class RunDiscoveryTests(unittest.TestCase):
@@ -1728,6 +1801,13 @@ class ProfilePairDiagnosticTests(unittest.TestCase):
 
 
 class Epic80ExperimentRunnerTests(unittest.TestCase):
+    def test_followup_runtime_environment_exposes_code_root(self) -> None:
+        env = epic80_followup.runtime_env(Path(sys.executable))
+        self.assertEqual(
+            Path(env["PYTHONPATH"].split(os.pathsep)[0]),
+            epic80_followup.CODE_ROOT,
+        )
+
     def test_single_sample_resume_uses_first_failed_step_after_ok_prefix(self) -> None:
         with test_directory("epic80_resume") as root:
             manifest = {
@@ -1805,6 +1885,126 @@ class Epic80ExperimentRunnerTests(unittest.TestCase):
             self.assertEqual(len(loaded), 2)
             self.assertEqual(loaded["sample_id"].nunique(), 1)
             self.assertEqual(loaded["comparison_id"].nunique(), 2)
+
+    def test_epic80_batch_continues_after_one_geo_case_fails(self) -> None:
+        with test_directory("epic80_continue_on_error") as root:
+            output_root = root / "output"
+            cth_output_root = root / "cth"
+            target_list = root / "targets.csv"
+            environment_path = output_root / "00_control" / "environment_check.json"
+            environment_path.parent.mkdir(parents=True, exist_ok=True)
+            good_metric = epic80_runner.metric_file_for_primary(output_root / "runs" / "good", "good")
+            good_metric.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame([{"policy": "A", "agreement": 0.9}]).to_csv(good_metric, index=False)
+            targets = pd.DataFrame(
+                [
+                    {
+                        "sample_id": "bad",
+                        "comparison_id": "bad__epic_20240301000000",
+                        "epic_file": str(root / "EPIC_20240301000000.nc4"),
+                        "epic_time_utc": "2024-03-01T00:00:00Z",
+                        "nearest_georing_time_utc": "2024-03-01T00:00:00Z",
+                        "time_diff_min": "0",
+                        "candidate_group": "test",
+                        "estimated_dominant_source": "FY4B",
+                    },
+                    {
+                        "sample_id": "good",
+                        "comparison_id": "good__epic_20240301010000",
+                        "epic_file": str(root / "EPIC_20240301010000.nc4"),
+                        "epic_time_utc": "2024-03-01T01:00:00Z",
+                        "nearest_georing_time_utc": "2024-03-01T01:00:00Z",
+                        "time_diff_min": "0",
+                        "candidate_group": "test",
+                        "estimated_dominant_source": "Meteosat-0deg",
+                    },
+                ]
+            )
+            args = SimpleNamespace(
+                target_list=target_list,
+                output_root=output_root,
+                cth_output_root=cth_output_root,
+                base_stage_root=root / "base",
+                python_exe=Path(sys.executable),
+                only_sample=[],
+                max_unique_samples=0,
+                skip_cth=False,
+                skip_cth_qc=False,
+                resume=False,
+            )
+            parser = SimpleNamespace(parse_args=lambda: args)
+            attempted: list[str] = []
+
+            def fake_run_geo_sample(sample, **kwargs):
+                del kwargs
+                sample_id = str(sample["sample_id"])
+                attempted.append(sample_id)
+                if sample_id == "bad":
+                    raise RuntimeError("synthetic case failure")
+                return output_root / "runs" / sample_id
+
+            verified = [
+                {
+                    "sample_id": "good",
+                    "product": "Meteosat-IODC_CLM",
+                    "navigation_schema_version": "meteosat_iodc_clm_satpy_v1",
+                    "navigation_source": "satpy_area_definition",
+                    "npz_file": "test.npz",
+                    "status": "PASS",
+                }
+            ]
+            report = output_root / "reports" / "status.md"
+            manifest = output_root / "manifest.json"
+            with (
+                mock.patch.object(epic80_runner, "build_parser", return_value=parser),
+                mock.patch.object(epic80_runner, "environment_check", return_value=environment_path),
+                mock.patch.object(epic80_runner, "load_targets", return_value=targets),
+                mock.patch.object(epic80_runner, "run_geo_sample", side_effect=fake_run_geo_sample),
+                mock.patch.object(epic80_runner, "verify_navigation", return_value=verified),
+                mock.patch.object(
+                    epic80_runner,
+                    "aggregate_clm_metrics",
+                    return_value=output_root / "08_clm_epic" / "metrics.csv",
+                ),
+                mock.patch.object(
+                    epic80_runner,
+                    "build_stage10_manifest",
+                    return_value=output_root / "00_control" / "stage10.csv",
+                ),
+                mock.patch.object(epic80_runner, "write_progress_report", return_value=report),
+                mock.patch.object(epic80_runner, "write_manifest", return_value=manifest),
+                mock.patch.object(epic80_runner, "run_command") as run_command,
+            ):
+                returncode = epic80_runner.main()
+
+            self.assertEqual(returncode, 1)
+            self.assertEqual(attempted, ["bad", "good"])
+            run_command.assert_not_called()
+            status = pd.read_csv(
+                output_root / "00_control" / "epic_80_run_status.csv",
+                dtype=str,
+            ).fillna("")
+            self.assertTrue(
+                (
+                    (status["scope"] == "batch_case")
+                    & (status["sample_id"] == "bad")
+                    & (status["status"] == "FAIL")
+                ).any()
+            )
+            self.assertTrue(
+                (
+                    (status["scope"] == "cth_epic_aggregate")
+                    & (status["step"] == "stage_10_cth_validation")
+                    & (status["status"] == "SKIP")
+                ).any()
+            )
+
+    def test_epic80_empty_metric_aggregation_writes_auditable_csv(self) -> None:
+        with test_directory("epic80_empty_metric_aggregation") as root:
+            output = epic80_runner.aggregate_clm_metrics([], root)
+            frame = pd.read_csv(output)
+            self.assertEqual(list(frame.columns), ["sample_id", "comparison_id", "epic_file"])
+            self.assertTrue(frame.empty)
 
     def test_epic80_analysis_confusion_metrics(self) -> None:
         metrics = confusion_metrics(tp=40, tn=35, fp=10, fn=15)
@@ -1899,6 +2099,31 @@ class Epic80ExperimentRunnerTests(unittest.TestCase):
         self.assertEqual(set(clm_cases["case_role"]), {"best", "median", "worst"})
         self.assertEqual(int(cth_summary.iloc[0]["sample_count"]), 80)
         self.assertEqual(set(cth_cases["case_role"]), {"best", "median", "worst"})
+
+    def test_epic80_followup_filters_stage10_manifest_to_completed_metrics(self) -> None:
+        with test_directory("epic80_completed_manifest") as root:
+            control = root / "00_control"
+            metrics_dir = root / "08_clm_epic"
+            control.mkdir()
+            metrics_dir.mkdir()
+            pd.DataFrame(
+                [
+                    {"sample_id": "geo_a", "comparison_id": "comparison_a", "status": "OK"},
+                    {"sample_id": "geo_a", "comparison_id": "comparison_a", "status": "OK"},
+                    {"sample_id": "geo_b", "comparison_id": "comparison_b", "status": "FAILED"},
+                ]
+            ).to_csv(metrics_dir / "epic_80_cloud_mask_sensitivity_metrics.csv", index=False, encoding="utf-8-sig")
+            pd.DataFrame(
+                [
+                    {"sample_id": "comparison_a", "geo_sample_id": "geo_a", "stage_run_dir": "run_a"},
+                    {"sample_id": "comparison_b", "geo_sample_id": "geo_b", "stage_run_dir": "run_b"},
+                ]
+            ).to_csv(control / "stage_10_epic_80_sample_manifest.csv", index=False, encoding="utf-8-sig")
+            output, comparison_count, geo_count = build_completed_sample_manifest(root, control / "completed.csv")
+            selected = pd.read_csv(output, dtype=str)
+            self.assertEqual(comparison_count, 1)
+            self.assertEqual(geo_count, 1)
+            self.assertEqual(selected["sample_id"].tolist(), ["comparison_a"])
 
 
 if __name__ == "__main__":

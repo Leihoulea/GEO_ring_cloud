@@ -39,6 +39,7 @@ from geo_ring_cloud.fusion_support import (
     save_output,
     target_grid_from_any,
 )
+from geo_ring_cloud import fusion_support
 
 
 OUT_DIR = STAGE_ROOT / "fused_best_source"
@@ -454,13 +455,23 @@ def main() -> int:
     parser.add_argument("--source-profile", default=SOURCE_PROFILE, choices=["operational_baseline", "claas3_candidate"])
     parser.add_argument("--claas3-root", type=Path, default=path_config.CLAAS3_ROOT)
     parser.add_argument("--run-id", default=os.environ.get("GEO_RING_RUN_ID", ""))
+    parser.add_argument("--exclude-satellite", action="append", default=[])
+    parser.add_argument("--exclusion-reason", default="")
     args = parser.parse_args()
+    excluded_satellites = set(args.exclude_satellite)
+    if excluded_satellites and not args.exclusion_reason.strip():
+        parser.error("--exclusion-reason is required with --exclude-satellite")
     SOURCE_PROFILE = validate_profile(args.source_profile)
-    TIE_ORDER = tie_order(SOURCE_PROFILE)
+    TIE_ORDER = [sat for sat in tie_order(SOURCE_PROFILE) if sat not in excluded_satellites]
     VARIABLE_RULES = {
-        variable: [{"satellite": item["source_key"], "product": item["product"]} for item in rules]
+        variable: [
+            {"satellite": item["source_key"], "product": item["product"]}
+            for item in rules
+            if item["source_key"] not in excluded_satellites
+        ]
         for variable, rules in variable_rules(SOURCE_PROFILE).items()
     }
+    fusion_support.configure_source_set(SOURCE_PROFILE, excluded_satellites)
     ensure_dirs()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     QUICKLOOK_DIR.mkdir(parents=True, exist_ok=True)
@@ -528,6 +539,8 @@ def main() -> int:
         "run_id": args.run_id,
         "source_profile": SOURCE_PROFILE,
         "source_registry_version": REGISTRY_VERSION,
+        "excluded_satellites": sorted(excluded_satellites),
+        "source_exclusion_reason": args.exclusion_reason,
     }
     write_bundle(bundle_arrays, bundle_meta)
 
@@ -541,7 +554,13 @@ def main() -> int:
         generating_script=Path(__file__),
         input_paths=list(catalog.values()),
         output_paths=[FUSED_BUNDLE, INVENTORY_CSV, STATS_CSV, FREQ_CSV],
-        parameters={"target_time": TARGET_TIME, "variable_rules": VARIABLE_RULES, "neutral_product_weight": 1.0},
+        parameters={
+            "target_time": TARGET_TIME,
+            "variable_rules": VARIABLE_RULES,
+            "neutral_product_weight": 1.0,
+            "excluded_satellites": sorted(excluded_satellites),
+            "exclusion_reason": args.exclusion_reason,
+        },
         project_root=path_config.PROJECT_ROOT,
         extra={"registry_version": REGISTRY_VERSION, "product_versions": {"CLAAS3": "405"} if SOURCE_PROFILE == "claas3_candidate" else {}, "status": status},
     )

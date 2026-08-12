@@ -563,9 +563,17 @@ def main() -> int:
     parser.add_argument("--claas3-root", type=Path, default=path_config.CLAAS3_ROOT)
     parser.add_argument("--run-id", default=os.environ.get("GEO_RING_RUN_ID", ""))
     parser.add_argument("--reuse-operational-reprojected-root", type=Path)
+    parser.add_argument("--reuse-completed-reprojected-root", type=Path)
+    parser.add_argument("--exclude-satellite", action="append", default=[])
+    parser.add_argument("--exclusion-reason", default="")
     args = parser.parse_args()
+    excluded_satellites = set(args.exclude_satellite)
+    if excluded_satellites and not args.exclusion_reason.strip():
+        parser.error("--exclusion-reason is required with --exclude-satellite")
+    if args.reuse_operational_reprojected_root and args.reuse_completed_reprojected_root:
+        parser.error("reprojected reuse modes are mutually exclusive")
     SOURCE_PROFILE = validate_profile(args.source_profile)
-    SATELLITES = tie_order(SOURCE_PROFILE)
+    SATELLITES = [sat for sat in tie_order(SOURCE_PROFILE) if sat not in excluded_satellites]
     ensure_dirs()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     QUICKLOOK_DIR.mkdir(parents=True, exist_ok=True)
@@ -573,25 +581,39 @@ def main() -> int:
     target_lon, target_lat, target_grid = make_target_grid()
     TARGET_JSON.write_text(json.dumps(target_grid, indent=2, ensure_ascii=False), encoding="utf-8")
     preflight_warnings = preflight_report_status()
+    if excluded_satellites:
+        preflight_warnings.append(
+            f"EXPLICIT_SOURCE_EXCLUSION satellites={','.join(sorted(excluded_satellites))}; reason={args.exclusion_reason}"
+        )
     rows = load_inventory()
     inventory_rows: list[dict[str, Any]] = []
     stat_rows: list[dict[str, Any]] = []
     cloud_code_rows: list[dict[str, Any]] = []
     reused_input_paths: list[Path] = []
-    if args.reuse_operational_reprojected_root:
-        base_inventory_path = args.reuse_operational_reprojected_root / "reprojected_variable_inventory.csv"
-        base_stats_path = args.reuse_operational_reprojected_root / "reprojected_per_satellite_stats.csv"
-        base_grid_path = args.reuse_operational_reprojected_root / "target_grid_definition.json"
+    reuse_reprojected_root = args.reuse_completed_reprojected_root or args.reuse_operational_reprojected_root
+    if reuse_reprojected_root:
+        base_inventory_path = reuse_reprojected_root / "reprojected_variable_inventory.csv"
+        base_stats_path = reuse_reprojected_root / "reprojected_per_satellite_stats.csv"
+        base_grid_path = reuse_reprojected_root / "target_grid_definition.json"
         base_grid = json.loads(base_grid_path.read_text(encoding="utf-8"))
         if base_grid != target_grid:
             raise RuntimeError(f"reused operational target grid differs from candidate grid: {base_grid_path}")
-        inventory_rows.extend(pd.read_csv(base_inventory_path).to_dict("records"))
-        stat_rows.extend(pd.read_csv(base_stats_path).to_dict("records"))
-        base_code_path = args.reuse_operational_reprojected_root.parent / "reports" / "cloud_mask_code_table.csv"
+        base_inventory = pd.read_csv(base_inventory_path)
+        base_stats = pd.read_csv(base_stats_path)
+        base_inventory = base_inventory[base_inventory["satellite"].isin(SATELLITES)].copy()
+        base_stats = base_stats[base_stats["satellite"].isin(SATELLITES)].copy()
+        inventory_rows.extend(base_inventory.to_dict("records"))
+        stat_rows.extend(base_stats.to_dict("records"))
+        base_code_path = reuse_reprojected_root.parent / "reports" / "cloud_mask_code_table.csv"
         if base_code_path.exists():
-            cloud_code_rows.extend(pd.read_csv(base_code_path).to_dict("records"))
+            base_code = pd.read_csv(base_code_path)
+            base_code = base_code[base_code["satellite"].isin(SATELLITES)].copy()
+            cloud_code_rows.extend(base_code.to_dict("records"))
         reused_input_paths.extend([base_inventory_path, base_stats_path, base_grid_path])
-        rows = [row for row in rows if row["satellite"] == "CLAAS3-0deg"]
+        if args.reuse_completed_reprojected_root:
+            rows = []
+        else:
+            rows = [row for row in rows if row["satellite"] == "CLAAS3-0deg"]
     coverage_by_sat: dict[str, np.ndarray] = {}
     for row in rows:
         inv, stats, code_rows, coverage = reproject_product(row, target_lon, target_lat, target_grid)
@@ -626,7 +648,16 @@ def main() -> int:
         generating_script=Path(__file__),
         input_paths=[*reused_input_paths, *[row["npz_file"] for row in rows]],
         output_paths=inventory["output_file"].dropna().astype(str).tolist() if not inventory.empty else [],
-        parameters={"target_time": TARGET_TIME, "grid_resolution_degree": GRID_RES, "max_distance_degree": MAX_DISTANCE_DEG, "resampling": "nearest", "reuse_operational_reprojected_root": str(args.reuse_operational_reprojected_root or "")},
+        parameters={
+            "target_time": TARGET_TIME,
+            "grid_resolution_degree": GRID_RES,
+            "max_distance_degree": MAX_DISTANCE_DEG,
+            "resampling": "nearest",
+            "reuse_operational_reprojected_root": str(args.reuse_operational_reprojected_root or ""),
+            "reuse_completed_reprojected_root": str(args.reuse_completed_reprojected_root or ""),
+            "excluded_satellites": sorted(excluded_satellites),
+            "exclusion_reason": args.exclusion_reason,
+        },
         project_root=path_config.PROJECT_ROOT,
         extra={"registry_version": REGISTRY_VERSION, "product_versions": {"CLAAS3": "405"} if SOURCE_PROFILE == "claas3_candidate" else {}},
     )
