@@ -11,6 +11,11 @@ param(
     [int]$InventoryWorkers = 8,
     [ValidateRange(1, 16)]
     [int]$DownloadWorkers = 4,
+    [switch]$AdaptiveDownload,
+    [ValidateRange(1, 16)]
+    [int]$DownloadMinWorkers = 2,
+    [ValidateRange(1, 16)]
+    [int]$DownloadInitialWorkers = 4,
     [ValidateRange(1, 64)]
     [int]$S3RangeMiB = 4,
     [switch]$RefreshInventory,
@@ -56,6 +61,52 @@ if ($SelectedPlatforms.Count -eq 0) {
 $S3Platforms = @($SelectedPlatforms | Where-Object { $_.StartsWith("GOES-") -or $_ -eq "Himawari-9" })
 $MeteosatPlatforms = @($SelectedPlatforms | Where-Object { $_.StartsWith("Meteosat-") })
 
+$ScriptSha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$ProjectPrefix = $GeoRingProjectRoot.TrimEnd("\") + "\"
+$ScriptRelativePath = if ($PSCommandPath.StartsWith($ProjectPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $PSCommandPath.Substring($ProjectPrefix.Length).Replace("\", "/")
+} else {
+    ""
+}
+$CodeCommit = ""
+$CommitBlob = ""
+$WorktreeBlob = ""
+$GitState = "outside_repository"
+if ($ScriptRelativePath) {
+    $CodeCommit = ((& git -C $GeoRingProjectRoot rev-parse HEAD 2>$null) | Select-Object -First 1)
+    $TrackedOutput = ((& git -C $GeoRingProjectRoot ls-files --error-unmatch -- $ScriptRelativePath 2>$null) | Select-Object -First 1)
+    $IsTracked = $LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($TrackedOutput)
+    $WorktreeBlob = ((& git -C $GeoRingProjectRoot hash-object -- $ScriptRelativePath 2>$null) | Select-Object -First 1)
+    $CommitBlob = ((& git -C $GeoRingProjectRoot rev-parse "HEAD:$ScriptRelativePath" 2>$null) | Select-Object -First 1)
+    $StatusLine = ((& git -C $GeoRingProjectRoot status --porcelain=v1 --untracked-files=all -- $ScriptRelativePath 2>$null) | Select-Object -First 1)
+    if (-not $IsTracked -or ($StatusLine -and $StatusLine.StartsWith("??"))) {
+        $GitState = "untracked"
+    } elseif ([string]::IsNullOrEmpty($StatusLine)) {
+        $GitState = "clean"
+    } elseif ($StatusLine.Length -ge 2 -and $StatusLine[0] -ne " " -and $StatusLine[1] -ne " ") {
+        $GitState = "staged_and_modified"
+    } elseif ($StatusLine.Length -ge 1 -and $StatusLine[0] -ne " ") {
+        $GitState = "staged"
+    } else {
+        $GitState = "modified"
+    }
+}
+$CommitRepresentsScript = (
+    $GitState -eq "clean" -and
+    -not [string]::IsNullOrWhiteSpace($CommitBlob) -and
+    $CommitBlob -eq $WorktreeBlob
+)
+$GeneratingScriptState = [ordered]@{
+    path = $PSCommandPath
+    repository_relative_path = $ScriptRelativePath
+    sha256 = $ScriptSha256
+    git_state = $GitState
+    git_tracked = $IsTracked
+    worktree_blob = $WorktreeBlob
+    commit_blob = $CommitBlob
+    commit_represents_script = $CommitRepresentsScript
+}
+
 function Write-BatchStatus {
     param([string]$Phase, [string]$Status, [string]$Message = "")
     $payload = [ordered]@{
@@ -64,6 +115,16 @@ function Write-BatchStatus {
         component_role = $COMPONENT_ROLE
         related_stage_ids = @("stage_00", "stage_00f")
         generating_script = $PSCommandPath
+        code_commit = $CodeCommit
+        code_commit_scope = "repository_head_at_run_start"
+        generating_script_state = $GeneratingScriptState
+        lineage_warnings = $(
+            if ($CommitRepresentsScript) {
+                @()
+            } else {
+                @("code_commit does not fully represent the generating script content")
+            }
+        )
         updated_at = (Get-Date).ToUniversalTime().ToString("o")
         phase = $Phase
         status = $Status
@@ -75,6 +136,9 @@ function Write-BatchStatus {
         platforms = $SelectedPlatforms
         inventory_workers = $InventoryWorkers
         download_workers = $DownloadWorkers
+        download_parallelism_mode = $(if ($AdaptiveDownload) { "adaptive" } else { "fixed" })
+        download_min_workers = $DownloadMinWorkers
+        download_initial_workers = $DownloadInitialWorkers
         s3_range_mib = $S3RangeMiB
         network_mode = "direct_only"
         automatic_delete = $false
@@ -172,6 +236,13 @@ try {
             "--max-workers", $DownloadWorkers.ToString(),
             "--range-mib", $S3RangeMiB.ToString()
         )
+        if ($AdaptiveDownload) {
+            $S3Arguments += @(
+                "--adaptive-workers",
+                "--min-workers", $DownloadMinWorkers.ToString(),
+                "--initial-workers", $DownloadInitialWorkers.ToString()
+            )
+        }
         foreach ($Platform in $S3Platforms) {
             $S3Arguments += @("--platform", $Platform)
         }
@@ -186,6 +257,13 @@ try {
             "--start-date", $StartDate, "--end-date", $EndDate,
             "--max-workers", $MeteosatWorkers.ToString()
         )
+        if ($AdaptiveDownload) {
+            $MeteosatArguments += @(
+                "--adaptive-workers",
+                "--min-workers", ([Math]::Min($DownloadMinWorkers, $MeteosatWorkers)).ToString(),
+                "--initial-workers", ([Math]::Min($DownloadInitialWorkers, $MeteosatWorkers)).ToString()
+            )
+        }
         foreach ($Platform in $MeteosatPlatforms) {
             $MeteosatArguments += @("--platform", $Platform)
         }

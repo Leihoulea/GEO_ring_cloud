@@ -18,6 +18,17 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Dict, Iterable, List, Optional, Tuple
 
+CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
+if CORE_CODE_ROOT.is_dir() and str(CORE_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(CORE_CODE_ROOT))
+try:
+    from geo_ring_cloud.lineage import code_commit, generating_script_state
+    from geo_ring_cloud.paths import PROJECT_ROOT
+except ImportError:  # The standalone server-side verifier has no project package.
+    code_commit = None
+    generating_script_state = None
+    PROJECT_ROOT = None
+
 
 COMPONENT_ROLE = "data_transfer_orchestrator"
 RELATED_STAGE_IDS = ["stage_00"]
@@ -44,6 +55,40 @@ def sha256_file(path: Path, chunk_size: int = 8 * 1024 * 1024) -> str:
         for chunk in iter(lambda: handle.read(chunk_size), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def runtime_lineage() -> Dict[str, object]:
+    script = Path(__file__).resolve()
+    if generating_script_state is None or code_commit is None or PROJECT_ROOT is None:
+        return {
+            "generating_script": str(script),
+            "code_commit": "",
+            "code_commit_scope": "unavailable_outside_repository",
+            "generating_script_state": {
+                "path": str(script),
+                "sha256": sha256_file(script),
+                "git_state": "outside_repository",
+                "git_tracked": False,
+                "worktree_blob": "",
+                "commit_blob": "",
+                "commit_represents_script": False,
+            },
+            "lineage_warnings": [
+                "repository metadata unavailable; exact script hash retained"
+            ],
+        }
+    state = generating_script_state(script, PROJECT_ROOT)
+    return {
+        "generating_script": str(script),
+        "code_commit": code_commit(PROJECT_ROOT),
+        "code_commit_scope": "repository_head_at_manifest_write",
+        "generating_script_state": state,
+        "lineage_warnings": (
+            []
+            if state["commit_represents_script"]
+            else ["code_commit does not fully represent the generating script content"]
+        ),
+    }
 
 
 def parse_day(value: str) -> str:
@@ -164,7 +209,7 @@ def prepare_manifest(
         "canonical_stage_id": "",
         "component_role": COMPONENT_ROLE,
         "related_stage_ids": RELATED_STAGE_IDS,
-        "generating_script": str(Path(__file__).resolve()),
+        **runtime_lineage(),
         "created_at": utc_now(),
         "batch_id": batch_id,
         "date_range": {"start": start_date, "end": end_date},

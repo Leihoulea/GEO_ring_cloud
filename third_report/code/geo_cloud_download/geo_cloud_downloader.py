@@ -22,7 +22,7 @@ import time
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
@@ -44,6 +44,9 @@ DEFAULT_INVENTORY_WORKERS = 8
 MAX_S3_WORKERS = 16
 MAX_INVENTORY_WORKERS = 16
 MAX_METEOSAT_WORKERS = 8
+DEFAULT_ADAPTIVE_MIN_WORKERS = 2
+DEFAULT_ADAPTIVE_INITIAL_WORKERS = 4
+ADAPTIVE_TUNE_SECONDS = 30.0
 EUMETSAT_CHUNK_SIZE = 1024 * 512
 EUMETSAT_SEARCH_URL = "https://api.eumetsat.int/data/search-products/1.0.0/os"
 EUMETSAT_TOKEN_URL = "https://api.eumetsat.int/token"
@@ -265,6 +268,176 @@ def replace_with_retry(src: Path, dst: Path, attempts: int = 8) -> None:
         if last_error:
             raise last_error
         raise
+
+
+def choose_adaptive_worker_count(
+    current_workers: int,
+    min_workers: int,
+    max_workers: int,
+    current_rate_bps: float,
+    previous_rate_bps: Optional[float],
+    completed_count: int,
+    failed_count: int,
+) -> tuple[int, str]:
+    """Choose the next conservative concurrency using AIMD-like feedback."""
+    current_workers = max(min_workers, min(max_workers, current_workers))
+    attempts = completed_count + failed_count
+    error_ratio = failed_count / attempts if attempts else 0.0
+    if failed_count >= 2 or error_ratio >= 0.20:
+        return max(min_workers, current_workers - 1), "errors_backoff"
+    if (
+        previous_rate_bps is not None
+        and previous_rate_bps > 0
+        and current_rate_bps < previous_rate_bps * 0.75
+    ):
+        return max(min_workers, current_workers - 1), "throughput_backoff"
+    if failed_count == 0 and completed_count > 0 and current_workers < max_workers:
+        if previous_rate_bps is None or current_rate_bps >= previous_rate_bps * 0.90:
+            return current_workers + 1, "throughput_probe_up"
+    return current_workers, "steady"
+
+
+def write_download_parallelism_status(root: Path, payload: dict) -> None:
+    path = root / "logs" / "download_parallelism_status.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    replace_with_retry(temporary, path)
+
+
+def run_download_pool(
+    root: Path,
+    pending: list[dict],
+    worker: Callable[[dict], dict],
+    provider: str,
+    max_workers: int,
+    adaptive_workers: bool,
+    min_workers: int,
+    initial_workers: int,
+    log,
+) -> list[dict]:
+    """Run downloads with a dynamic submission limit and persist tuning evidence."""
+    min_workers = max(1, min(min_workers, max_workers))
+    target_workers = (
+        max(min_workers, min(initial_workers, max_workers))
+        if adaptive_workers
+        else max_workers
+    )
+    mode = "adaptive" if adaptive_workers else "fixed"
+    outputs: list[dict] = []
+    iterator = iter(pending)
+    exhausted = False
+    completed_total = 0
+    window_completed = 0
+    window_failed = 0
+    window_bytes = 0
+    previous_rate: Optional[float] = None
+    window_started = time.monotonic()
+
+    def status(reason: str, active_workers: int, rate_bps: Optional[float] = None) -> None:
+        write_download_parallelism_status(
+            root,
+            {
+                "project_id": "geo_ring_cloud",
+                "canonical_stage_id": "",
+                "component_role": COMPONENT_ROLE,
+                "related_stage_ids": list(RELATED_STAGE_IDS),
+                "updated_at": utc_now(),
+                "status": "RUNNING" if completed_total < len(pending) else "COMPLETE",
+                "provider": provider,
+                "mode": mode,
+                "current_workers": target_workers,
+                "active_workers": active_workers,
+                "min_workers": min_workers,
+                "max_workers": max_workers,
+                "reason": reason,
+                "rate_bps": rate_bps,
+                "completed_files": completed_total,
+                "total_files": len(pending),
+                "network_mode": "direct_only",
+            },
+        )
+
+    status("initial", 0)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        active = {}
+
+        def fill_slots() -> None:
+            nonlocal exhausted
+            while not exhausted and len(active) < target_workers:
+                try:
+                    row = next(iterator)
+                except StopIteration:
+                    exhausted = True
+                    break
+                active[executor.submit(worker, row)] = row
+
+        fill_slots()
+        status("running", len(active))
+        while active:
+            done, _ = wait(tuple(active), timeout=1.0, return_when=FIRST_COMPLETED)
+            if not done:
+                continue
+            for future in done:
+                row = active.pop(future)
+                completed_total += 1
+                try:
+                    out = future.result()
+                except Exception as exc:
+                    out = dict(row)
+                    out["status"] = "corrupt"
+                    out["note"] = f"{type(exc).__name__}: {exc}"
+                outputs.append(out)
+                if out.get("status") == "downloaded":
+                    window_completed += 1
+                    try:
+                        window_bytes += int(row.get("size_bytes") or 0)
+                    except (TypeError, ValueError):
+                        pass
+                else:
+                    window_failed += 1
+                log.write(
+                    f"{utc_now()} {completed_total}/{len(pending)} {out.get('status')} "
+                    f"{out.get('platform')} {out.get('product')} {out.get('target_time_utc')} "
+                    f"{out.get('note')}\n"
+                )
+                log.flush()
+
+            elapsed = max(0.001, time.monotonic() - window_started)
+            enough_samples = window_completed + window_failed >= max(2, target_workers * 2)
+            should_tune = adaptive_workers and (
+                window_failed >= 2
+                or elapsed >= ADAPTIVE_TUNE_SECONDS
+                or (enough_samples and elapsed >= 3.0)
+            )
+            reason = "running"
+            rate: Optional[float] = None
+            if should_tune:
+                rate = window_bytes / elapsed
+                target_workers, reason = choose_adaptive_worker_count(
+                    target_workers,
+                    min_workers,
+                    max_workers,
+                    rate,
+                    previous_rate,
+                    window_completed,
+                    window_failed,
+                )
+                log.write(
+                    f"{utc_now()} download_parallelism provider={provider} mode=adaptive "
+                    f"workers={target_workers} rate_bps={rate:.1f} reason={reason} "
+                    f"window_ok={window_completed} window_fail={window_failed}\n"
+                )
+                log.flush()
+                previous_rate = rate
+                window_started = time.monotonic()
+                window_completed = 0
+                window_failed = 0
+                window_bytes = 0
+            fill_slots()
+            status(reason, len(active), rate)
+    status("complete", 0, previous_rate)
+    return outputs
 
 
 def read_manifest(path: Path) -> list[dict]:
@@ -952,6 +1125,9 @@ def run_download_meteosat_range(
     end_date: str,
     platforms: Optional[set[str]] = None,
     max_workers: int = 2,
+    adaptive_workers: bool = False,
+    min_workers: int = DEFAULT_ADAPTIVE_MIN_WORKERS,
+    initial_workers: int = DEFAULT_ADAPTIVE_INITIAL_WORKERS,
 ) -> Path:
     disable_proxy_environment()
     max_workers = validate_worker_count(max_workers, MAX_METEOSAT_WORKERS, "max_workers")
@@ -1016,7 +1192,8 @@ def run_download_meteosat_range(
         log.write(
             f"{utc_now()} download_meteosat_range_start start={start_date} end={end_date} "
             f"rows={len(rows)} skipped_existing={len(skipped)} pending={len(pending)} "
-            f"max_workers={max_workers} network_mode=direct_only\n"
+            f"max_workers={max_workers} adaptive_workers={adaptive_workers} "
+            f"initial_workers={initial_workers} network_mode=direct_only\n"
         )
         log.flush()
 
@@ -1029,24 +1206,19 @@ def run_download_meteosat_range(
             out["note"] = note
             return out
 
-        completed = 0
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(worker, row) for row in pending]
-            for future in as_completed(futures):
-                completed += 1
-                try:
-                    out = future.result()
-                except Exception as exc:
-                    out = {field: "" for field in MANIFEST_FIELDS}
-                    out["status"] = "corrupt"
-                    out["note"] = f"{type(exc).__name__}: {exc}"
-                downloaded.append(out)
-                log.write(
-                    f"{utc_now()} {completed}/{len(pending)} {out['status']} "
-                    f"{out.get('platform', '')} {out.get('product', '')} "
-                    f"{out.get('target_time_utc', '')} {out['note']}\n"
-                )
-                log.flush()
+        downloaded.extend(
+            run_download_pool(
+                root,
+                pending,
+                worker,
+                "eumetsat",
+                max_workers,
+                adaptive_workers,
+                min_workers,
+                initial_workers,
+                log,
+            )
+        )
 
     out_path = manifest_path(root, "manifest_meteosat_downloaded.csv")
     write_csv(out_path, downloaded)
@@ -1653,6 +1825,9 @@ def run_download_s3_range(
     max_workers: int = 8,
     platforms: Optional[set[str]] = None,
     range_mib: int = DEFAULT_S3_RANGE_MIB,
+    adaptive_workers: bool = False,
+    min_workers: int = DEFAULT_ADAPTIVE_MIN_WORKERS,
+    initial_workers: int = DEFAULT_ADAPTIVE_INITIAL_WORKERS,
 ) -> Path:
     disable_proxy_environment()
     max_workers = validate_worker_count(max_workers, MAX_S3_WORKERS, "max_workers")
@@ -1713,7 +1888,8 @@ def run_download_s3_range(
         log.write(
             f"{utc_now()} download_s3_range_start start={start_date} end={end_date} "
             f"rows={len(rows)} skipped_existing={len(skipped)} pending={len(pending)} "
-            f"max_workers={max_workers} range_mib={range_mib} network_mode=direct_only\n"
+            f"max_workers={max_workers} adaptive_workers={adaptive_workers} "
+            f"initial_workers={initial_workers} range_mib={range_mib} network_mode=direct_only\n"
         )
         log.flush()
 
@@ -1725,24 +1901,19 @@ def run_download_s3_range(
             out["note"] = note
             return out
 
-        completed = 0
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(worker, row) for row in pending]
-            for future in as_completed(futures):
-                completed += 1
-                try:
-                    out = future.result()
-                except Exception as exc:
-                    out = {field: "" for field in MANIFEST_FIELDS}
-                    out["status"] = "corrupt"
-                    out["note"] = f"{type(exc).__name__}: {exc}"
-                downloaded.append(out)
-                log.write(
-                    f"{utc_now()} {completed}/{len(pending)} {out.get('status')} "
-                    f"{out.get('platform')} {out.get('product')} {out.get('target_time_utc')} "
-                    f"{out.get('note')}\n"
-                )
-                log.flush()
+        downloaded.extend(
+            run_download_pool(
+                root,
+                pending,
+                worker,
+                "s3",
+                max_workers,
+                adaptive_workers,
+                min_workers,
+                initial_workers,
+                log,
+            )
+        )
 
     out_path = manifest_path(root, "manifest_downloaded.csv")
     write_csv(out_path, downloaded)
@@ -1825,6 +1996,13 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     s3_parser.add_argument("--end-date", required=True, help="UTC end date, YYYY-MM-DD.")
     s3_parser.add_argument("--max-workers", type=int, default=8, help="Concurrent S3 downloads.")
     s3_parser.add_argument(
+        "--adaptive-workers",
+        action="store_true",
+        help="Start conservatively and tune concurrent downloads from measured results.",
+    )
+    s3_parser.add_argument("--min-workers", type=int, default=DEFAULT_ADAPTIVE_MIN_WORKERS)
+    s3_parser.add_argument("--initial-workers", type=int, default=DEFAULT_ADAPTIVE_INITIAL_WORKERS)
+    s3_parser.add_argument(
         "--range-mib",
         type=int,
         default=DEFAULT_S3_RANGE_MIB,
@@ -1866,6 +2044,13 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         help=f"Concurrent EUMETSAT downloads (1-{MAX_METEOSAT_WORKERS}).",
     )
     met_download.add_argument(
+        "--adaptive-workers",
+        action="store_true",
+        help="Start conservatively and tune concurrent downloads from measured results.",
+    )
+    met_download.add_argument("--min-workers", type=int, default=DEFAULT_ADAPTIVE_MIN_WORKERS)
+    met_download.add_argument("--initial-workers", type=int, default=DEFAULT_ADAPTIVE_INITIAL_WORKERS)
+    met_download.add_argument(
         "--platform",
         action="append",
         choices=tuple(METEOSAT_CONFIG),
@@ -1879,8 +2064,44 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
 
 def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
-    root = Path(args.root)
+    root = Path(args.root).resolve()
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_manifest = (
+        root
+        / "logs"
+        / f"geo_ring_cloud_downloader_{args.command}_{run_id}_manifest.json"
+    )
+
+    def record_run(status: str, output_paths: Iterable[str | Path], error: str = "") -> None:
+        if not root.exists():
+            return
+        try:
+            write_lineage_manifest(
+                run_manifest,
+                canonical_stage_id="",
+                component_role=COMPONENT_ROLE,
+                related_stage_ids=RELATED_STAGE_IDS,
+                generating_script=Path(__file__).resolve(),
+                input_paths=(root / "manifests" / "manifest_inventory.csv",),
+                output_paths=output_paths,
+                parameters={
+                    key: value
+                    for key, value in vars(args).items()
+                    if key not in {"password", "token", "secret"}
+                },
+                project_root=PROJECT_ROOT,
+                run_id=run_id,
+                extra={"final_status": status, "error": error},
+            )
+        except Exception as manifest_exc:
+            print(
+                f"WARNING: failed to write run lineage manifest: "
+                f"{type(manifest_exc).__name__}: {manifest_exc}",
+                file=sys.stderr,
+            )
+
     try:
+        out: str | Path = root
         if args.command == "inventory":
             out = run_inventory(
                 root,
@@ -1903,6 +2124,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                 args.max_workers,
                 set(args.platform) if args.platform else None,
                 args.range_mib,
+                args.adaptive_workers,
+                args.min_workers,
+                args.initial_workers,
             )
             print(out)
         elif args.command == "validate":
@@ -1929,14 +2153,24 @@ def main(argv: Optional[list[str]] = None) -> int:
                 args.start_date,
                 args.end_date,
                 set(args.platform) if args.platform else None,
+                args.max_workers,
+                args.adaptive_workers,
+                args.min_workers,
+                args.initial_workers,
             )
             print(out)
         elif args.command == "first-round":
             run_inventory(root, include_meteosat=True)
             out = run_download_test_day(root, args.date)
             print(out)
+        record_run("PASS", (root, out))
         return 0
     except Exception as exc:
+        record_run(
+            "FAIL",
+            (root,),
+            error=f"{type(exc).__name__}: {exc}",
+        )
         print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
 
