@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sqlite3
 import subprocess
@@ -11,11 +12,14 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from index_contract import source_fingerprint
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CORE = ROOT / "third_report" / "code" / "geo_ring_cloud_stage1"
 DOWNLOAD_COMPONENT = ROOT / "third_report" / "code" / "geo_cloud_download"
 INDEX_DATABASE = ROOT / "_GEO_RING_CLOUD_INDEX" / "geo_ring_cloud_index.sqlite"
+INDEX_BUILD_MANIFEST = ROOT / "_GEO_RING_CLOUD_WORKSPACE" / "index_build_manifest.json"
 COMPONENT_ROLE = "quality_gate"
 
 INDEX_MINIMUM_ROWS = {
@@ -41,6 +45,7 @@ REQUIRED_ENGINEERING_FILES = (
     ROOT / "_GEO_RING_CLOUD_WORKSPACE" / "engineering_policy.md",
     ROOT / "_GEO_RING_CLOUD_WORKSPACE" / "engineering_status.md",
     ROOT / "_GEO_RING_CLOUD_WORKSPACE" / "module_registry.md",
+    INDEX_BUILD_MANIFEST,
 )
 
 
@@ -131,6 +136,35 @@ def check_local_index() -> None:
     )
 
 
+def check_index_build_manifest() -> None:
+    try:
+        payload = json.loads(INDEX_BUILD_MANIFEST.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"Cannot read index build manifest: {exc}") from exc
+    if payload.get("project_id") != "geo_ring_cloud":
+        raise SystemExit("Index build manifest has the wrong project_id")
+    recorded = payload.get("source_fingerprint")
+    if not isinstance(recorded, dict):
+        raise SystemExit("Index build manifest has no source_fingerprint object")
+    current = source_fingerprint(ROOT)
+    if recorded.get("algorithm") != current["algorithm"]:
+        raise SystemExit("Index build manifest fingerprint algorithm is unsupported")
+    if recorded.get("sha256") != current["sha256"] or recorded.get("file_count") != current["file_count"]:
+        raise SystemExit(
+            "Project-memory index is stale; run "
+            "python _GEO_RING_CLOUD_INDEX/build_index.py"
+        )
+    row_counts = payload.get("index_database", {}).get("row_counts", {})
+    missing_counts = sorted(set(INDEX_MINIMUM_ROWS) - set(row_counts))
+    if missing_counts or any(int(row_counts.get(table, 0)) < minimum for table, minimum in INDEX_MINIMUM_ROWS.items()):
+        raise SystemExit("Index build manifest does not prove non-empty authoritative tables")
+    print(
+        "Index build manifest: OK "
+        f"(sources={current['file_count']}, fingerprint={str(current['sha256'])[:12]})",
+        flush=True,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -146,6 +180,7 @@ def main() -> int:
     args = parser.parse_args()
 
     check_contract_files()
+    check_index_build_manifest()
     check_local_index()
     run(
         "Python syntax",

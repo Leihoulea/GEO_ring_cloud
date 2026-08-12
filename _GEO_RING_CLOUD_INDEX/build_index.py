@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import governance_check
+from index_contract import source_fingerprint
 
 ROOT = Path(r"D:\AAAresearch_paper")
 OUT_DIR = Path(r"D:\AAAresearch_paper\_GEO_RING_CLOUD_INDEX")
@@ -31,6 +32,7 @@ DB_PATH = OUT_DIR / "geo_ring_cloud_index.sqlite"
 REFRESHED_DB_PATH = OUT_DIR / "geo_ring_cloud_index_refreshed.sqlite"
 XLSX_PATH = OUT_DIR / "geo_ring_cloud_index.xlsx"
 WORKSPACE_DIR = ROOT / "_GEO_RING_CLOUD_WORKSPACE"
+INDEX_BUILD_MANIFEST_PATH = WORKSPACE_DIR / "index_build_manifest.json"
 ARCHIVE_DIR = ROOT / "_NON_GEO_ARCHIVE"
 GENERATED_AT = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -2305,6 +2307,30 @@ def export_xlsx(db_path: Path = DB_PATH):
     print(f"[OK] xlsx 导出: {XLSX_PATH}")
 
 
+def write_index_build_manifest(db_path: Path) -> Path:
+    counts = validate_index_database(db_path)
+    fingerprint = source_fingerprint(ROOT)
+    payload = {
+        "schema_version": 1,
+        "project_id": PROJECT_ID,
+        "component_role": "project_memory_index",
+        "generated_at": GENERATED_AT,
+        "source_fingerprint": fingerprint,
+        "index_database": {
+            "generated_path": db_path.resolve().relative_to(ROOT.resolve()).as_posix(),
+            "row_counts": counts,
+        },
+        "build_script": Path(__file__).resolve().relative_to(ROOT.resolve()).as_posix(),
+        "verification_command": "python _GEO_RING_CLOUD_INDEX/ci_check.py --scientific-tests",
+    }
+    INDEX_BUILD_MANIFEST_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    print(f"[OK] index build manifest: {INDEX_BUILD_MANIFEST_PATH}")
+    return INDEX_BUILD_MANIFEST_PATH
+
+
 def fetch_dicts(conn: sqlite3.Connection, sql: str) -> list[dict[str, object]]:
     cur = conn.execute(sql)
     cols = [d[0] for d in cur.description]
@@ -2429,6 +2455,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 - `legacy_aliases.md`: legacy labels mapped to canonical stage IDs.
 - `naming_policy.md`: naming rules for new work and known non-canonical labels.
 - `engineering_policy.md`: enforceable engineering contract for humans and AI agents.
+- `index_build_manifest.json`: committed source fingerprint and authoritative table counts proving the index was rebuilt for the current code.
 - `figure_workflow.md`: reusable scientific-figure workflow for stage plotting, source data, QA, exports, and governance.
 - Repository contribution contract: `{ROOT / "CONTRIBUTING.md"}`
 - Security and credential policy: `{ROOT / "SECURITY.md"}`
@@ -2609,6 +2636,7 @@ It applies to humans and AI agents.
 - MUST reuse existing scripts, manifests, reports, and products when they already answer the task.
 - MUST decide the `project_id + canonical_stage_id` before naming files.
 - MUST run `python _GEO_RING_CLOUD_INDEX\\build_index.py` after adding or changing stage scripts.
+- MUST commit `index_build_manifest.json`; its governed-source fingerprint must match the submitted source tree.
 - Existing-stage refactors MUST stage refreshed `artifact_index.md` when artifact semantics change; otherwise refreshed `engineering_status.md` is acceptable. New stages MUST stage the full stage/artifact/audit index set.
 - MUST run `python _GEO_RING_CLOUD_INDEX\\governance_check.py --staged` before commit.
 - MUST use the checked-in `environment.yml` as the default scientific dependency baseline and run `python _GEO_RING_CLOUD_INDEX\\ci_check.py --scientific-tests` for core-code changes.
@@ -2742,4 +2770,5 @@ if __name__ == "__main__":
     built_db = build_sqlite()
     export_xlsx(built_db)
     export_workspace_reports(built_db)
+    write_index_build_manifest(built_db)
     print("[DONE]")

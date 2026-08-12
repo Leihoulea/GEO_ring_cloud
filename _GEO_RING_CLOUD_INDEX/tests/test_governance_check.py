@@ -14,6 +14,7 @@ sys.path.insert(0, str(INDEX_ROOT))
 
 import governance_check  # noqa: E402
 import build_index  # noqa: E402
+import index_contract  # noqa: E402
 
 
 TEST_TMP = Path(__file__).resolve().parent / "_tmp"
@@ -38,6 +39,28 @@ def write(root: Path, relative: str, content: str) -> None:
 
 
 class IndexPublicationTests(unittest.TestCase):
+    def test_source_fingerprint_is_stable_and_content_sensitive(self) -> None:
+        with isolated_root("source_fingerprint") as root:
+            source = root / "third_report" / "code" / "geo_ring_cloud_stage1" / "probe.py"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("VALUE = 1\n", encoding="utf-8")
+            ignored = source.parent / "__pycache__" / "probe.py"
+            ignored.parent.mkdir(parents=True, exist_ok=True)
+            ignored.write_text("ignored\n", encoding="utf-8")
+
+            first = index_contract.source_fingerprint(root)
+            source.write_bytes(b"VALUE = 1\r\n")
+            windows_line_endings = index_contract.source_fingerprint(root)
+            ignored.write_text("still ignored\n", encoding="utf-8")
+            second = index_contract.source_fingerprint(root)
+            source.write_text("VALUE = 2\n", encoding="utf-8")
+            third = index_contract.source_fingerprint(root)
+
+        self.assertEqual(first, windows_line_endings)
+        self.assertEqual(first, second)
+        self.assertEqual(first["file_count"], 1)
+        self.assertNotEqual(first["sha256"], third["sha256"])
+
     def test_index_validation_rejects_empty_authoritative_tables(self) -> None:
         with isolated_root("empty_index_contract") as root:
             database = root / "index.sqlite"

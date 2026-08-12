@@ -10,6 +10,7 @@
 - canonical stage：`_GEO_RING_CLOUD_WORKSPACE/stage_registry.md`
 - artifact 快查：`_GEO_RING_CLOUD_WORKSPACE/artifact_index.md`
 - 共享模块：`_GEO_RING_CLOUD_WORKSPACE/module_registry.md`
+- 索引构建证明：`_GEO_RING_CLOUD_WORKSPACE/index_build_manifest.json`
 - 主代码：`third_report/code/geo_ring_cloud_stage1`
 
 开始新任务前先查项目记忆和 SQLite 索引，再搜索代码。不要扫描大型数据目录来代替索引查询。

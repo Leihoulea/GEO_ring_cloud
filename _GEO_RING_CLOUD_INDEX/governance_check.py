@@ -260,11 +260,13 @@ WORKSPACE_INDEX_DOCS = {
     "_GEO_RING_CLOUD_WORKSPACE/stage_registry.md",
     "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md",
     "_GEO_RING_CLOUD_WORKSPACE/data_product_audits.md",
+    "_GEO_RING_CLOUD_WORKSPACE/index_build_manifest.json",
 }
 MODIFIED_STAGE_INDEX_DOCS = {
     "_GEO_RING_CLOUD_WORKSPACE/artifact_index.md",
     "_GEO_RING_CLOUD_WORKSPACE/engineering_status.md",
     "_GEO_RING_CLOUD_WORKSPACE/code_migrations.md",
+    "_GEO_RING_CLOUD_WORKSPACE/index_build_manifest.json",
 }
 MODULE_REGISTRY_DOC = "_GEO_RING_CLOUD_WORKSPACE/module_registry.md"
 STAGE_REGISTRY_DOC = "_GEO_RING_CLOUD_WORKSPACE/stage_registry.md"
