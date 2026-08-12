@@ -33,6 +33,17 @@ from geo_ring_cloud.notifications import (  # noqa: E402
     PersistentEmailNotifier,
     save_secure_email_config,
 )
+from geo_ring_cloud.batch_queue import (  # noqa: E402
+    ACTIVE_QUEUE_STATUSES,
+    CANCELLABLE_QUEUE_STATUSES,
+    estimate_required_space,
+    make_queue_item,
+    normalize_request,
+    public_queue_state,
+    read_queue_state,
+    semantic_key,
+    write_json_atomic as write_queue_json_atomic,
+)
 
 from monitor_dashboard import (
     MET_DOWNLOAD_RE,
@@ -812,6 +823,15 @@ class DashboardState:
         self.conda_environment = conda_environment
         self._upload_lock = threading.Lock()
         self._download_lock = threading.Lock()
+        self._queue_lock = threading.RLock()
+        self._queue_dispatch_lock = threading.Lock()
+        self._queue_stop = threading.Event()
+        self._queue_thread: Optional[threading.Thread] = None
+        self._queue_last_check_at = ""
+        self._queue_last_error = ""
+        self.queue_state_path = (
+            self.batch_parent / "_geo_ring_cloud_control" / "batch_queue.json"
+        )
         self.notification_root = self.batch_parent / "_geo_ring_cloud_control" / "notifications"
         self.notification_state_path = self.notification_root / "notification_state.json"
         self.email_notifier = PersistentEmailNotifier(self.notification_state_path)
@@ -824,10 +844,11 @@ class DashboardState:
 
     def _known_batch_parents(self) -> List[Path]:
         parents = {self.batch_parent.resolve()}
-        for drive in available_download_drives():
-            candidate = Path(str(drive["batch_parent"]))
-            if candidate.is_dir():
-                parents.add(candidate.resolve())
+        if self.batch_parent.name == "GEO_Cloud_2024_batches":
+            for drive in available_download_drives():
+                candidate = Path(str(drive["batch_parent"]))
+                if candidate.is_dir():
+                    parents.add(candidate.resolve())
         return sorted(parents, key=lambda value: str(value).lower())
 
     def _resolve_existing_batch(self, batch_name: str = "") -> Path:
@@ -904,7 +925,7 @@ class DashboardState:
             "automatic_delete": False,
         }
 
-    def task_summaries(self) -> List[Dict[str, object]]:
+    def task_summaries(self, limit: Optional[int] = 30) -> List[Dict[str, object]]:
         tasks = []
         for parent in self._known_batch_parents():
             try:
@@ -917,7 +938,270 @@ class DashboardState:
                     continue
                 tasks.append(self._task_summary(batch_root))
         tasks.sort(key=lambda row: str(row.get("updated_at", "")), reverse=True)
-        return tasks[:30]
+        return tasks[:limit] if limit else tasks
+
+    def _active_download_task(self, exclude_batch_name: str = "") -> Optional[Dict[str, object]]:
+        for task in self.task_summaries(limit=None):
+            if exclude_batch_name and task.get("batch_name") == exclude_batch_name:
+                continue
+            if str(task.get("download_status", "")) in {"STARTING", "RUNNING"}:
+                return task
+        return None
+
+    def _save_queue_state(self, state: Dict[str, object]) -> None:
+        state["updated_at"] = utc_now_text()
+        state["automatic_delete"] = False
+        write_queue_json_atomic(self.queue_state_path, state)
+
+    def _queue_target_parent(self, request: Dict[str, object]) -> Path:
+        parent = self._resolve_download_parent(request)
+        drive_root = Path(parent.anchor) if parent.anchor else parent
+        if not drive_root.exists():
+            raise RuntimeError("队列目标磁盘不可用：{}".format(request.get("download_drive", "")))
+        return parent
+
+    def _queue_estimate(self, request: Dict[str, object]) -> Dict[str, object]:
+        estimate = estimate_required_space(request)
+        parent = self._queue_target_parent(request)
+        candidate = parent / str(make_queue_item(request, estimate)["target_batch_name"])
+        if candidate.is_dir():
+            transfer_dir = candidate / "transfer"
+            raw = read_json(transfer_dir / "batch_status.json")
+            launcher = read_json(transfer_dir / "download_launcher_status.json")
+            gate = parse_disk_gate(launcher.get("message") or raw.get("message"))
+            if gate.get("exists") and int(gate.get("needed_bytes_with_margin", 0) or 0) > 0:
+                required_bytes = int(gate["needed_bytes_with_margin"])
+                estimate.update(
+                    {
+                        "required_bytes": required_bytes,
+                        "required_gib": round(required_bytes / (1024 ** 3), 3),
+                        "basis": "prior_inventory_disk_gate",
+                    }
+                )
+        return estimate
+
+    def enqueue_download(self, request: Dict[str, object]) -> Dict[str, object]:
+        try:
+            normalized = normalize_request(request, DOWNLOAD_PLATFORM_NAMES)
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
+        if normalized["continuous_upload"]:
+            self._require_upload_configuration()
+        self._queue_target_parent(normalized)
+        estimate = self._queue_estimate(normalized)
+        item = make_queue_item(normalized, estimate)
+        with self._queue_lock:
+            state = read_queue_state(self.queue_state_path)
+            for existing in state["items"]:
+                if (
+                    isinstance(existing, dict)
+                    and existing.get("semantic_key") == semantic_key(normalized)
+                    and existing.get("status") in ACTIVE_QUEUE_STATUSES
+                ):
+                    return dict(existing)
+            state["items"].append(item)
+            self._save_queue_state(state)
+        self.process_batch_queue_once()
+        with self._queue_lock:
+            state = read_queue_state(self.queue_state_path)
+            return next(
+                (dict(row) for row in state["items"] if row.get("queue_id") == item["queue_id"]),
+                item,
+            )
+
+    def cancel_queued_download(self, queue_id: str) -> Dict[str, object]:
+        identifier = str(queue_id or "").strip()
+        if not identifier:
+            raise RuntimeError("缺少 queue_id。")
+        with self._queue_lock:
+            state = read_queue_state(self.queue_state_path)
+            for item in state["items"]:
+                if not isinstance(item, dict) or item.get("queue_id") != identifier:
+                    continue
+                if item.get("status") not in CANCELLABLE_QUEUE_STATUSES:
+                    raise RuntimeError("该队列项已经启动或结束，不能从队列取消。")
+                item.update(
+                    {
+                        "status": "CANCELLED",
+                        "status_message": "用户取消了尚未启动的队列项；没有删除任何数据。",
+                        "updated_at": utc_now_text(),
+                        "automatic_delete": False,
+                    }
+                )
+                self._save_queue_state(state)
+                return dict(item)
+        raise RuntimeError("找不到队列项：{}".format(identifier))
+
+    def batch_queue_status(self) -> Dict[str, object]:
+        with self._queue_lock:
+            result = public_queue_state(read_queue_state(self.queue_state_path))
+            result["scheduler"] = {
+                "running": bool(self._queue_thread and self._queue_thread.is_alive()),
+                "last_check_at": self._queue_last_check_at,
+                "last_error": self._queue_last_error,
+                "interval_seconds": 15,
+            }
+            return result
+
+    def _queue_gate(self, request: Dict[str, object], estimate: Dict[str, object]) -> Dict[str, object]:
+        parent = self._queue_target_parent(request)
+        usage = shutil.disk_usage(str(Path(parent.anchor) if parent.anchor else parent))
+        required_bytes = int(estimate.get("required_bytes", 0) or 0)
+        shortfall = max(0, required_bytes - usage.free)
+        return {
+            "drive": request.get("download_drive") or parent.anchor or str(parent),
+            "free_bytes": usage.free,
+            "free_gib": round(usage.free / (1024 ** 3), 3),
+            "free_label": format_bytes(usage.free),
+            "required_bytes": required_bytes,
+            "required_gib": round(required_bytes / (1024 ** 3), 3),
+            "required_label": format_bytes(required_bytes),
+            "shortfall_bytes": shortfall,
+            "shortfall_gib": round(shortfall / (1024 ** 3), 3),
+            "shortfall_label": format_bytes(shortfall),
+            "passes": shortfall == 0,
+            "checked_at": utc_now_text(),
+        }
+
+    def _sync_launched_queue_items(self, state: Dict[str, object]) -> None:
+        tasks = {task["batch_name"]: task for task in self.task_summaries(limit=None)}
+        for item in state["items"]:
+            if not isinstance(item, dict) or item.get("status") not in {"STARTING", "RUNNING"}:
+                continue
+            task = tasks.get(item.get("target_batch_name"))
+            if not task:
+                if item.get("status") == "STARTING":
+                    item.update(
+                        status="QUEUED",
+                        status_message="控制台重启后已恢复为待调度状态。",
+                        updated_at=utc_now_text(),
+                    )
+                continue
+            download_status = str(task.get("download_status", ""))
+            if download_status == "COMPLETE":
+                item.update(
+                    status="COMPLETE",
+                    status_message="下载批次已完成。",
+                    updated_at=utc_now_text(),
+                )
+            elif download_status in {"FAIL", "failed"}:
+                disk_gate = task.get("disk_gate", {})
+                if isinstance(disk_gate, dict) and disk_gate.get("exists"):
+                    required = int(disk_gate.get("needed_bytes_with_margin", 0) or 0)
+                    if required:
+                        item["estimate"].update(
+                            required_bytes=required,
+                            required_gib=round(required / (1024 ** 3), 3),
+                            basis="inventory_disk_gate",
+                        )
+                    item.update(
+                        status="WAITING_SPACE",
+                        status_message="实际清单磁盘门禁未通过，等待释放足够空间。",
+                        updated_at=utc_now_text(),
+                    )
+                else:
+                    item.update(
+                        status="FAILED",
+                        status_message=str(task.get("error") or "下载批次启动或运行失败。"),
+                        updated_at=utc_now_text(),
+                    )
+            elif download_status in {"STARTING", "RUNNING"}:
+                item.update(
+                    status="RUNNING",
+                    status_message="下载批次正在运行。",
+                    updated_at=utc_now_text(),
+                )
+
+    def process_batch_queue_once(self) -> Dict[str, object]:
+        with self._queue_dispatch_lock:
+            return self._process_batch_queue_once_unlocked()
+
+    def _process_batch_queue_once_unlocked(self) -> Dict[str, object]:
+        self._queue_last_check_at = utc_now_text()
+        self._queue_last_error = ""
+        launch_item: Optional[Dict[str, object]] = None
+        with self._queue_lock:
+            state = read_queue_state(self.queue_state_path)
+            self._sync_launched_queue_items(state)
+            active = self._active_download_task()
+            for item in state["items"]:
+                if not isinstance(item, dict) or item.get("status") not in {
+                    "QUEUED",
+                    "WAITING_ACTIVE_DOWNLOAD",
+                    "WAITING_SPACE",
+                }:
+                    continue
+                gate = self._queue_gate(item["request"], item["estimate"])
+                item["gate"] = gate
+                item["updated_at"] = utc_now_text()
+                if active:
+                    item["status"] = "WAITING_ACTIVE_DOWNLOAD"
+                    item["status_message"] = "等待当前下载批次 {} 完成。".format(
+                        active.get("batch_name", "")
+                    )
+                    continue
+                if not gate["passes"]:
+                    item["status"] = "WAITING_SPACE"
+                    item["status_message"] = "磁盘空间不足，还缺 {}。".format(
+                        gate["shortfall_label"]
+                    )
+                    continue
+                item["status"] = "STARTING"
+                item["status_message"] = "下载与空间门禁均已通过，正在启动。"
+                launch_item = dict(item)
+                break
+            self._save_queue_state(state)
+
+        if launch_item is None:
+            return self.batch_queue_status()
+        try:
+            result = self.start_download(dict(launch_item["request"]))
+        except Exception as exc:
+            with self._queue_lock:
+                state = read_queue_state(self.queue_state_path)
+                for item in state["items"]:
+                    if item.get("queue_id") == launch_item["queue_id"]:
+                        item.update(
+                            status="FAILED",
+                            status_message="{}: {}".format(type(exc).__name__, exc),
+                            updated_at=utc_now_text(),
+                        )
+                        break
+                self._save_queue_state(state)
+            return self.batch_queue_status()
+
+        with self._queue_lock:
+            state = read_queue_state(self.queue_state_path)
+            for item in state["items"]:
+                if item.get("queue_id") == launch_item["queue_id"]:
+                    item.update(
+                        status="RUNNING",
+                        status_message="下载批次已经在后台启动。",
+                        updated_at=utc_now_text(),
+                        launch=result,
+                    )
+                    break
+            self._save_queue_state(state)
+        return self.batch_queue_status()
+
+    def start_batch_queue_scheduler(self, interval_seconds: int = 15) -> None:
+        if self._queue_thread and self._queue_thread.is_alive():
+            return
+
+        def run() -> None:
+            while not self._queue_stop.is_set():
+                try:
+                    self.process_batch_queue_once()
+                except Exception as exc:
+                    self._queue_last_error = "{}: {}".format(type(exc).__name__, exc)
+                self._queue_stop.wait(max(5, interval_seconds))
+
+        self._queue_thread = threading.Thread(
+            target=run,
+            daemon=True,
+            name="geo-cloud-space-aware-batch-queue",
+        )
+        self._queue_thread.start()
 
     def start_notification_monitor(self, interval_seconds: int = 15) -> None:
         if not NOTIFICATION_SERVICE_PATH.is_file():
@@ -1155,6 +1439,7 @@ class DashboardState:
             "disk": disk_status(batch_root),
             "disk_gate": disk_gate,
             "tasks": tasks,
+            "batch_queue": self.batch_queue_status(),
             "inventory": {"s3": s3_inventory, "meteosat": met_inventory},
             "download": {
                 "combined": combined_download,
@@ -1281,6 +1566,13 @@ class DashboardState:
                 end_date.strftime("%Y%m%d"),
                 "-".join(short_names[name] for name in platforms),
             )
+            active_task = self._active_download_task()
+            if active_task:
+                raise RuntimeError(
+                    "当前下载批次仍在进行：{}。可将新任务加入自动队列。".format(
+                        active_task.get("batch_name", "")
+                    )
+                )
             batch_parent = self._resolve_download_parent(request)
             batch_parent.mkdir(parents=True, exist_ok=True)
             batch_root = (batch_parent / batch_name).resolve()
@@ -1791,6 +2083,21 @@ def make_handler(state: DashboardState):
                     payload = self.read_json_body(required=True)
                     self.send_json({"ok": True, "download": state.start_download(payload)})
                     return
+                if path == "/api/actions/enqueue-download":
+                    payload = self.read_json_body(required=True)
+                    self.send_json({"ok": True, "queue_item": state.enqueue_download(payload)})
+                    return
+                if path == "/api/actions/cancel-queued-download":
+                    payload = self.read_json_body(required=True)
+                    self.send_json(
+                        {
+                            "ok": True,
+                            "queue_item": state.cancel_queued_download(
+                                str(payload.get("queue_id", ""))
+                            ),
+                        }
+                    )
+                    return
                 if path == "/api/actions/start-auto-upload":
                     payload = self.read_json_body()
                     self.send_json(
@@ -1930,6 +2237,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         notification_setup_recipient=args.notification_setup_recipient,
     )
     state.start_notification_monitor()
+    state.start_batch_queue_scheduler()
     server = ThreadingHTTPServer((args.host, args.port), make_handler(state))
     print("http://{}:{}".format(args.host, args.port), flush=True)
     server.serve_forever()

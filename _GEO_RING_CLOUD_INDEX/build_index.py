@@ -485,6 +485,18 @@ MODULE_REGISTRY = (
     },
     {
         "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.batch_queue",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/batch_queue.py",
+        "component_role": "batch_queue",
+        "legacy_module": "",
+        "legacy_path": "",
+        "migration_status": "canonical",
+        "public_api": "persistent queue state, request normalization, deterministic batch identity, conservative space estimate",
+        "test_evidence": "third_report/code/geo_cloud_download/tests/test_geo_ring_cloud_transfer_batch.py::TransferBatchTests",
+        "notes": "Cross-stage stage_00-related control-plane queue; waits for active downloads and disk space, creates no data directories before launch, and never deletes local data.",
+    },
+    {
+        "project_id": PROJECT_ID,
         "canonical_module": "geo_ring_cloud.run_discovery",
         "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/run_discovery.py",
         "component_role": "run_discovery",
@@ -2540,6 +2552,7 @@ Generated: `{GENERATED_AT}`
 - Git 仓库、远端、`.gitignore`、`.gitattributes` 与本地 pre-commit hook。
 - canonical stage taxonomy、artifact index、data product audit index 和跨项目 collision guard。
 - Python `geo_ring_cloud.paths` 与 PowerShell `geo_ring_cloud_path_configuration.ps1` 共享环境变量契约；统一 lineage manifest helper 与 staged governance check。
+- GEO 数据控制台已具备持久化的空间感知批次队列：按下载全局互斥与目标磁盘保守门禁自动续批，显示实时缺口，启动前不创建数据目录且永不自动删除数据。
 - `geo_ring_cloud` package、`pyproject.toml`、module registry 与旧 import compatibility shims。
 - SQLite/Markdown `code_migrations` 记录 canonical 路径、历史入口、验证证据和回滚说明。
 - 已验证直接依赖基线、统一 `ci_check.py` 入口与 GitHub 轻量 CI 门禁。

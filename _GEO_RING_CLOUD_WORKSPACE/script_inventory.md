@@ -1,6 +1,7 @@
 | filename | project_id | canonical_stage_id | component_role | legacy_stage | responsibility | refs_external_paths |
 | --- | --- | --- | --- | --- | --- | --- |
 | geo_ring_cloud/artifact_io.py | geo_ring_cloud |  | artifact_io |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud/batch_queue.py | geo_ring_cloud |  | batch_queue |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/cloud_semantics.py | geo_ring_cloud |  | cloud_semantics |  | 当前文件系统扫描补充脚本 |  |
 | rebuild_stage1_evidence_pack.py | geo_ring_cloud |  | compatibility_entrypoint | 证据包 | 历史命令兼容入口；实现位于 geo_ring_cloud.evidence_pack |  |
 | geo_ring_cloud/pipeline_support.py | geo_ring_cloud |  | compatibility_facade |  | 当前文件系统扫描补充脚本 |  |

@@ -78,6 +78,14 @@
     .task-main span, .task-kpi span { color: var(--muted); font-size: 11px; }
     .task-kpi b { display: block; font-size: 13px; margin-bottom: 4px; }
     .task-error { color: var(--red) !important; display: block; margin-top: 5px; white-space: normal; overflow-wrap: anywhere; }
+    .queue-center { padding: 20px; margin-bottom: 16px; }
+    .queue-list { display: grid; gap: 10px; }
+    .queue-item { display: grid; grid-template-columns: minmax(250px,1.4fr) minmax(150px,.7fr) minmax(190px,.9fr) auto; gap: 14px; align-items: center; border: 1px solid var(--line); border-radius: 15px; padding: 13px 14px; background: #faf9f4; }
+    .queue-item.waiting { border-color: #e4bd8d; background: #fff8ed; }
+    .queue-item.running { border-color: #9fc5d5; background: #eef7fa; }
+    .queue-item.complete { border-color: #a6d2bf; background: #eff8f3; }
+    .queue-main b, .queue-kpi b { display: block; margin-bottom: 4px; }
+    .queue-main span, .queue-kpi span { color: var(--muted); font-size: 11px; line-height: 1.5; }
     .disk-gate { display: none; padding: 18px 20px; margin-bottom: 16px; border-color: #dda39e; background: #fff4f2; }
     .disk-gate.visible { display: block; }
     .disk-gate.current-pass { border-color: #9fc9b4; background: #eff8f3; }
@@ -139,8 +147,8 @@
     .dialog-body .field { margin-top: 14px; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
     .security-note { margin-top: 12px; color: var(--muted); font-size: 13px; line-height: 1.55; }
-    @media (max-width: 980px) { .metrics { grid-template-columns: 1fr 1fr; } .layout, .lower { grid-template-columns: 1fr; } .launch-grid { grid-template-columns: 1fr 1fr; } .task-item { grid-template-columns: 1fr 1fr; } }
-    @media (max-width: 620px) { .shell { width: min(100% - 22px, 1460px); padding-top: 16px; } header, .batch-strip { display: block; } .top-actions { justify-content: flex-start; margin-top: 14px; } .metrics, .disk-grid { grid-template-columns: 1fr; } .facts { grid-template-columns: 1fr 1fr; } .state-pill { display: inline-block; margin-top: 12px; } .task-item { grid-template-columns: 1fr; } }
+    @media (max-width: 980px) { .metrics { grid-template-columns: 1fr 1fr; } .layout, .lower { grid-template-columns: 1fr; } .launch-grid { grid-template-columns: 1fr 1fr; } .task-item, .queue-item { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 620px) { .shell { width: min(100% - 22px, 1460px); padding-top: 16px; } header, .batch-strip { display: block; } .top-actions { justify-content: flex-start; margin-top: 14px; } .metrics, .disk-grid { grid-template-columns: 1fr; } .facts { grid-template-columns: 1fr 1fr; } .state-pill { display: inline-block; margin-top: 12px; } .task-item, .queue-item { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -205,8 +213,13 @@
       </div>
       <div class="launch-actions">
         <div class="launch-note"><label><input id="refreshInventory" type="checkbox"> 强制刷新清单（通常不勾选，重复任务会复用缓存）</label><br><label><input id="adaptiveDownload" type="checkbox" checked> 下载自动调速：从 4 路开始，依据实际吞吐与错误率逐级升降（上限由上方选择）</label><br><label><input id="continuousUpload" type="checkbox" checked> 全自动流水线：下载时单路上传，下载结束后自动按 2→3→4 路提速，并执行服务器 SHA-256 全量复核</label><br>网络模式固定为 <b>direct_only</b>，任务不会自动删除本地文件。<span id="notificationStatus">邮件通知未配置</span>。CLAAS-3 是 CM SAF 订单型数据源，须先登录官方页面下单，不能在此处伪装成直接下载。</div>
-        <div><button class="button" id="configureEmailButton" type="button">配置邮件</button> <button class="button" id="testEmailButton" type="button" disabled>发送测试邮件</button> <button class="button primary" id="startDownloadButton" type="button">创建并启动全自动批次</button></div>
+        <div><button class="button" id="configureEmailButton" type="button">配置邮件</button> <button class="button" id="testEmailButton" type="button" disabled>发送测试邮件</button> <button class="button" id="enqueueDownloadButton" type="button">加入空间感知队列</button> <button class="button primary" id="startDownloadButton" type="button">立即创建并启动</button></div>
       </div>
+    </section>
+
+    <section class="queue-center card">
+      <div class="section-head"><h2>空间感知批次队列</h2><div class="hint" id="queueSummary">自动等待当前下载结束与磁盘门禁通过；不自动删除数据</div></div>
+      <div class="queue-list" id="queueList"><div class="empty">队列为空</div></div>
     </section>
 
     <section class="metrics">
@@ -341,6 +354,35 @@
         refresh();
       }));
     }
+    function queueStatus(value){
+      return ({QUEUED:'等待调度',WAITING_ACTIVE_DOWNLOAD:'等待当前下载',WAITING_SPACE:'等待磁盘空间',STARTING:'正在启动',RUNNING:'下载中',COMPLETE:'已完成',FAILED:'失败',CANCELLED:'已取消'})[value] || value || '未知';
+    }
+    function renderBatchQueue(queue){
+      const items=queue?.items || [];
+      const active=queue?.active_count || 0;
+      const scheduler=queue?.scheduler || {};
+      $('queueSummary').textContent=`${active} 个待处理／运行项 · ${scheduler.running?'调度器运行中':'调度器未运行'} · 每 15 秒检查 · 永不自动删除数据${scheduler.last_error?` · 最近错误：${scheduler.last_error}`:''}`;
+      if(!items.length){ $('queueList').innerHTML='<div class="empty">队列为空；可先填写上方日期、平台和磁盘，再加入队列。</div>'; return; }
+      $('queueList').innerHTML=items.slice().reverse().map(item=>{
+        const request=item.request || {}, estimate=item.estimate || {}, gate=item.gate || {};
+        const waiting=['QUEUED','WAITING_ACTIVE_DOWNLOAD','WAITING_SPACE'].includes(item.status);
+        const tone=waiting?'waiting':item.status==='RUNNING'||item.status==='STARTING'?'running':item.status==='COMPLETE'?'complete':'';
+        const canCancel=waiting;
+        const space=gate.checked_at
+          ? `预计 ${Number(estimate.required_gib || 0).toFixed(1)} GiB · 当前可用 ${Number(gate.free_gib || 0).toFixed(1)} GiB${gate.shortfall_gib>0?` · 还缺 ${Number(gate.shortfall_gib).toFixed(1)} GiB`:''}`
+          : `预计需要 ${Number(estimate.required_gib || 0).toFixed(1)} GiB（含 ${Math.round((Number(estimate.safety_factor || 1)-1)*100)}% 安全余量）`;
+        return `<div class="queue-item ${tone}">
+          <div class="queue-main"><b>${esc(item.target_batch_name)}</b><span>${esc(request.start_date)} 至 ${esc(request.end_date)} · ${esc((request.platforms || []).join(' / '))}</span><br><span>${esc(item.status_message || '')}</span></div>
+          <div class="queue-kpi"><b>${esc(queueStatus(item.status))}</b><span>目标磁盘 ${esc(request.download_drive || '默认')}</span></div>
+          <div class="queue-kpi"><b>${esc(space)}</b><span>估算依据 ${esc(estimate.basis || '--')}</span></div>
+          <div>${canCancel?`<button class="button cancel-queue" type="button" data-queue-id="${esc(item.queue_id)}">取消等待</button>`:''}</div>
+        </div>`;
+      }).join('');
+      document.querySelectorAll('.cancel-queue').forEach(node=>node.addEventListener('click',async()=>{
+        if(!confirm('取消这个尚未启动的队列项？这只修改队列状态，不会删除任何数据。')) return;
+        try{ await postAction('/api/actions/cancel-queued-download',{queue_id:node.dataset.queueId}); await refresh(); toast('队列项已取消；没有删除任何数据'); }catch(error){ toast(error.message); }
+      }));
+    }
     function renderDrives(drives,batchParent){
       const select=$("downloadDrive"), previous=select.value;
       select.innerHTML=(drives || []).map(d=>`<option value="${esc(d.value)}">${esc(d.value)} · 可用 ${esc(d.free_label)} / ${esc(d.total_label)}</option>`).join('');
@@ -420,15 +462,15 @@
         $("batchName").textContent = data.batch_name;
         $("batchRoot").textContent = data.batch_root;
         $("overallState").textContent = stateNames[data.overall_state] || data.overall_state;
-        const batchRunning=data.raw_batch_status?.status==='running' || ['STARTING','RUNNING'].includes(data.launcher_status?.status);
+        const batchRunning=(data.tasks || []).some(task=>['STARTING','RUNNING'].includes(task.download_status));
         $("startDownloadButton").disabled=batchRunning;
-        $("startDownloadButton").title=batchRunning?'当前批次仍在运行，完成后可创建下一批次':'';
+        $("startDownloadButton").title=batchRunning?'已有下载正在运行；可使用“加入空间感知队列”自动续批':'';
         const download=data.download.combined || {}, disk=data.disk || {}, parts=data.active_parts || {items:[]}, downloadParallel=data.download.parallelism || {};
         $("downloadPercent").textContent=pct(download.percent); setWidth('downloadMiniBar',download.percent);
         $("fileCount").textContent=`${nf.format(download.overall_completed || 0)} / ${nf.format(download.total || 0)}`;
         $("partCount").textContent=nf.format(parts.count || 0);
         $("diskFree").textContent=disk.free_label || '--'; setWidth('diskMiniBar',100-(disk.used_percent || 0));
-        renderTasks(data.tasks || []); renderDiskGate(data.disk_gate || {}); notifyTaskChanges(data.tasks || []);
+        renderTasks(data.tasks || []); renderBatchQueue(data.batch_queue || {}); renderDiskGate(data.disk_gate || {}); notifyTaskChanges(data.tasks || []);
         renderDrives(data.download_config?.available_drives || [],data.download_config?.batch_parent || '');
         const email=data.notifications?.email || {};
         notificationSetupToken=data.notifications?.setup_token || '';
@@ -542,10 +584,20 @@
       toast(permission==='granted'?'电脑通知已开启':'未获得通知权限，可在浏览器网站设置中修改');
     });
     $("testEmailButton").addEventListener('click',async()=>{ try{const data=await postAction('/api/actions/send-test-email');toast(`测试邮件已发送到 ${data.email?.recipient || '已配置地址'}`);}catch(error){toast(error.message);} });
-    $("startDownloadButton").addEventListener('click',async()=>{
+    function downloadPayload(){
       const platforms=[...document.querySelectorAll('#platformChoices input:checked')].map(node=>node.value);
-      const payload={start_date:$("startDate").value,end_date:$("endDate").value,download_drive:$("downloadDrive").value,platforms,inventory_workers:Number($("inventoryWorkers").value),download_workers:Number($("downloadWorkers").value),adaptive_download:$("adaptiveDownload").checked,refresh_inventory:$("refreshInventory").checked,continuous_upload:$("continuousUpload").checked};
-      if(!platforms.length){toast('请至少选择一个卫星平台');return;}
+      return {start_date:$("startDate").value,end_date:$("endDate").value,download_drive:$("downloadDrive").value,platforms,inventory_workers:Number($("inventoryWorkers").value),download_workers:Number($("downloadWorkers").value),adaptive_download:$("adaptiveDownload").checked,refresh_inventory:$("refreshInventory").checked,continuous_upload:$("continuousUpload").checked};
+    }
+    $("enqueueDownloadButton").addEventListener('click',async()=>{
+      const payload=downloadPayload();
+      if(!payload.platforms.length){toast('请至少选择一个卫星平台');return;}
+      if(!confirm(`将 ${payload.start_date} 至 ${payload.end_date} 加入 ${payload.download_drive || '默认磁盘'} 的自动队列？\n系统只会在没有其他下载且空间满足估算门禁时启动；不会自动删除数据。`)) return;
+      const button=$("enqueueDownloadButton"); button.disabled=true;
+      try{const data=await postJson('/api/actions/enqueue-download',payload);await refresh();toast(`已加入队列：${data.queue_item?.target_batch_name || ''}`);}catch(error){toast(error.message);}finally{button.disabled=false;}
+    });
+    $("startDownloadButton").addEventListener('click',async()=>{
+      const payload=downloadPayload();
+      if(!payload.platforms.length){toast('请至少选择一个卫星平台');return;}
       if(!confirm(`在 ${payload.download_drive || '默认磁盘'} 启动 ${payload.start_date} 至 ${payload.end_date} 的新批次？\n${payload.adaptive_download?`下载将从 4 路开始自动调速，最高 ${payload.download_workers} 路。`:`下载固定使用 ${payload.download_workers} 路。`}\n${payload.continuous_upload?'下载时单路上传，下载完成后逐级升至 4 路并执行服务器全量复核。':'只下载，稍后手动启动上传。'}\n清单按天并行且只走直连；不会自动删除本地文件。`)) return;
       const button=$("startDownloadButton"); button.disabled=true;
       try{const data=await postJson('/api/actions/start-download',payload);selectedBatchName=data.download.batch_name;await refresh();toast((data.download.continuous_upload?'全自动批次':'下载批次')+'已在后台启动：'+data.download.batch_root);}catch(error){toast(error.message);}finally{button.disabled=false;}

@@ -1,14 +1,14 @@
 # GEO-ring Cloud Engineering Status
 
-Generated: `2026-08-12T15:49:59Z`
+Generated: `2026-08-12T17:25:41Z`
 
 ## 当前规模
 
-- 索引脚本：145
-- canonical shared modules：25
+- 索引脚本：146
+- canonical shared modules：26
 - 已登记物理代码迁移：24
 - canonical stages：49
-- SQLite 详细 artifact 记录：3375
+- SQLite 详细 artifact 记录：3376
 - Markdown 快查 artifact 记录：1935
 - data product audits：23
 - time-run 顶层目录：174
@@ -21,6 +21,7 @@ Generated: `2026-08-12T15:49:59Z`
 - Git 仓库、远端、`.gitignore`、`.gitattributes` 与本地 pre-commit hook。
 - canonical stage taxonomy、artifact index、data product audit index 和跨项目 collision guard。
 - Python `geo_ring_cloud.paths` 与 PowerShell `geo_ring_cloud_path_configuration.ps1` 共享环境变量契约；统一 lineage manifest helper 与 staged governance check。
+- GEO 数据控制台已具备持久化的空间感知批次队列：按下载全局互斥与目标磁盘保守门禁自动续批，显示实时缺口，启动前不创建数据目录且永不自动删除数据。
 - `geo_ring_cloud` package、`pyproject.toml`、module registry 与旧 import compatibility shims。
 - SQLite/Markdown `code_migrations` 记录 canonical 路径、历史入口、验证证据和回滚说明。
 - 已验证直接依赖基线、统一 `ci_check.py` 入口与 GitHub 轻量 CI 门禁。

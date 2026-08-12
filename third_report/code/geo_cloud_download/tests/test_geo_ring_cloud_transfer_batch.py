@@ -34,6 +34,11 @@ from geo_ring_cloud_auto_uploader import (  # noqa: E402
     validate_server_root,
     write_json_atomic as uploader_write_json_atomic,
 )
+from geo_ring_cloud.batch_queue import (  # noqa: E402
+    estimate_required_space,
+    normalize_request,
+    read_queue_state,
+)
 import geo_cloud_downloader  # noqa: E402
 import geo_ring_cloud_transfer_dashboard as transfer_dashboard  # noqa: E402
 from geo_ring_cloud.notifications import (  # noqa: E402
@@ -469,6 +474,106 @@ class TransferBatchTests(unittest.TestCase):
                     }
                 )
             self.assertEqual(Path(result["batch_root"]).parent, alternate_parent.resolve())
+
+    def test_batch_queue_estimate_is_conservative_and_deterministic(self):
+        request = normalize_request(
+            {
+                "start_date": "2024-04-01",
+                "end_date": "2024-04-30",
+                "platforms": ["Himawari-9", "Meteosat-0deg", "Meteosat-IODC"],
+            },
+            ["Himawari-9", "Meteosat-0deg", "Meteosat-IODC"],
+        )
+        estimate = estimate_required_space(request)
+        self.assertEqual(estimate["days"], 30)
+        self.assertEqual(estimate["basis"], "conservative_platform_day_v1")
+        self.assertAlmostEqual(estimate["required_gib"], 925.2, places=1)
+
+    def test_batch_queue_waits_for_active_download_without_creating_target(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            current = root / "current_batch"
+            transfer = current / "transfer"
+            transfer.mkdir(parents=True)
+            (transfer / "batch_status.json").write_text(
+                json.dumps({"status": "running", "phase": "s3_download"}),
+                encoding="utf-8",
+            )
+            dashboard = DashboardState(current)
+            with patch.object(
+                dashboard,
+                "_active_download_task",
+                return_value={"batch_name": "current_batch"},
+            ):
+                item = dashboard.enqueue_download(
+                    {
+                        "start_date": "2024-05-01",
+                        "end_date": "2024-05-01",
+                        "platforms": ["GOES-16"],
+                        "continuous_upload": False,
+                    }
+                )
+            self.assertEqual(item["status"], "WAITING_ACTIVE_DOWNLOAD")
+            self.assertFalse((root / item["target_batch_name"]).exists())
+            stored = read_queue_state(dashboard.queue_state_path)
+            self.assertFalse(stored["automatic_delete"])
+
+    def test_batch_queue_waits_for_space_and_can_be_cancelled(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            current = root / "current_batch"
+            current.mkdir()
+            dashboard = DashboardState(current)
+            fake_usage = SimpleNamespace(total=1000, used=999, free=1)
+            with patch(
+                "geo_ring_cloud_transfer_dashboard.shutil.disk_usage",
+                return_value=fake_usage,
+            ):
+                item = dashboard.enqueue_download(
+                    {
+                        "start_date": "2024-05-01",
+                        "end_date": "2024-05-02",
+                        "platforms": ["GOES-18"],
+                        "continuous_upload": False,
+                    }
+                )
+            self.assertEqual(item["status"], "WAITING_SPACE")
+            self.assertGreater(item["gate"]["shortfall_bytes"], 0)
+            cancelled = dashboard.cancel_queued_download(item["queue_id"])
+            self.assertEqual(cancelled["status"], "CANCELLED")
+            self.assertFalse(cancelled["automatic_delete"])
+
+    def test_batch_queue_launches_once_when_gate_passes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            current = root / "current_batch"
+            current.mkdir()
+            dashboard = DashboardState(current)
+            fake_process = unittest.mock.Mock(pid=24682)
+            fake_process.poll.return_value = None
+            fake_process.wait.return_value = 0
+            fake_usage = SimpleNamespace(
+                total=10 * (1024 ** 4), used=0, free=10 * (1024 ** 4)
+            )
+            with patch(
+                "geo_ring_cloud_transfer_dashboard.shutil.disk_usage",
+                return_value=fake_usage,
+            ), patch(
+                "geo_ring_cloud_transfer_dashboard.subprocess.Popen",
+                return_value=fake_process,
+            ) as popen, patch.object(DashboardState, "_watch_download_process"):
+                item = dashboard.enqueue_download(
+                    {
+                        "start_date": "2024-05-03",
+                        "end_date": "2024-05-03",
+                        "platforms": ["GOES-16", "GOES-18"],
+                        "continuous_upload": False,
+                    }
+                )
+                dashboard.process_batch_queue_once()
+            self.assertEqual(item["status"], "RUNNING")
+            self.assertEqual(popen.call_count, 1)
+            self.assertTrue((root / item["target_batch_name"] / "transfer").is_dir())
 
     def test_continuous_discovery_excludes_part_and_control_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:
