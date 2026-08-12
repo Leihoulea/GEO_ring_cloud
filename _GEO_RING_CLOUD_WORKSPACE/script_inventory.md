@@ -20,9 +20,12 @@
 | download_geo_geometry_samples.py | geo_ring_cloud |  | downloader | 下载 | 从 AWS S3 下载 GOES-16/18/Himawari-9 几何样本到 geo_geometry_check/ | D:\AAAresearch_paper\geo_geometry_check |
 | geo_ring_cloud/evidence_pack.py | geo_ring_cloud |  | evidence_pack_builder | 证据包 | canonical 跨阶段证据包构建组件与 lineage manifest | D:\AAAresearch_paper\data_check_report,D:\AAAresearch_paper\geo_geometry_check,D:\AAAresearch_paper\geo_ring_cloud_stage1,D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack,D:\AAAresearch_paper\third_report\code\geo_ring_cloud_stage1 |
 | geo_ring_cloud_experiment_profile_pair.py | geo_ring_cloud |  | experiment_runner |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud_experiment_runner_epic_80.py | geo_ring_cloud |  | experiment_runner |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud_experiment_runner_epic_80_followup.py | geo_ring_cloud |  | experiment_runner |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/fusion_support.py | geo_ring_cloud |  | fusion_support |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/geometry.py | geo_ring_cloud |  | geometry |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/lineage.py | geo_ring_cloud |  | lineage |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud/notifications.py | geo_ring_cloud |  | notification_delivery |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/overlap.py | geo_ring_cloud |  | overlap_metrics |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/paths.py | geo_ring_cloud |  | path_configuration |  | 当前文件系统扫描补充脚本 |  |
 | geo_ring_cloud/pipeline_layout.py | geo_ring_cloud |  | pipeline_layout |  | 当前文件系统扫描补充脚本 |  |
@@ -43,6 +46,7 @@
 | run_epic_georing_sample_batch.py | geo_ring_cloud |  | runner | 运行器 | EPIC Geo-ring 批量样本运行器（RUNS=time_runs） | D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs\epic_202403_target_selection\recommended_epic_georing_validation_targets.csv |
 | run_epic_georing_single_sample.py | geo_ring_cloud |  | runner | 运行器 | EPIC Geo-ring 单时次完整运行流水线（BASE=stage1, RUNS=time_runs） |  |
 | geo_ring_cloud/sources.py | geo_ring_cloud |  | source_registry |  | 当前文件系统扫描补充脚本 |  |
+| geo_ring_cloud_epic_80_analysis.py | geo_ring_cloud |  | summary_helper |  | 当前文件系统扫描补充脚本 |  |
 | summarize_time_run_20240319_1500.py | geo_ring_cloud |  | summary_helper | 汇总 | 汇总 20240319_1500 时次运行结果 |  |
 | tests/geo_ring_cloud_test_claas3.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |
 | tests/geo_ring_cloud_test_claas3_integration.py | geo_ring_cloud |  | support |  | 当前文件系统扫描补充脚本 |  |

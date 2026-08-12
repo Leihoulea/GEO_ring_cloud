@@ -1,0 +1,11 @@
+# Default ownership for review routing.
+* @Leihoulea
+
+# Governance and project-memory contracts require owner review.
+/_GEO_RING_CLOUD_INDEX/ @Leihoulea
+/_GEO_RING_CLOUD_WORKSPACE/ @Leihoulea
+/.github/ @Leihoulea
+
+# Scientific core and operational transfer tooling.
+/third_report/code/geo_ring_cloud_stage1/ @Leihoulea
+/third_report/code/geo_cloud_download/ @Leihoulea

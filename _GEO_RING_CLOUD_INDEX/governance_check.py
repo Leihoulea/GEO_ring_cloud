@@ -552,6 +552,16 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
 
         stage_owned = is_stage_owned_path(normalized)
         canonical = path_canonical_stage(normalized)
+        declared_stage_ids = stage_ids_in_script(rel_path)
+        if not stage_owned and declared_stage_ids:
+            findings.append(
+                Finding(
+                    "ERROR",
+                    rel_path,
+                    "component-style scripts must not declare STAGE_ID or PROJECT_STAGE_ID; "
+                    "use RELATED_STAGE_IDS or move the implementation to a canonical stage path",
+                )
+            )
         if stage_owned and not canonical:
             findings.append(
                 Finding(
@@ -563,7 +573,7 @@ def check_stage_contract(paths: list[str], added_paths: set[str], enforce_index_
             continue
 
         if stage_owned:
-            script_stage_ids = stage_ids_in_script(rel_path)
+            script_stage_ids = declared_stage_ids
             if not script_stage_ids:
                 findings.append(
                     Finding(

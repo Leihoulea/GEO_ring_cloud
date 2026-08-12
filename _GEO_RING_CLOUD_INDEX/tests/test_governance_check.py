@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3
 import sys
 import unittest
 from contextlib import contextmanager
@@ -12,6 +13,7 @@ INDEX_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(INDEX_ROOT))
 
 import governance_check  # noqa: E402
+import build_index  # noqa: E402
 
 
 TEST_TMP = Path(__file__).resolve().parent / "_tmp"
@@ -33,6 +35,46 @@ def write(root: Path, relative: str, content: str) -> None:
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+class IndexPublicationTests(unittest.TestCase):
+    def test_index_validation_rejects_empty_authoritative_tables(self) -> None:
+        with isolated_root("empty_index_contract") as root:
+            database = root / "index.sqlite"
+            conn = sqlite3.connect(database)
+            try:
+                for table in build_index.INDEX_MINIMUM_ROWS:
+                    conn.execute(f'CREATE TABLE "{table}" (value TEXT)')
+                conn.commit()
+            finally:
+                conn.close()
+
+            with self.assertRaisesRegex(RuntimeError, "row-count contract"):
+                build_index.validate_index_database(database)
+
+    def test_validated_index_is_published_atomically(self) -> None:
+        with isolated_root("atomic_index_publication") as root:
+            canonical = root / "canonical.sqlite"
+            refreshed = root / "refreshed.sqlite"
+            temporary = root / "temporary.sqlite"
+            canonical.write_bytes(b"old-index")
+            conn = sqlite3.connect(temporary)
+            try:
+                for table in build_index.INDEX_MINIMUM_ROWS:
+                    conn.execute(f'CREATE TABLE "{table}" (value TEXT)')
+                    conn.execute(f'INSERT INTO "{table}" VALUES ("present")')
+                conn.commit()
+            finally:
+                conn.close()
+            build_index.validate_index_database(temporary)
+            with patch.object(build_index, "DB_PATH", canonical), patch.object(
+                build_index, "REFRESHED_DB_PATH", refreshed
+            ):
+                published = build_index.publish_index_database(temporary)
+
+            self.assertEqual(published, canonical)
+            self.assertEqual(build_index.validate_index_database(canonical)["scripts"], 1)
+            self.assertFalse(temporary.exists())
 
 
 class CompatibilityShimTests(unittest.TestCase):
@@ -368,6 +410,27 @@ class ModuleRegistryTests(unittest.TestCase):
             )
 
         self.assertEqual(findings, [])
+
+    def test_component_style_script_must_not_claim_single_stage_identity(self) -> None:
+        script = (
+            "third_report/code/geo_ring_cloud_stage1/"
+            "geo_ring_cloud_experiment_runner_example.py"
+        )
+        source = (
+            'COMPONENT_ROLE = "experiment_runner"\n'
+            'STAGE_ID = "stage_09c"\n'
+        )
+        with isolated_root("component_single_stage_identity") as root:
+            write(root, script, source)
+            findings = governance_check.check_stage_contract(
+                [script],
+                {script},
+                enforce_index_docs=True,
+            )
+
+        self.assertTrue(
+            any("must not declare STAGE_ID" in item.message for item in findings)
+        )
 
     def test_registered_stage_migration_is_not_treated_as_a_new_stage(self) -> None:
         canonical_module, expected_stage_id = next(

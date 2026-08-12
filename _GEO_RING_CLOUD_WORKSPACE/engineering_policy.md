@@ -12,6 +12,8 @@ It applies to humans and AI agents.
 - Existing-stage refactors MUST stage refreshed `artifact_index.md` when artifact semantics change; otherwise refreshed `engineering_status.md` is acceptable. New stages MUST stage the full stage/artifact/audit index set.
 - MUST run `python _GEO_RING_CLOUD_INDEX\governance_check.py --staged` before commit.
 - MUST use the checked-in `environment.yml` as the default scientific dependency baseline and run `python _GEO_RING_CLOUD_INDEX\ci_check.py --scientific-tests` for core-code changes.
+- MUST run long-lived downloads, uploads, and scientific experiments from a clean commit or a dedicated worktree. Active run code MUST NOT be edited in place.
+- MUST preserve the exact generating-script hash and dirty Git state when an exceptional exploratory run cannot use a clean commit; never claim that repository HEAD represents that script.
 
 ## Naming and identity
 
@@ -37,6 +39,7 @@ It applies to humans and AI agents.
 - Reports SHOULD be Chinese-first, with English retained for technical terms and variable names.
 - Key outputs SHOULD include concise CSV/Markdown indexes instead of relying only on directory names.
 - Generic data/product inspections SHOULD be indexed in `data_product_audits.md`; stage-scoped inspections should keep `related_stage_ids`.
+- Long-lived component status and run manifests MUST record `code_commit_scope`, `generating_script_state`, and lineage warnings using the same semantics as `geo_ring_cloud.lineage`.
 
 ## Path and artifact rules
 

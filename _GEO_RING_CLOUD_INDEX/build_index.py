@@ -18,6 +18,8 @@ import sys
 import csv
 import json
 import re
+import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,6 +33,17 @@ XLSX_PATH = OUT_DIR / "geo_ring_cloud_index.xlsx"
 WORKSPACE_DIR = ROOT / "_GEO_RING_CLOUD_WORKSPACE"
 ARCHIVE_DIR = ROOT / "_NON_GEO_ARCHIVE"
 GENERATED_AT = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+INDEX_MINIMUM_ROWS = {
+    "directories": 1,
+    "files": 1,
+    "scripts": 1,
+    "module_registry": 1,
+    "stage_registry": 1,
+    "artifact_index": 1,
+    "data_product_audits": 1,
+    "meta": 1,
+}
 
 # ---------------------------------------------------------------------------
 # 1. 目录扫描工具
@@ -455,6 +468,18 @@ MODULE_REGISTRY = (
         "public_api": "utc_now, code_commit, generating_script_state, write_manifest",
         "test_evidence": "tests/geo_ring_cloud_test_claas3.py::PackageBoundaryTests::test_canonical_lineage_manifest_contract",
         "notes": "Manifest records HEAD plus exact generating-script hash and Git state; code_commit alone is not treated as execution provenance.",
+    },
+    {
+        "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.notifications",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/notifications.py",
+        "component_role": "notification_delivery",
+        "legacy_module": "",
+        "legacy_path": "",
+        "migration_status": "canonical",
+        "public_api": "PersistentEmailNotifier, save_secure_email_config, read_state, write_json_atomic",
+        "test_evidence": "third_report/code/geo_cloud_download/tests/test_geo_ring_cloud_transfer_batch.py::TransferBatchTests",
+        "notes": "Shared operational notification delivery; credentials come from environment variables or Windows user-scoped DPAPI and are never written to run state.",
     },
     {
         "project_id": PROJECT_ID,
@@ -1927,21 +1952,89 @@ def insert_naming_violations(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def build_sqlite():
-    db_path = DB_PATH
+def validate_index_database(db_path: Path) -> dict[str, int]:
+    """Validate structural integrity and the minimum semantic index contract."""
+    conn = sqlite3.connect(db_path)
     try:
-        conn = sqlite3.connect(db_path)
-        create_schema(conn)
-    except sqlite3.Error:
+        integrity = conn.execute("PRAGMA integrity_check").fetchone()
+        if integrity is None or integrity[0] != "ok":
+            raise RuntimeError(f"SQLite integrity check failed for {db_path}: {integrity}")
+        table_names = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        missing = sorted(set(INDEX_MINIMUM_ROWS) - table_names)
+        if missing:
+            raise RuntimeError(
+                f"SQLite index is missing required tables: {', '.join(missing)}"
+            )
+        counts = {
+            table: int(conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
+            for table in INDEX_MINIMUM_ROWS
+        }
+    finally:
+        conn.close()
+    empty = [
+        table
+        for table, minimum in INDEX_MINIMUM_ROWS.items()
+        if counts[table] < minimum
+    ]
+    if empty:
+        raise RuntimeError(
+            "SQLite index failed minimum row-count contract: "
+            + ", ".join(f"{table}={counts[table]}" for table in empty)
+        )
+    return counts
+
+
+def publish_index_database(temp_path: Path) -> Path:
+    """Publish a validated index without destroying the last known-good file."""
+    def replace_with_retry(destination: Path, attempts: int = 12) -> None:
+        last_error: PermissionError | None = None
+        for attempt in range(attempts):
+            try:
+                os.replace(temp_path, destination)
+                return
+            except PermissionError as exc:
+                last_error = exc
+                if attempt + 1 < attempts:
+                    time.sleep(0.25)
+        assert last_error is not None
+        raise last_error
+
+    try:
+        replace_with_retry(DB_PATH)
+        return DB_PATH
+    except PermissionError:
+        # A desktop SQLite viewer can hold the canonical file open on Windows.
+        # Keep that last known-good file and publish the new build separately.
         try:
-            conn.close()
-        except Exception:
-            pass
-        db_path = REFRESHED_DB_PATH
-        if db_path.exists():
-            db_path.unlink()
-        conn = sqlite3.connect(db_path)
-        create_schema(conn)
+            replace_with_retry(REFRESHED_DB_PATH)
+            published_path = REFRESHED_DB_PATH
+        except PermissionError:
+            timestamp = GENERATED_AT.replace("-", "").replace(":", "")
+            published_path = OUT_DIR / f"geo_ring_cloud_index_refreshed_{timestamp}.sqlite"
+            replace_with_retry(published_path)
+        print(
+            f"[WARN] canonical SQLite is locked; validated refresh written to "
+            f"{published_path}"
+        )
+        return published_path
+
+
+def build_sqlite():
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    handle, temp_name = tempfile.mkstemp(
+        prefix=".geo_ring_cloud_index.",
+        suffix=".building.sqlite",
+        dir=OUT_DIR,
+    )
+    os.close(handle)
+    db_path = Path(temp_name)
+    conn = sqlite3.connect(db_path)
+    create_schema(conn)
     cur = conn.cursor()
 
     # --- directories 表 ---
@@ -2153,8 +2246,14 @@ def build_sqlite():
         cur.execute("INSERT INTO meta(key,value) VALUES(?,?)", (k, v))
     conn.commit()
     conn.close()
-    print(f"[OK] sqlite 写入: {db_path}")
-    return db_path
+    counts = validate_index_database(db_path)
+    published_path = publish_index_database(db_path)
+    print(
+        f"[OK] sqlite 原子发布: {published_path} "
+        f"(scripts={counts['scripts']}, stages={counts['stage_registry']}, "
+        f"artifacts={counts['artifact_index']})"
+    )
+    return published_path
 
 
 def export_xlsx(db_path: Path = DB_PATH):
@@ -2331,6 +2430,8 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 - `naming_policy.md`: naming rules for new work and known non-canonical labels.
 - `engineering_policy.md`: enforceable engineering contract for humans and AI agents.
 - `figure_workflow.md`: reusable scientific-figure workflow for stage plotting, source data, QA, exports, and governance.
+- Repository contribution contract: `{ROOT / "CONTRIBUTING.md"}`
+- Security and credential policy: `{ROOT / "SECURITY.md"}`
 - Reproducible environment: `{ROOT / "third_report" / "code" / "geo_ring_cloud_stage1" / "environment.yml"}`
 - Local/CI quality gate: `python _GEO_RING_CLOUD_INDEX\\ci_check.py`
 """
@@ -2511,6 +2612,8 @@ It applies to humans and AI agents.
 - Existing-stage refactors MUST stage refreshed `artifact_index.md` when artifact semantics change; otherwise refreshed `engineering_status.md` is acceptable. New stages MUST stage the full stage/artifact/audit index set.
 - MUST run `python _GEO_RING_CLOUD_INDEX\\governance_check.py --staged` before commit.
 - MUST use the checked-in `environment.yml` as the default scientific dependency baseline and run `python _GEO_RING_CLOUD_INDEX\\ci_check.py --scientific-tests` for core-code changes.
+- MUST run long-lived downloads, uploads, and scientific experiments from a clean commit or a dedicated worktree. Active run code MUST NOT be edited in place.
+- MUST preserve the exact generating-script hash and dirty Git state when an exceptional exploratory run cannot use a clean commit; never claim that repository HEAD represents that script.
 
 ## Naming and identity
 
@@ -2536,6 +2639,7 @@ It applies to humans and AI agents.
 - Reports SHOULD be Chinese-first, with English retained for technical terms and variable names.
 - Key outputs SHOULD include concise CSV/Markdown indexes instead of relying only on directory names.
 - Generic data/product inspections SHOULD be indexed in `data_product_audits.md`; stage-scoped inspections should keep `related_stage_ids`.
+- Long-lived component status and run manifests MUST record `code_commit_scope`, `generating_script_state`, and lineage warnings using the same semantics as `geo_ring_cloud.lineage`.
 
 ## Path and artifact rules
 

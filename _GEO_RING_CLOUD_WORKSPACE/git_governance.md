@@ -34,6 +34,10 @@ Before accepting a commit message, Git runs:
 python _GEO_RING_CLOUD_INDEX/governance_check.py --commit-msg <message-file>
 ```
 
+Long-lived operational or scientific runs must use a clean commit or a dedicated
+worktree. Do not edit a script in the same worktree while that script is running.
+See the repository `CONTRIBUTING.md` for the required verification sequence.
+
 The first commit is treated as the historical baseline. During that baseline,
 legacy naming issues are warnings. After the baseline commit exists, newly added
 files with ambiguous stage/step naming become errors.

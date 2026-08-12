@@ -13,6 +13,9 @@
 /_GEO_RING_CLOUD_INDEX/*.sqlite
 /_GEO_RING_CLOUD_INDEX/*.db
 /_GEO_RING_CLOUD_INDEX/*.xlsx
+/_GEO_RING_CLOUD_INDEX/*.sqlite-journal
+/_GEO_RING_CLOUD_INDEX/*.sqlite-wal
+/_GEO_RING_CLOUD_INDEX/*.sqlite-shm
 /research_tracker/*.db
 /research_tracker/**/*.db
 
@@ -21,6 +24,8 @@
 ~$*
 *.tmp
 *.part
+/_tmp_*.json
+/.playwright-cli/
 
 # Python and tool caches
 __pycache__/
