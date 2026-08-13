@@ -291,6 +291,79 @@ class TransferBatchTests(unittest.TestCase):
             self.assertTrue(raw.is_file())
             self.assertEqual(raw.read_bytes(), b"raw-data-must-remain")
 
+    def test_dashboard_progress_uses_full_inventory_not_only_started_source(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "batch"
+            manifests = root / "manifests"
+            manifests.mkdir(parents=True)
+            header = (
+                "target_time_utc,platform,service,product,collection_id,remote_type,bucket,"
+                "remote_key_or_product_id,actual_start_time,actual_end_time,time_difference_seconds,"
+                "size_bytes,status,local_path,note\n"
+            )
+            (manifests / "manifest_inventory.csv").write_text(
+                header
+                + "2024-04-01T00:00:00Z,Himawari-9,Himawari-9,CMSK,,s3,b,k1,,,,10,found,h.nc,ok\n"
+                + "2024-04-01T00:00:00Z,Meteosat-0deg,Meteosat-0deg,CLM,,eumetsat,,k2,,,,10,found,m0.nc,ok\n"
+                + "2024-04-01T00:00:00Z,Meteosat-IODC,Meteosat-IODC,CLM,,eumetsat,,k3,,,,10,found,mi.nc,ok\n",
+                encoding="utf-8",
+            )
+            (manifests / "manifest_downloaded.csv").write_text(
+                header
+                + "2024-04-01T00:00:00Z,Himawari-9,Himawari-9,CMSK,,s3,b,k1,,,,10,downloaded,h.nc,ok\n",
+                encoding="utf-8",
+            )
+            (root / "transfer").mkdir()
+
+            status = DashboardState(root).status()
+
+        self.assertEqual(status["download"]["combined"]["overall_completed"], 1)
+        self.assertEqual(status["download"]["combined"]["total"], 3)
+        self.assertEqual(status["download"]["combined"]["remaining"], 2)
+        self.assertEqual(status["download"]["combined"]["percent"], 33.33)
+        self.assertEqual(status["download"]["combined"]["scope"], "full_inventory")
+        by_platform = {row["platform"]: row for row in status["platforms"]}
+        self.assertEqual(by_platform["Himawari-9"]["completed"], 1)
+        self.assertEqual(by_platform["Meteosat-0deg"]["completed"], 0)
+
+    def test_start_download_recovers_unowned_stale_control_lock(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            parent = Path(temp_dir) / "GEO_Cloud_2024_batches"
+            existing = parent / "existing_batch"
+            existing.mkdir(parents=True)
+            target = parent / "20240401_20240401_h9"
+            transfer = target / "transfer"
+            transfer.mkdir(parents=True)
+            lock = transfer / "batch_run.lock"
+            lock.write_bytes(b"")
+            dashboard = DashboardState(existing)
+            fake_process = unittest.mock.Mock(pid=24682)
+            fake_process.poll.return_value = None
+            fake_process.wait.return_value = 0
+            with patch(
+                "geo_ring_cloud_transfer_dashboard.subprocess.Popen",
+                return_value=fake_process,
+            ), patch.object(DashboardState, "_watch_download_process"):
+                result = dashboard.start_download(
+                    {
+                        "start_date": "2024-04-01",
+                        "end_date": "2024-04-01",
+                        "platforms": ["Himawari-9"],
+                        "inventory_workers": 8,
+                        "download_workers": 4,
+                        "adaptive_download": False,
+                        "continuous_upload": False,
+                    }
+                )
+
+            recovery = json.loads(
+                (transfer / "stale_lock_recovery.json").read_text(encoding="utf-8")
+            )
+        self.assertTrue(result["stale_lock_recovered"])
+        self.assertFalse(lock.exists())
+        self.assertEqual(recovery["lock"]["size_bytes"], 0)
+        self.assertFalse(recovery["automatic_delete"])
+
     def test_dashboard_html_is_chinese_control_surface(self):
         html = HTML_PATH.read_text(encoding="utf-8")
         self.assertIn("GEO 数据搬运控制台", html)

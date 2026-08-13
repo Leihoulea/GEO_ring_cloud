@@ -241,6 +241,35 @@ def read_inventory(path: Path, remote_type: str = "") -> Dict[str, object]:
     return result
 
 
+def read_downloaded_manifest(path: Path, remote_type: str = "") -> Dict[str, object]:
+    """Count durable completed rows instead of only the latest log session."""
+    result: Dict[str, object] = {
+        "path": str(path),
+        "exists": path.is_file(),
+        "completed": 0,
+        "failed": 0,
+        "by_platform": {},
+    }
+    if not path.is_file():
+        return result
+    by_platform: Counter = Counter()
+    try:
+        with path.open("r", newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                if remote_type and row.get("remote_type", "") != remote_type:
+                    continue
+                if row.get("status", "") == "downloaded":
+                    result["completed"] = int(result["completed"]) + 1
+                    by_platform[row.get("platform", "")] += 1
+                else:
+                    result["failed"] = int(result["failed"]) + 1
+    except Exception as exc:
+        result["read_error"] = "{}: {}".format(type(exc).__name__, exc)
+    result["by_platform"] = dict(by_platform)
+    result["updated_at"] = iso_mtime(path)
+    return result
+
+
 def parse_start(path: Path, token: str) -> Dict[str, int]:
     for line in reversed(tail_lines(path, 10000)):
         if token not in line:
@@ -597,6 +626,40 @@ def process_is_running(pid: object) -> bool:
         return False
     except (TypeError, ValueError):
         return False
+
+
+def inspect_batch_lock(lock_path: Path) -> Dict[str, object]:
+    """Read-only probe for a batch lock left behind after an abnormal exit.
+
+    The PowerShell orchestrator holds this file with FileShare.None.  If this
+    process can open it, no orchestrator currently owns that lock and the
+    control file can be recovered without touching downloaded data.
+    """
+    result: Dict[str, object] = {
+        "path": str(lock_path),
+        "exists": lock_path.exists(),
+        "held": False,
+        "stale": False,
+        "size_bytes": 0,
+    }
+    if not lock_path.exists():
+        return result
+    try:
+        result["size_bytes"] = lock_path.stat().st_size
+        with lock_path.open("rb") as handle:
+            preview = handle.read(4096).decode("utf-8", errors="replace").strip()
+    except OSError as exc:
+        result["held"] = True
+        result["error"] = "{}: {}".format(type(exc).__name__, exc)
+        return result
+    result["stale"] = True
+    if preview:
+        try:
+            metadata = json.loads(preview)
+        except json.JSONDecodeError:
+            metadata = {"raw_preview": preview[:500]}
+        result["metadata"] = metadata
+    return result
 
 
 def has_recent_download_part(transfer_dir: Path, max_age_seconds: int = 300) -> bool:
@@ -1336,6 +1399,12 @@ class DashboardState:
             MET_DOWNLOAD_RE,
             "download_meteosat_range_start",
         )
+        s3_completed_manifest = read_downloaded_manifest(
+            manifest_dir / "manifest_downloaded.csv", "s3"
+        )
+        met_completed_manifest = read_downloaded_manifest(
+            manifest_dir / "manifest_meteosat_downloaded.csv", "eumetsat"
+        )
         parts = active_parts(batch_root)
         transfer = transfer_manifest_status(transfer_dir)
         auto_upload = auto_upload_status(transfer_dir)
@@ -1354,14 +1423,33 @@ class DashboardState:
                 "downloaded_rows": int(s3_validation.get("downloaded_rows", 0))
                 + int(met_validation.get("downloaded_rows", 0)),
             }
+        inventory_total = int(s3_inventory.get("found", 0)) + int(
+            met_inventory.get("found", 0)
+        )
+        started_total = int(s3_download.get("total", 0)) + int(
+            met_download.get("total", 0)
+        )
+        s3_completed = (
+            int(s3_completed_manifest.get("completed", 0))
+            if s3_completed_manifest.get("exists")
+            else int(s3_download.get("overall_completed", 0))
+        )
+        met_completed = (
+            int(met_completed_manifest.get("completed", 0))
+            if met_completed_manifest.get("exists")
+            else int(met_download.get("overall_completed", 0))
+        )
+        completed = s3_completed + met_completed
+        total = max(inventory_total, started_total, completed)
         combined_download = {
-            "total": int(s3_download.get("total", 0)) + int(met_download.get("total", 0)),
-            "overall_completed": int(s3_download.get("overall_completed", 0))
-            + int(met_download.get("overall_completed", 0)),
+            "total": total,
+            "inventory_total": inventory_total,
+            "started_total": started_total,
+            "overall_completed": completed,
+            "remaining": max(total - completed, 0),
             "failed": int(s3_download.get("failed", 0)) + int(met_download.get("failed", 0)),
+            "scope": "full_inventory" if inventory_total else "started_downloads",
         }
-        total = int(combined_download["total"])
-        completed = int(combined_download["overall_completed"])
         combined_download["percent"] = round(completed / total * 100, 2) if total else 0
         recent = sorted(
             list(s3_download.get("recent", [])) + list(met_download.get("recent", [])),
@@ -1371,7 +1459,12 @@ class DashboardState:
             s3_inventory.get("by_platform", {}), met_inventory.get("by_platform", {})
         )
         platform_done = merge_platform_counts(
-            s3_download.get("by_platform", {}), met_download.get("by_platform", {})
+            s3_completed_manifest.get("by_platform", {})
+            if s3_completed_manifest.get("exists")
+            else s3_download.get("by_platform", {}),
+            met_completed_manifest.get("by_platform", {})
+            if met_completed_manifest.get("exists")
+            else met_download.get("by_platform", {}),
         )
         raw_batch_status = read_json(transfer_dir / "batch_status.json")
         launcher = download_launcher_status(transfer_dir, raw_batch_status)
@@ -1578,11 +1671,9 @@ class DashboardState:
             batch_root = (batch_parent / batch_name).resolve()
             if batch_parent != batch_root.parent:
                 raise RuntimeError("新批次目录必须位于允许的批次父目录内。")
-            lock_path = batch_root / "transfer" / "batch_run.lock"
-            if lock_path.exists():
-                raise RuntimeError("该批次已有任务运行中：{}".format(batch_root))
             batch_root.mkdir(parents=True, exist_ok=True)
             (batch_root / "transfer").mkdir(parents=True, exist_ok=True)
+            lock_path = batch_root / "transfer" / "batch_run.lock"
             launcher_status_path = batch_root / "transfer" / "download_launcher_status.json"
             existing_launcher = download_launcher_status(
                 batch_root / "transfer",
@@ -1593,6 +1684,31 @@ class DashboardState:
                     "该批次的下载启动进程仍在运行：PID {}".format(
                         existing_launcher.get("pid", "")
                     )
+                )
+            stale_lock_recovery: Dict[str, object] = {}
+            if lock_path.exists():
+                lock_state = inspect_batch_lock(lock_path)
+                if lock_state.get("held") or not lock_state.get("stale"):
+                    raise RuntimeError("该批次已有任务运行中：{}".format(batch_root))
+                try:
+                    lock_path.unlink()
+                except OSError as exc:
+                    raise RuntimeError(
+                        "残留批次锁无法安全移除：{}: {}".format(type(exc).__name__, exc)
+                    ) from exc
+                stale_lock_recovery = {
+                    "project_id": "geo_ring_cloud",
+                    "component_role": "data_download_orchestrator",
+                    "recovered_at": utc_now_text(),
+                    "lock": lock_state,
+                    "previous_launcher_status": existing_launcher.get("status", "UNKNOWN"),
+                    "previous_launcher_pid": existing_launcher.get("pid"),
+                    "automatic_delete": False,
+                    "message": "已移除无人占用的残留控制锁；未删除任何下载数据。",
+                }
+                write_json_atomic(
+                    batch_root / "transfer" / "stale_lock_recovery.json",
+                    stale_lock_recovery,
                 )
 
             command = [
@@ -1646,7 +1762,11 @@ class DashboardState:
             stderr_path = batch_root / "transfer" / "launcher.stderr.log"
             creationflags = 0
             if os.name == "nt":
-                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                creationflags = (
+                    getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                    | getattr(subprocess, "DETACHED_PROCESS", 0)
+                    | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                )
             launcher_payload = {
                 "project_id": "geo_ring_cloud",
                 "canonical_stage_id": "",
@@ -1667,6 +1787,7 @@ class DashboardState:
                 "download_initial_workers": min(4, download_workers),
                 "download_max_workers": download_workers,
                 "automatic_delete": False,
+                "stale_lock_recovered": bool(stale_lock_recovery),
                 "message": "正在创建后台下载进程。",
             }
             write_json_atomic(launcher_status_path, launcher_payload)
@@ -1726,6 +1847,7 @@ class DashboardState:
                 "adaptive_download": adaptive_download,
                 "network_mode": "direct_only",
                 "continuous_upload": continuous_upload,
+                "stale_lock_recovered": bool(stale_lock_recovery),
                 "automatic_delete": False,
             }
             if continuous_upload:

@@ -143,7 +143,28 @@ function Write-BatchStatus {
         network_mode = "direct_only"
         automatic_delete = $false
     }
-    $payload | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $StatusPath -Encoding UTF8
+    $json = $payload | ConvertTo-Json -Depth 4
+    $lastError = $null
+    for ($attempt = 1; $attempt -le 12; $attempt++) {
+        $temporaryPath = "{0}.{1}.{2}.tmp" -f $StatusPath, $PID, [DateTime]::UtcNow.Ticks
+        try {
+            [System.IO.File]::WriteAllText(
+                $temporaryPath,
+                $json,
+                (New-Object System.Text.UTF8Encoding($false))
+            )
+            Move-Item -LiteralPath $temporaryPath -Destination $StatusPath -Force -ErrorAction Stop
+            return
+        }
+        catch {
+            $lastError = $_
+            Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+            if ($attempt -lt 12) {
+                Start-Sleep -Milliseconds 250
+            }
+        }
+    }
+    throw $lastError
 }
 
 function Invoke-DownloadPython {
@@ -203,6 +224,17 @@ try {
 catch {
     throw "Another transfer process is already using this batch: $BatchRoot"
 }
+
+$lockMetadata = [ordered]@{
+    pid = $PID
+    opened_at = (Get-Date).ToUniversalTime().ToString("o")
+    batch_root = $BatchRoot
+    code_commit = $CodeCommit
+} | ConvertTo-Json -Compress
+$lockBytes = [System.Text.Encoding]::UTF8.GetBytes($lockMetadata)
+$BatchLockStream.SetLength(0)
+$BatchLockStream.Write($lockBytes, 0, $lockBytes.Length)
+$BatchLockStream.Flush()
 
 try {
     Write-BatchStatus -Phase "initialization" -Status "running"
