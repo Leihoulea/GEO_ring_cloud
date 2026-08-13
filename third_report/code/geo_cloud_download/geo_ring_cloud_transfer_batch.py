@@ -126,7 +126,18 @@ def iter_batch_files(
 
 
 def find_partial_files(batch_root: Path) -> List[str]:
-    return sorted(str(path) for path in batch_root.rglob("*.part") if path.is_file())
+    partial_files: List[str] = []
+    for path in batch_root.rglob("*.part"):
+        if not path.is_file():
+            continue
+        try:
+            relative = path.relative_to(batch_root)
+        except ValueError:
+            continue
+        if relative.parts and relative.parts[0].lower() in CONTROL_DIRECTORIES:
+            continue
+        partial_files.append(str(path))
+    return sorted(partial_files)
 
 
 def write_csv_manifest(path: Path, rows: List[Dict[str, object]]) -> None:

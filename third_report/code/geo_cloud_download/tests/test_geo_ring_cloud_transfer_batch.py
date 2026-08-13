@@ -1043,6 +1043,30 @@ class TransferBatchTests(unittest.TestCase):
                     {"GOES-18"},
                 )
 
+    def test_control_partial_file_does_not_block_manifest(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = root / "GOES-18" / "ACMF" / "20240401" / "00" / "sample.nc"
+            data.parent.mkdir(parents=True)
+            data.write_bytes(b"complete-data")
+            control_partial = root / "transfer" / "auto_upload_status.json.part"
+            control_partial.parent.mkdir(parents=True)
+            control_partial.write_bytes(b"stale-control-state")
+
+            manifest = prepare_manifest(
+                root,
+                root / "transfer",
+                PurePosixPath("/server/data/dhr"),
+                "2024-04-01",
+                "2024-04-01",
+                {"GOES-18"},
+            )
+
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            self.assertEqual(payload["status"], "READY_FOR_XFTP_UPLOAD")
+            self.assertEqual(payload["file_count"], 1)
+            self.assertTrue(control_partial.is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
