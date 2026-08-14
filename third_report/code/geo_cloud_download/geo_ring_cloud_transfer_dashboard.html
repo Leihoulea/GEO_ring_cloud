@@ -78,6 +78,7 @@
     .task-main span, .task-kpi span { color: var(--muted); font-size: 11px; }
     .task-kpi b { display: block; font-size: 13px; margin-bottom: 4px; }
     .task-error { color: var(--red) !important; display: block; margin-top: 5px; white-space: normal; overflow-wrap: anywhere; }
+    .warning-text { color: var(--amber); font-weight: 700; }
     .queue-center { padding: 20px; margin-bottom: 16px; }
     .queue-list { display: grid; gap: 10px; }
     .queue-item { display: grid; grid-template-columns: minmax(250px,1.4fr) minmax(150px,.7fr) minmax(190px,.9fr) auto; gap: 14px; align-items: center; border: 1px solid var(--line); border-radius: 15px; padding: 13px 14px; background: #faf9f4; }
@@ -488,7 +489,10 @@
         updateNotificationButton();
         $("bigPercent").textContent=pct(download.percent); setWidth('downloadBar',download.percent);
         const s3=data.download.s3 || {}, met=data.download.meteosat || {};
-        $("progressCopy").innerHTML=`已完成 <b>${nf.format(download.overall_completed || 0)}</b> / ${nf.format(download.total || 0)} 个<br>失败记录 ${nf.format(download.failed || 0)}`;
+        const completionNote=download.completion_state==='files_complete_unfinalized'
+          ? '<br><span class="warning-text">文件已齐，但批次尚未完成最终清单，不能视为完整成功</span>'
+          : '';
+        $("progressCopy").innerHTML=`已完成 <b>${nf.format(download.overall_completed || 0)}</b> / ${nf.format(download.total || 0)} 个<br>失败记录 ${nf.format(download.failed || 0)}${completionNote}`;
         $("completedBytes").textContent=s3.completed_bytes_label || met.completed_bytes_label || '--';
         $("recentHour").textContent=nf.format((s3.recent_hour_files || 0)+(met.recent_hour_files || 0))+' 个';
         const etaValues=[s3.eta_hours,met.eta_hours].filter(x=>x!==null&&x!==undefined); $("eta").textContent=eta(etaValues.length?Math.max(...etaValues):null);

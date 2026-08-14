@@ -326,6 +326,71 @@ class TransferBatchTests(unittest.TestCase):
         self.assertEqual(by_platform["Himawari-9"]["completed"], 1)
         self.assertEqual(by_platform["Meteosat-0deg"]["completed"], 0)
 
+    def test_dashboard_does_not_mark_file_complete_failed_batch_as_pass(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "batch"
+            manifests = root / "manifests"
+            logs = root / "logs"
+            transfer = root / "transfer"
+            manifests.mkdir(parents=True)
+            logs.mkdir()
+            transfer.mkdir()
+            header = (
+                "target_time_utc,platform,service,product,collection_id,remote_type,bucket,"
+                "remote_key_or_product_id,actual_start_time,actual_end_time,time_difference_seconds,"
+                "size_bytes,status,local_path,note\n"
+            )
+            row = (
+                "2024-05-06T00:00:00Z,Meteosat-0deg,Meteosat-0deg,CLM,,eumetsat,,"
+                "product-id,,,,10,found,m0.zip,ok\n"
+            )
+            (manifests / "manifest_inventory.csv").write_text(
+                header + row, encoding="utf-8"
+            )
+            (logs / "download_meteosat_range.log").write_text(
+                "2026-08-14T09:00:00Z download_meteosat_range_start "
+                "start=2024-05-06 end=2024-05-06 rows=1 skipped_existing=0 pending=1\n"
+                "2026-08-14T09:00:01Z 1/1 downloaded Meteosat-0deg CLM "
+                "2024-05-06T00:00:00Z zip_ok\n",
+                encoding="utf-8",
+            )
+            (transfer / "batch_status.json").write_text(
+                json.dumps({"status": "failed", "phase": "failed", "message": "retry warning"}),
+                encoding="utf-8",
+            )
+            (transfer / "download_launcher_status.json").write_text(
+                json.dumps({"status": "FAIL", "exit_code": 1, "message": "retry warning"}),
+                encoding="utf-8",
+            )
+
+            status = DashboardState(root).status()
+
+        self.assertEqual(status["download"]["combined"]["percent"], 100.0)
+        self.assertEqual(
+            status["download"]["combined"]["completion_state"],
+            "files_complete_unfinalized",
+        )
+        download_stage = next(
+            item for item in status["pipeline_stages"] if item["key"] == "download"
+        )
+        self.assertEqual(download_stage["status"], "warning")
+        self.assertIn("最终清单", download_stage["detail"])
+
+    def test_powershell_runner_tolerates_successful_native_stderr(self):
+        script = (
+            Path(__file__).resolve().parents[1] / "geo_ring_cloud_transfer_batch.ps1"
+        ).read_text(encoding="utf-8-sig")
+        function_body = script.split("function Invoke-DownloadPython", 1)[1].split(
+            "function Clear-DownloadProxy", 1
+        )[0]
+        self.assertIn('$ErrorActionPreference = "Continue"', function_body)
+        self.assertIn("$commandExitCode = $LASTEXITCODE", function_body)
+        self.assertLess(
+            function_body.index('$ErrorActionPreference = "Continue"'),
+            function_body.index("$commandExitCode = $LASTEXITCODE"),
+        )
+        self.assertIn("if ($commandExitCode -ne 0)", function_body)
+
     def test_start_download_recovers_unowned_stale_control_lock(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             parent = Path(temp_dir) / "GEO_Cloud_2024_batches"
@@ -343,7 +408,11 @@ class TransferBatchTests(unittest.TestCase):
             with patch(
                 "geo_ring_cloud_transfer_dashboard.subprocess.Popen",
                 return_value=fake_process,
-            ), patch.object(DashboardState, "_watch_download_process"):
+            ), patch.object(
+                DashboardState, "_watch_download_process"
+            ), patch.object(
+                DashboardState, "_active_download_task", return_value=None
+            ):
                 result = dashboard.start_download(
                     {
                         "start_date": "2024-04-01",

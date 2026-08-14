@@ -1468,6 +1468,29 @@ class DashboardState:
         )
         raw_batch_status = read_json(transfer_dir / "batch_status.json")
         launcher = download_launcher_status(transfer_dir, raw_batch_status)
+        run_failed = (
+            launcher.get("status") == "FAIL"
+            or raw_batch_status.get("status") == "failed"
+        )
+        files_complete = bool(total and completed >= total and not parts.get("count"))
+        if run_failed and files_complete:
+            combined_download["completion_state"] = "files_complete_unfinalized"
+            combined_download["completion_message"] = (
+                "目标文件已经齐全，但批次进程在生成最终清单前失败，不能视为完整完成。"
+            )
+        elif run_failed:
+            combined_download["completion_state"] = "failed"
+            combined_download["completion_message"] = str(
+                launcher.get("message")
+                or raw_batch_status.get("message")
+                or "下载批次失败。"
+            )
+        elif files_complete:
+            combined_download["completion_state"] = "files_complete"
+            combined_download["completion_message"] = "目标文件已经齐全。"
+        else:
+            combined_download["completion_state"] = "running"
+            combined_download["completion_message"] = "下载仍在进行。"
         stages = build_pipeline_stages(
             int(s3_inventory.get("found", 0)) + int(met_inventory.get("found", 0)),
             combined_download,
@@ -1479,19 +1502,37 @@ class DashboardState:
             server,
             cleanup,
         )
-        if launcher.get("status") == "FAIL" or raw_batch_status.get("status") == "failed":
-            stages[0] = stage(
-                "fail",
-                "inventory",
-                "本地清单",
-                str(
-                    launcher.get("message")
-                    or raw_batch_status.get("message")
-                    or "启动失败"
-                ),
+        if run_failed:
+            failure_message = str(
+                launcher.get("message")
+                or raw_batch_status.get("message")
+                or "下载批次失败。"
             )
+            if not inventory_total:
+                stages[0] = stage(
+                    "fail",
+                    "inventory",
+                    "本地清单",
+                    failure_message,
+                )
+            if files_complete:
+                stages[1] = stage(
+                    "warning",
+                    "download",
+                    "本地下载",
+                    "{} / {} 个文件已齐，但批次未完成最终清单：{}".format(
+                        completed, total, failure_message
+                    ),
+                )
+            else:
+                stages[1] = stage(
+                    "fail",
+                    "download",
+                    "本地下载",
+                    "{} / {} 个文件；{}".format(completed, total, failure_message),
+                )
         overall_state = "running"
-        if launcher.get("status") == "FAIL" or raw_batch_status.get("status") == "failed":
+        if run_failed:
             overall_state = "launch_failed"
         elif server.get("status") == "FAIL":
             overall_state = "blocked"

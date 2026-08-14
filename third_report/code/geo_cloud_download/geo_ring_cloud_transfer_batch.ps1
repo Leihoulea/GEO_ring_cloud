@@ -169,8 +169,21 @@ function Write-BatchStatus {
 
 function Invoke-DownloadPython {
     param([string[]]$Arguments)
-    $commandOutput = & $CondaExe run -n $CondaEnvironment python @Arguments 2>&1
-    $commandExitCode = $LASTEXITCODE
+    # EUMETSAT's client writes recoverable retry notices (for example HTTP 503)
+    # to stderr even when the command ultimately succeeds.  With the script-wide
+    # ErrorActionPreference=Stop, PowerShell otherwise promotes that native
+    # stderr record to a terminating NativeCommandError before LASTEXITCODE can
+    # be inspected.  Capture the complete diagnostic stream, then decide solely
+    # from the native process exit code.
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $commandOutput = & $CondaExe run -n $CondaEnvironment python @Arguments 2>&1
+        $commandExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     if ($commandOutput) {
         $commandOutput | Add-Content -LiteralPath $RunLog -Encoding UTF8
     }
