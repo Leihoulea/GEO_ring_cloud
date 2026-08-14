@@ -21,7 +21,7 @@ Generated: `2026-08-14T09:49:56Z`
 - Git 仓库、远端、`.gitignore`、`.gitattributes` 与本地 pre-commit hook。
 - canonical stage taxonomy、artifact index、data product audit index 和跨项目 collision guard。
 - Python `geo_ring_cloud.paths` 与 PowerShell `geo_ring_cloud_path_configuration.ps1` 共享环境变量契约；统一 lineage manifest helper 与 staged governance check。
-- GEO 数据控制台已具备持久化的空间感知批次队列：按下载全局互斥与目标磁盘保守门禁自动续批，显示实时缺口，启动前不创建数据目录且永不自动删除数据。
+- GEO 数据控制台已具备持久化的空间感知批次队列：按下载全局互斥与目标磁盘保守门禁自动续批，支持实例级安全取消；下载与上传面板优先显示清单字节进度、真实滚动吞吐和 ETA，启动前不创建数据目录且永不自动删除数据。
 - `geo_ring_cloud` package、`pyproject.toml`、module registry 与旧 import compatibility shims。
 - SQLite/Markdown `code_migrations` 记录 canonical 路径、历史入口、验证证据和回滚说明。
 - 已验证直接依赖基线、统一 `ci_check.py` 入口与 GitHub 轻量 CI 门禁。

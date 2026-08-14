@@ -17,7 +17,7 @@ from typing import Dict, Iterable, List, Mapping, MutableMapping
 
 
 COMPONENT_ROLE = "batch_queue"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 ACTIVE_QUEUE_STATUSES = {
     "QUEUED",
     "WAITING_ACTIVE_DOWNLOAD",
@@ -81,6 +81,7 @@ def read_queue_state(path: Path) -> Dict[str, object]:
         return empty_queue_state()
     result = empty_queue_state()
     result.update(payload)
+    result["schema_version"] = SCHEMA_VERSION
     result["automatic_delete"] = False
     return result
 
@@ -194,7 +195,11 @@ def make_queue_item(
     now = utc_now_text()
     key = semantic_key(request)
     return {
-        "queue_id": "geo-{}".format(key[:16]),
+        # ``semantic_key`` identifies equivalent requests, while ``queue_id``
+        # identifies this specific enqueue attempt.  Reusing the semantic key
+        # as an ID made a later retry collide with a historical terminal row,
+        # so the dashboard could reject cancellation of the new waiting row.
+        "queue_id": "geo-{}-{:x}".format(key[:12], time.time_ns()),
         "semantic_key": key,
         "created_at": now,
         "updated_at": now,

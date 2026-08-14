@@ -19,6 +19,7 @@ from geo_ring_cloud_transfer_dashboard import (  # noqa: E402
     HTML_PATH,
     ORDER_SOURCE_CONFIG,
     auto_upload_status,
+    download_volume_progress,
     download_launcher_status,
     parse_disk_gate,
     process_is_running,
@@ -26,8 +27,10 @@ from geo_ring_cloud_transfer_dashboard import (  # noqa: E402
     write_json_atomic as dashboard_write_json_atomic,
 )
 from geo_ring_cloud_auto_uploader import (  # noqa: E402
+    byte_progress_percent,
     build_auto_upload_manifest,
     discover_completed_files,
+    expected_inventory_totals,
     progressive_upload_worker_counts,
     sftp_quote,
     subprocess_creation_flags,
@@ -36,6 +39,7 @@ from geo_ring_cloud_auto_uploader import (  # noqa: E402
 )
 from geo_ring_cloud.batch_queue import (  # noqa: E402
     estimate_required_space,
+    make_queue_item,
     normalize_request,
     read_queue_state,
 )
@@ -228,6 +232,63 @@ class TransferBatchTests(unittest.TestCase):
         self.assertIsNone(first["rate_bps"])
         self.assertEqual(second["rate_bps"], 20.0)
         self.assertEqual(second["rate_label"], "20.0 B/s")
+
+    def test_download_volume_progress_counts_final_and_partial_bytes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifests = root / "manifests"
+            manifests.mkdir()
+            final_path = root / "Himawari-9" / "CMSK" / "final.nc"
+            partial_final = root / "Himawari-9" / "CHGT" / "partial.nc"
+            final_path.parent.mkdir(parents=True)
+            partial_final.parent.mkdir(parents=True)
+            final_path.write_bytes(b"a" * 100)
+            part_path = Path(str(partial_final) + ".part")
+            part_path.write_bytes(b"b" * 50)
+            inventory = manifests / "manifest_inventory.csv"
+            inventory.write_text(
+                "remote_type,status,size_bytes,local_path\n"
+                f"s3,found,100,{final_path}\n"
+                f"s3,found,200,{partial_final}\n",
+                encoding="utf-8",
+            )
+            with patch.object(transfer_dashboard, "_VOLUME_INDEX_CACHE", {}), patch.object(
+                transfer_dashboard, "_DOWNLOAD_VOLUME_STATE", {}
+            ), patch("geo_ring_cloud_transfer_dashboard.time.time", side_effect=[100.0, 105.0]):
+                first = download_volume_progress(
+                    root,
+                    ((inventory, "s3"),),
+                    {"items": [{"path": str(part_path), "size_bytes": 50}]},
+                )
+                part_path.write_bytes(b"b" * 100)
+                second = download_volume_progress(
+                    root,
+                    ((inventory, "s3"),),
+                    {"items": [{"path": str(part_path), "size_bytes": 100}]},
+                )
+        self.assertEqual(first["received_bytes"], 150)
+        self.assertEqual(first["percent"], 50.0)
+        self.assertEqual(second["received_bytes"], 200)
+        self.assertEqual(second["rate_bps"], 10.0)
+        self.assertEqual(second["progress_basis"], "inventory_bytes_exact")
+
+    def test_inventory_totals_and_upload_byte_progress(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifests = root / "manifests"
+            manifests.mkdir()
+            inventory = manifests / "manifest_inventory.csv"
+            inventory.write_text(
+                "target_time_utc,platform,status,size_bytes,local_path\n"
+                "2024-05-01T00:00:00Z,Himawari-9,found,100,a.nc\n"
+                "2024-05-01T01:00:00Z,Himawari-9,found,300,b.nc\n",
+                encoding="utf-8",
+            )
+            files, total_bytes, unknown = expected_inventory_totals(
+                root, "2024-05-01", "2024-05-01", ["Himawari-9"]
+            )
+        self.assertEqual((files, total_bytes, unknown), (2, 400, 0))
+        self.assertEqual(byte_progress_percent(100, 400, 1, 2), (25.0, "inventory_bytes"))
 
     def test_dashboard_gates_never_delete_raw_data(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -684,6 +745,35 @@ class TransferBatchTests(unittest.TestCase):
             cancelled = dashboard.cancel_queued_download(item["queue_id"])
             self.assertEqual(cancelled["status"], "CANCELLED")
             self.assertFalse(cancelled["automatic_delete"])
+
+    def test_queue_ids_are_unique_and_legacy_duplicate_can_cancel_waiting_copy(self):
+        request = normalize_request(
+            {
+                "start_date": "2024-05-01",
+                "end_date": "2024-05-02",
+                "platforms": ["Himawari-9"],
+                "continuous_upload": False,
+            },
+            ["Himawari-9"],
+        )
+        estimate = estimate_required_space(request)
+        with patch("geo_ring_cloud.batch_queue.time.time_ns", side_effect=[1, 2]):
+            first = make_queue_item(request, estimate)
+            second = make_queue_item(request, estimate)
+        self.assertNotEqual(first["queue_id"], second["queue_id"])
+        self.assertEqual(first["semantic_key"], second["semantic_key"])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            root.mkdir(exist_ok=True)
+            dashboard = DashboardState(root)
+            running = dict(first, queue_id="legacy-same", status="RUNNING")
+            waiting = dict(second, queue_id="legacy-same", status="WAITING_SPACE")
+            dashboard._save_queue_state({"schema_version": 1, "items": [running, waiting]})
+            cancelled = dashboard.cancel_queued_download("legacy-same")
+            stored = read_queue_state(dashboard.queue_state_path)
+        self.assertEqual(cancelled["status"], "CANCELLED")
+        self.assertEqual([row["status"] for row in stored["items"]], ["RUNNING", "CANCELLED"])
 
     def test_batch_queue_launches_once_when_gate_passes(self):
         with tempfile.TemporaryDirectory() as temp_dir:

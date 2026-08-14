@@ -224,7 +224,7 @@
     </section>
 
     <section class="metrics">
-      <div class="metric card"><div class="metric-value" id="downloadPercent">--</div><div class="metric-label">本地下载完成率</div><div class="track"><div class="fill" id="downloadMiniBar"></div></div></div>
+      <div class="metric card"><div class="metric-value" id="downloadPercent">--</div><div class="metric-label" id="downloadPercentLabel">本地下载体积进度</div><div class="track"><div class="fill" id="downloadMiniBar"></div></div></div>
       <div class="metric card"><div class="metric-value" id="fileCount">--</div><div class="metric-label">已完成 / 目标文件</div></div>
       <div class="metric card"><div class="metric-value" id="partCount">--</div><div class="metric-label">活动 `.part` 文件</div></div>
       <div class="metric card"><div class="metric-value" id="diskFree">--</div><div class="metric-label">本地磁盘剩余空间</div><div class="track"><div class="fill" id="diskMiniBar"></div></div></div>
@@ -253,10 +253,10 @@
         <div class="progress-track"><div class="fill" id="downloadBar"></div></div>
         <div class="path" id="downloadParallelism">下载并行：等待任务</div>
         <div class="facts">
-          <div class="fact"><b id="completedBytes">--</b><span>日志确认体量</span></div>
+          <div class="fact"><b id="completedBytes">--</b><span>已接收 / 预计体积</span></div>
           <div class="fact"><b id="recentHour">--</b><span>近一小时完成</span></div>
           <div class="fact"><b id="eta">--</b><span>预计剩余时间</span></div>
-          <div class="fact"><b id="partSpeed">--</b><span>下载速度（近一分钟）</span></div>
+          <div class="fact"><b id="partSpeed">--</b><span>真实下载速度（近一分钟）</span></div>
         </div>
         <div class="section-head" style="margin-top:24px"><h2>卫星进度</h2><div class="hint">按远端清单统计</div></div>
         <div id="platformTable"></div>
@@ -326,6 +326,7 @@
     function pct(value){ return Number(value || 0).toFixed(1) + "%"; }
     function setWidth(id, value){ $(id).style.width = Math.max(0, Math.min(100, Number(value || 0))) + "%"; }
     function eta(hours){ if(hours === null || hours === undefined) return "估算中"; if(hours < 1) return Math.max(1, Math.round(hours*60)) + " 分钟"; return Number(hours).toFixed(1) + " 小时"; }
+    function duration(seconds){ if(seconds === null || seconds === undefined) return "估算中"; const minutes=Math.max(1,Math.round(Number(seconds)/60)); if(minutes<60) return minutes+' 分钟'; const hours=minutes/60; return hours<48?hours.toFixed(1)+' 小时':(hours/24).toFixed(1)+' 天'; }
     function toast(message){ const node=$("toast"); node.textContent=message; node.classList.add("show"); setTimeout(()=>node.classList.remove("show"),2600); }
     function badge(node, status, text){ node.className = "badge " + (status === "PASS" || status === true ? "pass" : status === "FAIL" ? "fail" : ""); node.textContent = text; }
 
@@ -345,7 +346,7 @@
         return `<button class="task-item ${selected?'selected':''}" type="button" data-batch="${esc(task.batch_name)}">
           <span class="task-main"><b>${esc(task.batch_name)}</b><span>${esc((task.platforms || []).join(' · ') || '平台待确认')}</span>${error?`<span class="task-error">${esc(error)}</span>`:''}</span>
           <span class="task-kpi"><b>${esc(taskStatus(task.download_status))}</b><span>下载 · ${esc(task.download_phase || 'waiting')}</span></span>
-          <span class="task-kpi"><b>${esc(taskStatus(task.upload_status))} ${task.upload_file_count?`· ${pct(task.upload_percent)}`:''}</b><span>上传 ${nf.format(task.upload_completed_files || 0)} / ${nf.format(task.upload_file_count || 0)}</span></span>
+          <span class="task-kpi"><b>${esc(taskStatus(task.upload_status))} ${task.upload_file_count?`· ${pct(task.upload_byte_percent ?? task.upload_percent)}`:''}</b><span>上传 ${nf.format(task.upload_completed_files || 0)} / ${nf.format(task.upload_file_count || 0)}</span></span>
           <span class="task-kpi"><b>${esc(taskStatus(task.server_status))}</b><span>服务器复核</span></span>
         </button>`;
       }).join('');
@@ -466,8 +467,11 @@
         const batchRunning=(data.tasks || []).some(task=>['STARTING','RUNNING'].includes(task.download_status));
         $("startDownloadButton").disabled=batchRunning;
         $("startDownloadButton").title=batchRunning?'已有下载正在运行；可使用“加入空间感知队列”自动续批':'';
-        const download=data.download.combined || {}, disk=data.disk || {}, parts=data.active_parts || {items:[]}, downloadParallel=data.download.parallelism || {};
-        $("downloadPercent").textContent=pct(download.percent); setWidth('downloadMiniBar',download.percent);
+        const download=data.download.combined || {}, volume=data.download.volume || {}, disk=data.disk || {}, parts=data.active_parts || {items:[]}, downloadParallel=data.download.parallelism || {};
+        const exactBytes=volume.progress_basis==='inventory_bytes_exact' && volume.percent!==null && volume.percent!==undefined;
+        const primaryPercent=exactBytes?volume.percent:download.percent;
+        $("downloadPercent").textContent=pct(primaryPercent); setWidth('downloadMiniBar',primaryPercent);
+        $("downloadPercentLabel").textContent=exactBytes?'本地下载体积进度':'本地下载文件进度（体积信息不完整）';
         $("fileCount").textContent=`${nf.format(download.overall_completed || 0)} / ${nf.format(download.total || 0)}`;
         $("partCount").textContent=nf.format(parts.count || 0);
         $("diskFree").textContent=disk.free_label || '--'; setWidth('diskMiniBar',100-(disk.used_percent || 0));
@@ -487,16 +491,18 @@
         $("testEmailButton").title=email.enabled?'向已配置的收件地址发送一封测试邮件':'请先安全配置 SMTP 与收件地址';
         $("configureEmailButton").textContent=email.enabled?'重新配置邮件':'配置邮件';
         updateNotificationButton();
-        $("bigPercent").textContent=pct(download.percent); setWidth('downloadBar',download.percent);
+        $("bigPercent").textContent=pct(primaryPercent); setWidth('downloadBar',primaryPercent);
         const s3=data.download.s3 || {}, met=data.download.meteosat || {};
         const completionNote=download.completion_state==='files_complete_unfinalized'
           ? '<br><span class="warning-text">文件已齐，但批次尚未完成最终清单，不能视为完整成功</span>'
           : '';
-        $("progressCopy").innerHTML=`已完成 <b>${nf.format(download.overall_completed || 0)}</b> / ${nf.format(download.total || 0)} 个<br>失败记录 ${nf.format(download.failed || 0)}${completionNote}`;
-        $("completedBytes").textContent=s3.completed_bytes_label || met.completed_bytes_label || '--';
+        const byteCopy=volume.expected_bytes?`<b>${esc(volume.received_label || '--')}</b> / ${esc(volume.expected_label || '--')}（${pct(volume.percent)}）<br>`:'';
+        const coverageNote=volume.unknown_size_rows?`<br><span class="warning-text">${nf.format(volume.unknown_size_rows)} 个文件缺少体积，主进度回退为文件数</span>`:'';
+        $("progressCopy").innerHTML=`${byteCopy}已完成 ${nf.format(download.overall_completed || 0)} / ${nf.format(download.total || 0)} 个文件<br>失败记录 ${nf.format(download.failed || 0)}${coverageNote}${completionNote}`;
+        $("completedBytes").textContent=volume.expected_bytes?`${volume.received_label || '--'} / ${volume.expected_label || '--'}`:'--';
         $("recentHour").textContent=nf.format((s3.recent_hour_files || 0)+(met.recent_hour_files || 0))+' 个';
-        const etaValues=[s3.eta_hours,met.eta_hours].filter(x=>x!==null&&x!==undefined); $("eta").textContent=eta(etaValues.length?Math.max(...etaValues):null);
-        $("partSpeed").textContent=parts.total_rate_label || '测量中';
+        $("eta").textContent=duration(volume.eta_seconds);
+        $("partSpeed").textContent=volume.rate_label || parts.total_rate_label || '测量中';
         $("downloadParallelism").textContent=downloadParallel.mode==='adaptive'
           ? `下载并行：自动模式，当前目标 ${nf.format(downloadParallel.current_workers || 0)} 路 / 上限 ${nf.format(downloadParallel.max_workers || 0)} 路，活动 ${nf.format(downloadParallel.active_workers || 0)} 路（${downloadParallel.reason || 'running'}）`
           : downloadParallel.mode==='fixed'
@@ -514,15 +520,16 @@
         const uploadPassed=autoUpload.status==='PASS';
         const uploadStopped=['FAIL','STOPPED','STALLED'].includes(autoUpload.status);
         badge($("autoUploadBadge"),uploadStopped?'FAIL':autoUpload.status,uploadRunning?'进行中':uploadPassed?'PASS':autoUpload.status==='STOPPED'?'已停止':autoUpload.status==='STALLED'?'疑似卡住':autoUpload.status==='FAIL'?'FAIL':'等待');
-        setWidth('autoUploadBar',autoUpload.percent || 0);
+        const uploadPercent=autoUpload.byte_percent ?? autoUpload.percent ?? 0;
+        setWidth('autoUploadBar',uploadPercent);
         $("autoUploadPath").textContent='服务器目录：'+(uploadConfig.server_root || '--');
         const continuousMode=autoUpload.mode==='continuous_download_upload';
-        $("autoUploadSpeed").textContent='上传速度（近 5 分钟已确认吞吐）：'+(autoUpload.rate_label || '测量中');
+        $("autoUploadSpeed").textContent='真实上传速度（近 5 分钟已确认字节）：'+(autoUpload.rate_label || '测量中')+' · ETA '+duration(autoUpload.eta_seconds);
         $("autoUploadParallelism").textContent=autoUpload.parallelism_mode==='adaptive'
           ? `上传并行：自动模式，当前 ${nf.format(autoUpload.active_workers || 0)} 路 / 上限 ${nf.format(autoUpload.max_workers || 4)} 路（${autoUpload.parallelism_reason || autoUpload.phase || '等待'}）`
           : `上传并行：${nf.format(autoUpload.active_workers || 0)} 路`;
         $("autoUploadCopy").textContent=uploadRunning
-          ? `${continuousMode?'边下边传':'批次上传'}：${nf.format(autoUpload.completed_files || 0)} / ${nf.format(autoUpload.file_count || 0)} 个文件，${pct(autoUpload.percent)}；${autoUpload.current_file || autoUpload.phase || ''}`
+          ? `${continuousMode?'边下边传':'批次上传'}：${autoUpload.total_size_bytes?`${autoUpload.completed_size_label || '--'} / ${autoUpload.total_size_label || '--'}，${pct(uploadPercent)}；`:''}${nf.format(autoUpload.completed_files || 0)} / ${nf.format(autoUpload.file_count || 0)} 个文件；${autoUpload.current_file || autoUpload.phase || ''}`
           : uploadPassed
             ? `自动上传与服务器 SHA-256 复核均已通过，共 ${nf.format(autoUpload.completed_files || 0)} 个文件。`
             : uploadStopped

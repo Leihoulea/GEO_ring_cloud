@@ -476,19 +476,19 @@ def append_stream_ledger(path: Path, row: Dict[str, object]) -> None:
         handle.flush()
 
 
-def expected_inventory_files(
+def expected_inventory_totals(
     batch_root: Path,
     start_date: str,
     end_date: str,
     platforms: Sequence[str],
-) -> int:
+) -> Tuple[int, int, int]:
     inventory = batch_root / "manifests" / "manifest_inventory.csv"
     if not inventory.is_file():
-        return 0
+        return 0, 0, 0
     start_prefix = start_date + "T"
     end_day = datetime.strptime(end_date, "%Y-%m-%d").date()
     selected = set(platforms)
-    paths = set()
+    paths: Dict[str, int] = {}
     with inventory.open("r", newline="", encoding="utf-8-sig") as handle:
         for row in csv.DictReader(handle):
             if row.get("status") != "found" or row.get("platform") not in selected:
@@ -504,8 +504,35 @@ def expected_inventory_files(
                 continue
             local_path = str(row.get("local_path", "")).strip()
             if local_path:
-                paths.add(local_path)
-    return len(paths)
+                size_text = str(row.get("size_bytes", "")).strip()
+                paths[local_path] = int(size_text) if size_text.isdigit() else 0
+    unknown_sizes = sum(1 for size in paths.values() if size <= 0)
+    return len(paths), sum(max(0, size) for size in paths.values()), unknown_sizes
+
+
+def expected_inventory_files(
+    batch_root: Path,
+    start_date: str,
+    end_date: str,
+    platforms: Sequence[str],
+) -> int:
+    return expected_inventory_totals(batch_root, start_date, end_date, platforms)[0]
+
+
+def byte_progress_percent(
+    completed_bytes: int,
+    total_bytes: int,
+    completed_files: int,
+    total_files: int,
+) -> Tuple[float, str]:
+    if total_bytes > 0:
+        return (
+            round(min(max(0, completed_bytes), total_bytes) / total_bytes * 100, 2),
+            "inventory_bytes",
+        )
+    if total_files > 0:
+        return round(max(0, completed_files) / total_files * 100, 2), "file_count_fallback"
+    return 0.0, "waiting_inventory"
 
 
 def discover_completed_files(
@@ -563,7 +590,12 @@ def watch_and_upload(
         )
     completed = load_stream_ledger(ledger_path)
     completed_bytes = sum(int(row.get("size_bytes", 0)) for row in completed.values())
-    expected_files = expected_inventory_files(batch_root, start_date, end_date, platforms)
+    expected_files, expected_bytes, unknown_size_files = expected_inventory_totals(
+        batch_root, start_date, end_date, platforms
+    )
+    progress_percent, progress_basis = byte_progress_percent(
+        completed_bytes, expected_bytes, len(completed), expected_files
+    )
     stable_signatures: Dict[str, Tuple[int, int]] = {}
     retry_count = 0
     started_at = utc_now()
@@ -584,8 +616,12 @@ def watch_and_upload(
         "server_root": str(server_root),
         "file_count": expected_files,
         "completed_files": len(completed),
+        "total_size_bytes": expected_bytes,
         "completed_size_bytes": completed_bytes,
-        "percent": round(len(completed) / expected_files * 100, 2) if expected_files else 0.0,
+        "unknown_size_files": unknown_size_files,
+        "percent": progress_percent,
+        "byte_percent": progress_percent if expected_bytes else None,
+        "progress_basis": progress_basis,
         "current_file": "",
         "retry_count": 0,
         "parallelism_mode": "adaptive",
@@ -665,8 +701,13 @@ def watch_and_upload(
             else:
                 stable_signatures[key] = signature
 
-        if expected_files == 0:
-            expected_files = expected_inventory_files(batch_root, start_date, end_date, platforms)
+        latest_files, latest_bytes, latest_unknown = expected_inventory_totals(
+            batch_root, start_date, end_date, platforms
+        )
+        if latest_files >= expected_files:
+            expected_files = latest_files
+            expected_bytes = latest_bytes
+            unknown_size_files = latest_unknown
 
         if ready:
             batch = ready[:8]
@@ -736,15 +777,18 @@ def watch_and_upload(
                     completed[str(local_path)] = row
                     completed_bytes += expected_size
                     retry_count = 0
+                    progress_percent, progress_basis = byte_progress_percent(
+                        completed_bytes, expected_bytes, len(completed), expected_files
+                    )
                     update(
                         completed_files=len(completed),
                         completed_size_bytes=completed_bytes,
                         file_count=expected_files,
-                        percent=(
-                            round(len(completed) / expected_files * 100, 2)
-                            if expected_files
-                            else 0.0
-                        ),
+                        total_size_bytes=expected_bytes,
+                        unknown_size_files=unknown_size_files,
+                        percent=progress_percent,
+                        byte_percent=progress_percent if expected_bytes else None,
+                        progress_basis=progress_basis,
                         retry_count=retry_count,
                     )
             except Exception as exc:
@@ -758,16 +802,19 @@ def watch_and_upload(
                 time.sleep(min(300, poll_seconds * (2 ** min(retry_count, 5))))
                 continue
         else:
+            progress_percent, progress_basis = byte_progress_percent(
+                completed_bytes, expected_bytes, len(completed), expected_files
+            )
             update(
                 phase="watching_download",
                 discovered_files=len(discovered),
                 completed_files=len(completed),
                 file_count=expected_files,
-                percent=(
-                    round(len(completed) / expected_files * 100, 2)
-                    if expected_files
-                    else 0.0
-                ),
+                total_size_bytes=expected_bytes,
+                unknown_size_files=unknown_size_files,
+                percent=progress_percent,
+                byte_percent=progress_percent if expected_bytes else None,
+                progress_basis=progress_basis,
                 current_file="",
                 active_workers=0,
                 parallelism_reason="waiting_for_finalized_files",

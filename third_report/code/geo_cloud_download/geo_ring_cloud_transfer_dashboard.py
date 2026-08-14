@@ -107,6 +107,11 @@ PART_RATE_WINDOW_SECONDS = 60
 _UPLOAD_SNAPSHOT: Dict[str, List[Tuple[float, int]]] = {}
 _UPLOAD_SNAPSHOT_LOCK = threading.Lock()
 UPLOAD_RATE_WINDOW_SECONDS = 300
+_VOLUME_INDEX_CACHE: Dict[str, Dict[str, object]] = {}
+_DOWNLOAD_VOLUME_STATE: Dict[str, Dict[str, object]] = {}
+_DOWNLOAD_VOLUME_LOCK = threading.Lock()
+DOWNLOAD_VOLUME_SCAN_SECONDS = 15
+DOWNLOAD_RATE_WINDOW_SECONDS = 60
 
 
 def format_gib(value: object) -> str:
@@ -239,6 +244,175 @@ def read_inventory(path: Path, remote_type: str = "") -> Dict[str, object]:
     result["by_product"] = dict(by_product)
     result["updated_at"] = iso_mtime(path)
     return result
+
+
+def _path_key(path: object) -> str:
+    return os.path.normcase(os.path.normpath(str(path)))
+
+
+def read_inventory_volume_index(path: Path, remote_type: str = "") -> Dict[str, object]:
+    """Return a cached, non-serialized index for byte progress accounting."""
+    try:
+        stat = path.stat()
+        signature = (stat.st_mtime_ns, stat.st_size, remote_type)
+    except OSError:
+        return {"signature": None, "entries": {}, "found_rows": 0, "known_size_rows": 0}
+    cache_key = "{}|{}".format(_path_key(path), remote_type)
+    cached = _VOLUME_INDEX_CACHE.get(cache_key)
+    if cached and cached.get("signature") == signature:
+        return cached
+    entries: Dict[str, int] = {}
+    found_rows = 0
+    known_size_rows = 0
+    try:
+        with path.open("r", newline="", encoding="utf-8-sig") as handle:
+            for row in csv.DictReader(handle):
+                if remote_type and row.get("remote_type", "") != remote_type:
+                    continue
+                if row.get("status", "") != "found":
+                    continue
+                found_rows += 1
+                local_path = str(row.get("local_path", "")).strip()
+                size_text = str(row.get("size_bytes", "")).strip()
+                if not local_path or not size_text.isdigit() or int(size_text) <= 0:
+                    continue
+                known_size_rows += 1
+                entries[_path_key(local_path)] = int(size_text)
+    except (OSError, csv.Error):
+        entries = {}
+        found_rows = 0
+        known_size_rows = 0
+    result = {
+        "signature": signature,
+        "entries": entries,
+        "found_rows": found_rows,
+        "known_size_rows": known_size_rows,
+    }
+    _VOLUME_INDEX_CACHE[cache_key] = result
+    return result
+
+
+def download_volume_progress(
+    batch_root: Path,
+    inventory_specs: Iterable[Tuple[Path, str]],
+    parts: Dict[str, object],
+) -> Dict[str, object]:
+    """Measure byte progress and rolling speed from final and active local files.
+
+    Inventory files supply expected byte counts.  Final files are stat'ed at
+    most once per 15 seconds; live ``.part`` sizes are already collected for
+    the activity panel.  This keeps the metric truthful without repeatedly
+    walking the raw-data tree.
+    """
+    now = time.time()
+    batch_key = _path_key(batch_root.resolve())
+    entries: Dict[str, int] = {}
+    signatures = []
+    found_rows = 0
+    known_size_rows = 0
+    for path, remote_type in inventory_specs:
+        index = read_inventory_volume_index(path, remote_type)
+        signatures.append(index.get("signature"))
+        entries.update(index.get("entries", {}))
+        found_rows += int(index.get("found_rows", 0) or 0)
+        known_size_rows += int(index.get("known_size_rows", 0) or 0)
+    signature = tuple(signatures)
+    expected_bytes = sum(entries.values())
+    with _DOWNLOAD_VOLUME_LOCK:
+        state = dict(_DOWNLOAD_VOLUME_STATE.get(batch_key, {}))
+        signature_changed = state.get("signature") != signature
+        rescan = (
+            signature_changed
+            or now - float(state.get("last_scan", 0) or 0) >= DOWNLOAD_VOLUME_SCAN_SECONDS
+        )
+        if rescan:
+            finalized_paths = set()
+            finalized_bytes = 0
+            for path_text, expected_size in entries.items():
+                try:
+                    actual_size = Path(path_text).stat().st_size
+                except OSError:
+                    continue
+                if actual_size >= expected_size:
+                    finalized_paths.add(path_text)
+                    finalized_bytes += expected_size
+            state.update(
+                signature=signature,
+                last_scan=now,
+                finalized_paths=finalized_paths,
+                finalized_bytes=finalized_bytes,
+            )
+        finalized_paths = set(state.get("finalized_paths", set()))
+        finalized_bytes = int(state.get("finalized_bytes", 0) or 0)
+        partial_bytes = 0
+        for item in parts.get("items", []):
+            if not isinstance(item, dict):
+                continue
+            part_path = str(item.get("path", ""))
+            final_key = _path_key(part_path[:-5] if part_path.lower().endswith(".part") else part_path)
+            expected_size = entries.get(final_key)
+            if expected_size is None or final_key in finalized_paths:
+                continue
+            partial_bytes += min(max(0, int(item.get("size_bytes", 0) or 0)), expected_size)
+        measured_received = min(expected_bytes, finalized_bytes + partial_bytes)
+        received_bytes = max(int(state.get("max_received_bytes", 0) or 0), measured_received)
+        if signature_changed:
+            received_bytes = measured_received
+        state["max_received_bytes"] = received_bytes
+        history = [
+            sample
+            for sample in state.get("history", [])
+            if sample[0] >= now - (DOWNLOAD_RATE_WINDOW_SECONDS * 2)
+        ]
+        window = [sample for sample in history if sample[0] >= now - DOWNLOAD_RATE_WINDOW_SECONDS]
+        baseline = window[0] if window else (history[-1] if history else None)
+        if baseline is None:
+            rate = None
+            elapsed = 0.0
+        else:
+            elapsed = max(now - baseline[0], 0.001)
+            rate = max(received_bytes - int(baseline[1]), 0) / elapsed
+        history.append((now, received_bytes))
+        state["history"] = history
+        state["signature"] = signature
+        _DOWNLOAD_VOLUME_STATE[batch_key] = state
+    size_coverage = round(known_size_rows / found_rows * 100, 2) if found_rows else 0.0
+    percent = round(received_bytes / expected_bytes * 100, 2) if expected_bytes else None
+    remaining_bytes = max(expected_bytes - received_bytes, 0)
+    eta_seconds = (
+        round(remaining_bytes / rate)
+        if rate is not None and rate > 0 and known_size_rows == found_rows
+        else None
+    )
+    return {
+        "expected_bytes": expected_bytes,
+        "expected_label": format_bytes(expected_bytes),
+        "received_bytes": received_bytes,
+        "received_label": format_bytes(received_bytes),
+        "finalized_bytes": finalized_bytes,
+        "finalized_label": format_bytes(finalized_bytes),
+        "partial_bytes": partial_bytes,
+        "partial_label": format_bytes(partial_bytes),
+        "remaining_bytes": remaining_bytes,
+        "remaining_label": format_bytes(remaining_bytes),
+        "percent": percent,
+        "found_rows": found_rows,
+        "known_size_rows": known_size_rows,
+        "unknown_size_rows": max(found_rows - known_size_rows, 0),
+        "size_coverage_percent": size_coverage,
+        "progress_basis": (
+            "inventory_bytes_exact" if found_rows and known_size_rows == found_rows
+            else "known_inventory_bytes_partial" if expected_bytes
+            else "file_count_fallback"
+        ),
+        "rate_bps": rate,
+        "rate_label": "{}/s".format(format_bytes(rate)) if rate is not None else "测量中",
+        "rate_window_seconds": round(elapsed, 1),
+        "rate_basis": "local_received_byte_delta",
+        "eta_seconds": eta_seconds,
+        "eta_hours": round(eta_seconds / 3600, 2) if eta_seconds is not None else None,
+        "scan_interval_seconds": DOWNLOAD_VOLUME_SCAN_SECONDS,
+    }
 
 
 def read_downloaded_manifest(path: Path, remote_type: str = "") -> Dict[str, object]:
@@ -462,11 +636,21 @@ def upload_throughput(batch_root: Path, upload_status: Dict[str, object]) -> Dic
             rate = max(completed_bytes - baseline[1], 0) / elapsed
         history.append((now, completed_bytes))
         _UPLOAD_SNAPSHOT[batch_key] = history
+    try:
+        total_bytes = max(0, int(upload_status.get("total_size_bytes", 0) or 0))
+    except (TypeError, ValueError):
+        total_bytes = 0
+    remaining_bytes = max(total_bytes - completed_bytes, 0)
+    eta_seconds = round(remaining_bytes / rate) if rate is not None and rate > 0 else None
     return {
         "rate_bps": rate,
         "rate_label": "{}/s".format(format_bytes(rate)) if rate is not None else "测量中",
         "rate_window_seconds": round(elapsed, 1),
         "rate_basis": "confirmed_completed_bytes",
+        "remaining_size_bytes": remaining_bytes,
+        "remaining_size_label": format_bytes(remaining_bytes),
+        "eta_seconds": eta_seconds,
+        "eta_hours": round(eta_seconds / 3600, 2) if eta_seconds is not None else None,
     }
 
 
@@ -980,6 +1164,16 @@ class DashboardState:
             "upload_completed_files": int(upload.get("completed_files", 0) or 0),
             "upload_file_count": int(upload.get("file_count", transfer.get("file_count", 0)) or 0),
             "upload_percent": float(upload.get("percent", 0) or 0),
+            "upload_byte_percent": (
+                round(
+                    int(upload.get("completed_size_bytes", 0) or 0)
+                    / int(upload.get("total_size_bytes", 0) or 0)
+                    * 100,
+                    2,
+                )
+                if int(upload.get("total_size_bytes", 0) or 0)
+                else None
+            ),
             "server_status": str(server.get("status", "PENDING")),
             "transfer_status": str(transfer.get("status", "PENDING")),
             "error": error,
@@ -1078,21 +1272,32 @@ class DashboardState:
             raise RuntimeError("缺少 queue_id。")
         with self._queue_lock:
             state = read_queue_state(self.queue_state_path)
+            matches = []
             for item in state["items"]:
                 if not isinstance(item, dict) or item.get("queue_id") != identifier:
                     continue
-                if item.get("status") not in CANCELLABLE_QUEUE_STATUSES:
-                    raise RuntimeError("该队列项已经启动或结束，不能从队列取消。")
-                item.update(
-                    {
-                        "status": "CANCELLED",
-                        "status_message": "用户取消了尚未启动的队列项；没有删除任何数据。",
-                        "updated_at": utc_now_text(),
-                        "automatic_delete": False,
-                    }
-                )
+                matches.append(item)
+            cancellable = [
+                item for item in matches if item.get("status") in CANCELLABLE_QUEUE_STATUSES
+            ]
+            if cancellable:
+                # Schema v1 used a semantic request hash as queue_id, so a
+                # retried request can share its ID with an older RUNNING or
+                # terminal row.  Cancel every still-waiting match and leave
+                # launched work untouched.  New rows have instance-unique IDs.
+                for item in cancellable:
+                    item.update(
+                        {
+                            "status": "CANCELLED",
+                            "status_message": "用户取消了尚未启动的队列项；没有删除任何数据。",
+                            "updated_at": utc_now_text(),
+                            "automatic_delete": False,
+                        }
+                    )
                 self._save_queue_state(state)
-                return dict(item)
+                return dict(cancellable[-1])
+            if matches:
+                raise RuntimeError("该队列项已经启动或结束，不能从队列取消。")
         raise RuntimeError("找不到队列项：{}".format(identifier))
 
     def batch_queue_status(self) -> Dict[str, object]:
@@ -1406,8 +1611,27 @@ class DashboardState:
             manifest_dir / "manifest_meteosat_downloaded.csv", "eumetsat"
         )
         parts = active_parts(batch_root)
+        volume = download_volume_progress(
+            batch_root,
+            (
+                (s3_inventory_path, "s3"),
+                (met_inventory_path, "eumetsat"),
+            ),
+            parts,
+        )
         transfer = transfer_manifest_status(transfer_dir)
         auto_upload = auto_upload_status(transfer_dir)
+        if not int(auto_upload.get("total_size_bytes", 0) or 0):
+            auto_upload["total_size_bytes"] = int(volume.get("expected_bytes", 0) or 0)
+        total_upload_bytes = int(auto_upload.get("total_size_bytes", 0) or 0)
+        completed_upload_bytes = int(auto_upload.get("completed_size_bytes", 0) or 0)
+        auto_upload["byte_percent"] = (
+            round(completed_upload_bytes / total_upload_bytes * 100, 2)
+            if total_upload_bytes
+            else None
+        )
+        auto_upload["completed_size_label"] = format_bytes(completed_upload_bytes)
+        auto_upload["total_size_label"] = format_bytes(total_upload_bytes)
         auto_upload.update(upload_throughput(batch_root, auto_upload))
         download_parallelism = read_json(log_dir / "download_parallelism_status.json")
         server = server_verification_status(transfer_dir)
@@ -1451,6 +1675,8 @@ class DashboardState:
             "scope": "full_inventory" if inventory_total else "started_downloads",
         }
         combined_download["percent"] = round(completed / total * 100, 2) if total else 0
+        combined_download["byte_percent"] = volume.get("percent")
+        combined_download["progress_basis"] = volume.get("progress_basis")
         recent = sorted(
             list(s3_download.get("recent", [])) + list(met_download.get("recent", [])),
             key=lambda row: row.get("ts", ""),
@@ -1577,6 +1803,7 @@ class DashboardState:
             "inventory": {"s3": s3_inventory, "meteosat": met_inventory},
             "download": {
                 "combined": combined_download,
+                "volume": volume,
                 "s3": s3_download,
                 "meteosat": met_download,
                 "recent": recent,
