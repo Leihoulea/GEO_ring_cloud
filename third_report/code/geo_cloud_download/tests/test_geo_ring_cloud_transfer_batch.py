@@ -36,8 +36,10 @@ from geo_ring_cloud_auto_uploader import (  # noqa: E402
 )
 from geo_ring_cloud.batch_queue import (  # noqa: E402
     estimate_required_space,
+    make_queue_item,
     normalize_request,
     read_queue_state,
+    refine_estimate_from_inventory,
 )
 import geo_cloud_downloader  # noqa: E402
 import geo_ring_cloud_transfer_dashboard as transfer_dashboard  # noqa: E402
@@ -617,7 +619,7 @@ class TransferBatchTests(unittest.TestCase):
                 )
             self.assertEqual(Path(result["batch_root"]).parent, alternate_parent.resolve())
 
-    def test_batch_queue_estimate_is_conservative_and_deterministic(self):
+    def test_batch_queue_estimate_uses_calibrated_platform_profile(self):
         request = normalize_request(
             {
                 "start_date": "2024-04-01",
@@ -628,8 +630,97 @@ class TransferBatchTests(unittest.TestCase):
         )
         estimate = estimate_required_space(request)
         self.assertEqual(estimate["days"], 30)
-        self.assertEqual(estimate["basis"], "conservative_platform_day_v1")
-        self.assertAlmostEqual(estimate["required_gib"], 925.2, places=1)
+        self.assertEqual(estimate["basis"], "adaptive_platform_product_v2")
+        self.assertAlmostEqual(estimate["required_gib"], 939.95, places=2)
+        self.assertEqual(estimate["fixed_overhead_gib"], 2.0)
+        self.assertEqual(estimate["platform_safety_factor"]["Himawari-9"], 1.2)
+        self.assertEqual(estimate["platform_safety_factor"]["Meteosat-0deg"], 1.3)
+        self.assertEqual(
+            estimate["catalogue_size_policy"]["eumetsat"],
+            "enumeration_only_use_empirical_payload_rate",
+        )
+
+    def test_batch_queue_goes_estimate_reflects_current_product_volume(self):
+        request = normalize_request(
+            {
+                "start_date": "2024-06-01",
+                "end_date": "2024-06-10",
+                "platforms": ["GOES-16", "GOES-18"],
+            },
+            ["GOES-16", "GOES-18"],
+        )
+        estimate = estimate_required_space(request)
+        self.assertAlmostEqual(estimate["raw_gib"], 11.5, places=2)
+        self.assertAlmostEqual(estimate["required_gib"], 16.95, places=2)
+
+    def test_s3_inventory_refines_estimate_but_eumetsat_metadata_does_not(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            complete = root / "complete.nc"
+            complete.write_bytes(b"x" * 100)
+            inventory = root / "manifest_inventory.csv"
+            inventory.write_text(
+                "platform,remote_type,status,size_bytes,local_path\n"
+                f"GOES-16,s3,found,100,{complete}\n"
+                f"GOES-16,s3,found,1073741824,{root / 'pending.nc'}\n"
+                f"Meteosat-0deg,eumetsat,found,565,{root / 'payload.zip'}\n",
+                encoding="utf-8",
+            )
+            request = normalize_request(
+                {
+                    "start_date": "2024-06-01",
+                    "end_date": "2024-06-01",
+                    "platforms": ["GOES-16", "Meteosat-0deg"],
+                },
+                ["GOES-16", "Meteosat-0deg"],
+            )
+            refined = refine_estimate_from_inventory(
+                estimate_required_space(request), inventory
+            )
+            self.assertEqual(refined["basis"], "trusted_inventory_pending_bytes_v2")
+            self.assertEqual(refined["inventory_authoritative_platforms"], ["GOES-16"])
+            self.assertAlmostEqual(refined["required_gib"], 3.332, places=3)
+            self.assertEqual(
+                refined["platform_estimates"]["Meteosat-0deg"]["estimate_source"]
+                if "estimate_source" in refined["platform_estimates"]["Meteosat-0deg"]
+                else "empirical",
+                "empirical",
+            )
+
+    def test_waiting_queue_refreshes_persisted_v1_estimate(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            current = root / "current_batch"
+            current.mkdir()
+            dashboard = DashboardState(current)
+            request = normalize_request(
+                {
+                    "start_date": "2024-06-01",
+                    "end_date": "2024-06-10",
+                    "platforms": ["GOES-16", "GOES-18"],
+                },
+                ["GOES-16", "GOES-18"],
+            )
+            item = make_queue_item(
+                request,
+                {
+                    "basis": "conservative_platform_day_v1",
+                    "required_bytes": 528 * (1024**3),
+                    "required_gib": 528,
+                },
+            )
+            state = read_queue_state(dashboard.queue_state_path)
+            state["items"].append(item)
+            dashboard._save_queue_state(state)
+            with patch.object(
+                dashboard,
+                "_active_download_task",
+                return_value={"batch_name": "active"},
+            ):
+                dashboard.process_batch_queue_once()
+            refreshed = read_queue_state(dashboard.queue_state_path)["items"][0]
+            self.assertEqual(refreshed["estimate"]["basis"], "adaptive_platform_product_v2")
+            self.assertAlmostEqual(refreshed["estimate"]["required_gib"], 16.95, places=2)
 
     def test_batch_queue_waits_for_active_download_without_creating_target(self):
         with tempfile.TemporaryDirectory() as temp_dir:

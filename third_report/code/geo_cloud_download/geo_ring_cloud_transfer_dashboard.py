@@ -41,6 +41,7 @@ from geo_ring_cloud.batch_queue import (  # noqa: E402
     normalize_request,
     public_queue_state,
     read_queue_state,
+    refine_estimate_from_inventory,
     semantic_key,
     write_json_atomic as write_queue_json_atomic,
 )
@@ -1028,11 +1029,18 @@ class DashboardState:
         parent = self._queue_target_parent(request)
         candidate = parent / str(make_queue_item(request, estimate)["target_batch_name"])
         if candidate.is_dir():
+            estimate = refine_estimate_from_inventory(
+                estimate, candidate / "manifests" / "manifest_inventory.csv"
+            )
             transfer_dir = candidate / "transfer"
             raw = read_json(transfer_dir / "batch_status.json")
             launcher = read_json(transfer_dir / "download_launcher_status.json")
             gate = parse_disk_gate(launcher.get("message") or raw.get("message"))
-            if gate.get("exists") and int(gate.get("needed_bytes_with_margin", 0) or 0) > 0:
+            if (
+                estimate.get("basis") != "trusted_inventory_pending_bytes_v2"
+                and gate.get("exists")
+                and int(gate.get("needed_bytes_with_margin", 0) or 0) > 0
+            ):
                 required_bytes = int(gate["needed_bytes_with_margin"])
                 estimate.update(
                     {
@@ -1042,6 +1050,21 @@ class DashboardState:
                     }
                 )
         return estimate
+
+    def _refresh_pending_queue_estimates(self, state: Dict[str, object]) -> None:
+        """Refresh waiting items so persisted v1 estimates cannot become stale."""
+        for item in state.get("items", []):
+            if not isinstance(item, dict) or item.get("status") not in {
+                "QUEUED",
+                "WAITING_ACTIVE_DOWNLOAD",
+                "WAITING_SPACE",
+            }:
+                continue
+            request = item.get("request")
+            if not isinstance(request, dict):
+                continue
+            item["estimate"] = self._queue_estimate(request)
+            item["updated_at"] = utc_now_text()
 
     def enqueue_download(self, request: Dict[str, object]) -> Dict[str, object]:
         try:
@@ -1186,6 +1209,7 @@ class DashboardState:
         with self._queue_lock:
             state = read_queue_state(self.queue_state_path)
             self._sync_launched_queue_items(state)
+            self._refresh_pending_queue_estimates(state)
             active = self._active_download_task()
             for item in state["items"]:
                 if not isinstance(item, dict) or item.get("status") not in {

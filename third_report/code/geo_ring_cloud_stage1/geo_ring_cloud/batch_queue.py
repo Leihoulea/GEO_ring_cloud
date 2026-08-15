@@ -7,6 +7,7 @@ checking active processes and launching the existing download orchestrator.
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import os
@@ -17,7 +18,7 @@ from typing import Dict, Iterable, List, Mapping, MutableMapping
 
 
 COMPONENT_ROLE = "batch_queue"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 ACTIVE_QUEUE_STATUSES = {
     "QUEUED",
     "WAITING_ACTIVE_DOWNLOAD",
@@ -31,17 +32,36 @@ CANCELLABLE_QUEUE_STATUSES = {
     "WAITING_SPACE",
 }
 
-# Conservative raw-data planning values.  The 1.20 safety factor below is
-# applied separately.  Himawari is calibrated from the April 2024 inventory;
-# GOES values intentionally err high until the self-learning phase is added.
+# Empirical raw-data planning values for the currently selected cloud-product
+# mix.  They are deliberately keyed by platform rather than shared across a
+# provider: changing the selected products requires a new calibration version.
+#
+# Evidence available on 2026-08-16:
+# - Himawari-9: two completed May 2024 batches, 25.71--25.86 GiB/day.
+# - GOES-16/18: June 1--10 inventory, about 0.53/0.48 GiB/day.
+# - Meteosat: completed June 2024 transfer manifest, about 0.022 GiB/day each.
+#
+# The EUMETSAT catalogue ``size_bytes`` values describe catalogue records (for
+# example 565 bytes) rather than the delivered ZIP payloads (about 0.5 MiB), so
+# they must not be treated as authoritative byte estimates.
 DEFAULT_RAW_GIB_PER_PLATFORM_DAY = {
-    "GOES-16": 22.0,
-    "GOES-18": 22.0,
-    "Himawari-9": 25.2,
-    "Meteosat-0deg": 0.25,
-    "Meteosat-IODC": 0.25,
+    "GOES-16": 0.60,
+    "GOES-18": 0.55,
+    "Himawari-9": 26.0,
+    "Meteosat-0deg": 0.025,
+    "Meteosat-IODC": 0.025,
+}
+DEFAULT_PLATFORM_SAFETY_FACTOR = {
+    "GOES-16": 1.30,
+    "GOES-18": 1.30,
+    "Himawari-9": 1.20,
+    "Meteosat-0deg": 1.30,
+    "Meteosat-IODC": 1.30,
 }
 DEFAULT_SAFETY_FACTOR = 1.20
+DEFAULT_FIXED_OVERHEAD_GIB = 2.0
+ESTIMATE_BASIS = "adaptive_platform_product_v2"
+ESTIMATE_CALIBRATED_AT = "2026-08-16"
 
 
 def utc_now_text() -> str:
@@ -166,26 +186,151 @@ def semantic_key(request: Mapping[str, object]) -> str:
 def estimate_required_space(
     request: Mapping[str, object],
     raw_gib_per_platform_day: Mapping[str, float] | None = None,
-    safety_factor: float = DEFAULT_SAFETY_FACTOR,
+    safety_factor: float | None = None,
+    platform_safety_factor: Mapping[str, float] | None = None,
+    fixed_overhead_gib: float = DEFAULT_FIXED_OVERHEAD_GIB,
 ) -> Dict[str, object]:
     rates = dict(DEFAULT_RAW_GIB_PER_PLATFORM_DAY)
     if raw_gib_per_platform_day:
         rates.update({key: float(value) for key, value in raw_gib_per_platform_day.items()})
+    factors = dict(DEFAULT_PLATFORM_SAFETY_FACTOR)
+    if platform_safety_factor:
+        factors.update({key: float(value) for key, value in platform_safety_factor.items()})
+    if safety_factor is not None:
+        factors = {key: max(1.0, float(safety_factor)) for key in rates}
     start_date = date.fromisoformat(str(request["start_date"]))
     end_date = date.fromisoformat(str(request["end_date"]))
     days = (end_date - start_date).days + 1
     platform_rates = {name: rates[name] for name in request["platforms"]}
+    platform_factors = {
+        name: max(1.0, factors.get(name, DEFAULT_SAFETY_FACTOR))
+        for name in request["platforms"]
+    }
+    platform_estimates = {
+        name: {
+            "raw_gib_per_day": round(platform_rates[name], 6),
+            "safety_factor": round(platform_factors[name], 3),
+            "raw_gib": round(days * platform_rates[name], 3),
+            "protected_gib": round(
+                days * platform_rates[name] * platform_factors[name], 3
+            ),
+        }
+        for name in request["platforms"]
+    }
     raw_gib = days * sum(platform_rates.values())
-    required_gib = raw_gib * max(1.0, float(safety_factor))
+    protected_data_gib = sum(
+        days * platform_rates[name] * platform_factors[name]
+        for name in request["platforms"]
+    )
+    overhead = max(0.0, float(fixed_overhead_gib))
+    required_gib = protected_data_gib + overhead
     return {
         "days": days,
         "raw_gib": round(raw_gib, 3),
+        "protected_data_gib": round(protected_data_gib, 3),
+        "fixed_overhead_gib": round(overhead, 3),
         "required_gib": round(required_gib, 3),
         "required_bytes": int(required_gib * (1024 ** 3)),
-        "safety_factor": round(max(1.0, float(safety_factor)), 3),
+        "safety_factor": round(max(platform_factors.values()), 3),
         "platform_raw_gib_per_day": platform_rates,
-        "basis": "conservative_platform_day_v1",
+        "platform_safety_factor": platform_factors,
+        "platform_estimates": platform_estimates,
+        "basis": ESTIMATE_BASIS,
+        "calibrated_at": ESTIMATE_CALIBRATED_AT,
+        "product_profile": "geo_cloud_priority_products_2024_v1",
+        "confidence": "medium",
+        "catalogue_size_policy": {
+            "s3": "authoritative_content_length_when_inventory_exists",
+            "eumetsat": "enumeration_only_use_empirical_payload_rate",
+        },
     }
+
+
+def refine_estimate_from_inventory(
+    estimate: Mapping[str, object], inventory_path: Path
+) -> Dict[str, object]:
+    """Replace empirical S3 estimates with authoritative pending bytes.
+
+    S3 inventory sizes are object ``ContentLength`` values.  EUMETSAT catalogue
+    sizes are intentionally ignored because they describe catalogue records,
+    not the delivered ZIP payloads.
+    """
+    result = dict(estimate)
+    platform_estimates = {
+        str(name): dict(value)
+        for name, value in dict(estimate.get("platform_estimates", {})).items()
+        if isinstance(value, Mapping)
+    }
+    if not inventory_path.is_file() or not platform_estimates:
+        return result
+
+    authoritative: Dict[str, Dict[str, int]] = {}
+    try:
+        with inventory_path.open("r", encoding="utf-8-sig", newline="") as handle:
+            for row in csv.DictReader(handle):
+                platform = str(row.get("platform", ""))
+                if platform not in platform_estimates or row.get("remote_type") != "s3":
+                    continue
+                if row.get("status") != "found":
+                    continue
+                try:
+                    expected = int(str(row.get("size_bytes", "")))
+                except ValueError:
+                    continue
+                if expected <= 0:
+                    continue
+                summary = authoritative.setdefault(
+                    platform, {"file_count": 0, "total_bytes": 0, "pending_bytes": 0}
+                )
+                summary["file_count"] += 1
+                summary["total_bytes"] += expected
+                local_path = Path(str(row.get("local_path", "")))
+                try:
+                    complete = local_path.is_file() and local_path.stat().st_size == expected
+                except OSError:
+                    complete = False
+                if not complete:
+                    summary["pending_bytes"] += expected
+    except (OSError, csv.Error):
+        return result
+
+    if not authoritative:
+        return result
+    required_gib = float(result.get("required_gib", 0) or 0)
+    raw_gib = float(result.get("raw_gib", 0) or 0)
+    for platform, summary in authoritative.items():
+        detail = platform_estimates[platform]
+        old_raw = float(detail.get("raw_gib", 0) or 0)
+        old_protected = float(detail.get("protected_gib", 0) or 0)
+        pending_gib = summary["pending_bytes"] / (1024**3)
+        total_gib = summary["total_bytes"] / (1024**3)
+        factor = float(detail.get("safety_factor", DEFAULT_SAFETY_FACTOR) or 1)
+        protected_gib = pending_gib * max(1.0, factor)
+        raw_gib += pending_gib - old_raw
+        required_gib += protected_gib - old_protected
+        detail.update(
+            raw_gib=round(pending_gib, 3),
+            protected_gib=round(protected_gib, 3),
+            inventory_total_gib=round(total_gib, 3),
+            inventory_file_count=summary["file_count"],
+            estimate_source="trusted_s3_inventory_pending_bytes",
+        )
+
+    result.update(
+        raw_gib=round(max(0.0, raw_gib), 3),
+        protected_data_gib=round(
+            max(0.0, required_gib - float(result.get("fixed_overhead_gib", 0) or 0)),
+            3,
+        ),
+        required_gib=round(max(0.0, required_gib), 3),
+        required_bytes=int(max(0.0, required_gib) * (1024**3)),
+        platform_estimates=platform_estimates,
+        basis="trusted_inventory_pending_bytes_v2",
+        inventory_path=str(inventory_path),
+        inventory_authoritative_platforms=sorted(authoritative),
+        confidence="high_for_listed_s3_objects",
+    )
+    return result
 
 
 def make_queue_item(

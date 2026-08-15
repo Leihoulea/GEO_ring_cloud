@@ -491,9 +491,9 @@ MODULE_REGISTRY = (
         "legacy_module": "",
         "legacy_path": "",
         "migration_status": "canonical",
-        "public_api": "persistent queue state, request normalization, deterministic batch identity, conservative space estimate",
+        "public_api": "persistent queue state, request normalization, deterministic batch identity, adaptive platform-product space estimate",
         "test_evidence": "third_report/code/geo_cloud_download/tests/test_geo_ring_cloud_transfer_batch.py::TransferBatchTests",
-        "notes": "Cross-stage stage_00-related control-plane queue; waits for active downloads and disk space, creates no data directories before launch, and never deletes local data.",
+        "notes": "Cross-stage stage_00-related control-plane queue; refreshes waiting estimates from calibrated platform/product payload rates, treats EUMETSAT catalogue sizes as enumeration metadata only, waits for active downloads and disk space, creates no data directories before launch, and never deletes local data.",
     },
     {
         "project_id": PROJECT_ID,
