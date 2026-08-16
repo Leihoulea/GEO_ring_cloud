@@ -108,6 +108,10 @@ PART_RATE_WINDOW_SECONDS = 60
 _UPLOAD_SNAPSHOT: Dict[str, List[Tuple[float, int]]] = {}
 _UPLOAD_SNAPSHOT_LOCK = threading.Lock()
 UPLOAD_RATE_WINDOW_SECONDS = 300
+TREND_SAMPLE_INTERVAL_SECONDS = 300
+TREND_RETURN_SAMPLE_LIMIT = 480
+_TREND_WRITE_LOCK = threading.Lock()
+_TREND_LAST_WRITE: Dict[str, float] = {}
 
 
 def format_gib(value: object) -> str:
@@ -423,9 +427,65 @@ def active_parts(batch_root: Path) -> Dict[str, object]:
     return {
         "count": len(rows),
         "displayed_count": len(rows),
+        "display_limit": 30,
         "total_rate_bps": total_rate if measured else None,
         "total_rate_label": "{}/s".format(format_bytes(total_rate)) if measured else "测量中",
         "items": rows,
+    }
+
+
+def _read_recent_jsonl(path: Path, limit: int) -> List[Dict[str, object]]:
+    """Read a bounded tail without loading a long-running batch history."""
+    if not path.is_file() or limit < 1:
+        return []
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - 262144), os.SEEK_SET)
+            lines = handle.read().decode("utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    rows: List[Dict[str, object]] = []
+    for line in lines[-limit:]:
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return rows
+
+
+def dashboard_trends(
+    transfer_dir: Path,
+    sample: Dict[str, object],
+    should_record: bool,
+) -> Dict[str, object]:
+    """Persist a compact five-minute dashboard history outside raw data."""
+    path = transfer_dir / "dashboard_trends.jsonl"
+    now = time.time()
+    key = str(path.resolve())
+    if should_record and transfer_dir.is_dir():
+        with _TREND_WRITE_LOCK:
+            last = _TREND_LAST_WRITE.get(key)
+            if last is None or now - last >= TREND_SAMPLE_INTERVAL_SECONDS:
+                payload = {
+                    "ts": utc_now_text(),
+                    "download_rate_bps": sample.get("download_rate_bps"),
+                    "upload_rate_bps": sample.get("upload_rate_bps"),
+                    "disk_free_bytes": sample.get("disk_free_bytes"),
+                    "download_percent": sample.get("download_percent"),
+                    "upload_percent": sample.get("upload_percent"),
+                }
+                with path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
+                _TREND_LAST_WRITE[key] = now
+    return {
+        "path": str(path),
+        "sample_interval_seconds": TREND_SAMPLE_INTERVAL_SECONDS,
+        "return_limit": TREND_RETURN_SAMPLE_LIMIT,
+        "samples": _read_recent_jsonl(path, TREND_RETURN_SAMPLE_LIMIT),
     }
 
 
@@ -1576,6 +1636,21 @@ class DashboardState:
             parse_disk_gate(launcher.get("message") or raw_batch_status.get("message")),
             batch_root,
         )
+        disk = disk_status(batch_root)
+        trends = dashboard_trends(
+            transfer_dir,
+            {
+                "download_rate_bps": parts.get("total_rate_bps"),
+                "upload_rate_bps": auto_upload.get("rate_bps"),
+                "disk_free_bytes": disk.get("free_bytes"),
+                "download_percent": combined_download.get("percent"),
+                "upload_percent": auto_upload.get("percent"),
+            },
+            should_record=(
+                combined_download.get("completion_state") == "running"
+                or auto_upload.get("status") in {"RUNNING", "STARTING"}
+            ),
+        )
         tasks = self.task_summaries()
         notification_status = self.email_notifier.public_status()
         notification_monitor = dict(notification_status.get("monitor", {}))
@@ -1594,7 +1669,7 @@ class DashboardState:
             "overall_state": overall_state,
             "raw_batch_status": raw_batch_status,
             "launcher_status": launcher,
-            "disk": disk_status(batch_root),
+            "disk": disk,
             "disk_gate": disk_gate,
             "tasks": tasks,
             "batch_queue": self.batch_queue_status(),
@@ -1607,6 +1682,7 @@ class DashboardState:
                 "parallelism": download_parallelism,
             },
             "active_parts": parts,
+            "trends": trends,
             "validation": validation,
             "transfer_manifest": transfer,
             "auto_upload": auto_upload,
@@ -2197,6 +2273,25 @@ class DashboardState:
         write_json_atomic(path, payload)
         return payload
 
+    def open_cleanup_folder(self, batch_name: str = "") -> Dict[str, object]:
+        """Open Explorer only after the user has recorded cleanup approval."""
+        batch_root = self._resolve_existing_batch(batch_name)
+        approval = marker_status(batch_root / "transfer" / "local_cleanup_approval.json")
+        if not approval.get("exists"):
+            raise RuntimeError("请先确认允许清理；此操作不会删除任何文件。")
+        if os.name != "nt":
+            raise RuntimeError("当前系统不支持打开 Windows 资源管理器。")
+        try:
+            subprocess.Popen(["explorer.exe", str(batch_root)])
+        except OSError as exc:
+            raise RuntimeError("无法打开本地批次文件夹：{}".format(exc)) from exc
+        return {
+            "batch_name": batch_root.name,
+            "folder": str(batch_root),
+            "opened": True,
+            "delete_executed": False,
+        }
+
 
 def make_handler(state: DashboardState):
     class Handler(BaseHTTPRequestHandler):
@@ -2341,6 +2436,17 @@ def make_handler(state: DashboardState):
                         {
                             "ok": True,
                             "marker": state.approve_cleanup(
+                                str(payload.get("batch_name", ""))
+                            ),
+                        }
+                    )
+                    return
+                if path == "/api/actions/open-cleanup-folder":
+                    payload = self.read_json_body()
+                    self.send_json(
+                        {
+                            "ok": True,
+                            "folder": state.open_cleanup_folder(
                                 str(payload.get("batch_name", ""))
                             ),
                         }

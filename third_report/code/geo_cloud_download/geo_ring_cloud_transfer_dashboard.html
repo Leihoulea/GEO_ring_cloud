@@ -81,6 +81,9 @@
     .warning-text { color: var(--amber); font-weight: 700; }
     .queue-center { padding: 20px; margin-bottom: 16px; }
     .queue-list { display: grid; gap: 10px; }
+    .queue-history { border: 1px solid var(--line); border-radius: 15px; padding: 0 14px; background: #faf9f4; }
+    .queue-history summary { cursor: pointer; padding: 13px 0; color: var(--muted); font-weight: 700; }
+    .queue-history .queue-list { padding: 0 0 13px; }
     .queue-item { display: grid; grid-template-columns: minmax(250px,1.4fr) minmax(150px,.7fr) minmax(190px,.9fr) auto; gap: 14px; align-items: center; border: 1px solid var(--line); border-radius: 15px; padding: 13px 14px; background: #faf9f4; }
     .queue-item.waiting { border-color: #e4bd8d; background: #fff8ed; }
     .queue-item.running { border-color: #9fc5d5; background: #eef7fa; }
@@ -137,6 +140,12 @@
     .small-track { height: 7px; background: #e3e5df; border-radius: 99px; overflow: hidden; }
     .small-fill { height: 100%; background: var(--green-2); border-radius: inherit; }
     .lower { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .trend-panel { padding: 20px; margin-bottom: 16px; }
+    .trend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .trend-chart { border: 1px solid var(--line); border-radius: 15px; padding: 12px; background: #faf9f4; min-width: 0; }
+    .trend-chart h3 { margin: 0 0 5px; font-size: 14px; }
+    .trend-chart svg { display: block; width: 100%; height: 175px; }
+    .trend-legend { color: var(--muted); font-size: 11px; line-height: 1.5; }
     .empty { color: var(--muted); padding: 18px 4px; text-align: center; }
     .error { display: none; border: 1px solid #dda39e; background: var(--red-bg); color: var(--red); border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; }
     .toast { position: fixed; right: 22px; bottom: 22px; max-width: 360px; border-radius: 14px; padding: 13px 16px; background: var(--ink); color: white; box-shadow: var(--shadow); opacity: 0; transform: translateY(12px); pointer-events: none; transition: .2s ease; }
@@ -148,7 +157,7 @@
     .dialog-body .field { margin-top: 14px; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
     .security-note { margin-top: 12px; color: var(--muted); font-size: 13px; line-height: 1.55; }
-    @media (max-width: 980px) { .metrics { grid-template-columns: 1fr 1fr; } .layout, .lower { grid-template-columns: 1fr; } .launch-grid { grid-template-columns: 1fr 1fr; } .task-item, .queue-item { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 980px) { .metrics { grid-template-columns: 1fr 1fr; } .layout, .lower, .trend-grid { grid-template-columns: 1fr; } .launch-grid { grid-template-columns: 1fr 1fr; } .task-item, .queue-item { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 620px) { .shell { width: min(100% - 22px, 1460px); padding-top: 16px; } header, .batch-strip { display: block; } .top-actions { justify-content: flex-start; margin-top: 14px; } .metrics, .disk-grid { grid-template-columns: 1fr; } .facts { grid-template-columns: 1fr 1fr; } .state-pill { display: inline-block; margin-top: 12px; } .task-item, .queue-item { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -292,8 +301,17 @@
           <div class="gate-title">本地清理许可 <span class="badge" id="cleanupBadge">锁定</span></div>
           <p>按钮只记录明确许可，不执行删除。服务器未PASS时无法点击。</p>
           <button class="button warn" id="cleanupButton" type="button" disabled>确认允许清理</button>
+          <button class="button" id="openCleanupFolderButton" type="button" hidden style="margin-top:10px">打开本地批次文件夹</button>
         </div>
       </aside>
+    </section>
+
+    <section class="trend-panel card">
+      <div class="section-head"><h2>速度与空间趋势</h2><div class="hint" id="trendHint">每 5 分钟采样；仅保存在当前批次 transfer 目录</div></div>
+      <div class="trend-grid">
+        <div class="trend-chart"><h3>传输速度</h3><div id="speedTrend"></div></div>
+        <div class="trend-chart"><h3>本地磁盘可用空间</h3><div id="spaceTrend"></div></div>
+      </div>
     </section>
 
     <section class="lower">
@@ -364,7 +382,7 @@
       const scheduler=queue?.scheduler || {};
       $('queueSummary').textContent=`${active} 个待处理／运行项 · ${scheduler.running?'调度器运行中':'调度器未运行'} · 每 15 秒检查 · 永不自动删除数据${scheduler.last_error?` · 最近错误：${scheduler.last_error}`:''}`;
       if(!items.length){ $('queueList').innerHTML='<div class="empty">队列为空；可先填写上方日期、平台和磁盘，再加入队列。</div>'; return; }
-      $('queueList').innerHTML=items.slice().reverse().map(item=>{
+      const renderItems=rows=>rows.slice().reverse().map(item=>{
         const request=item.request || {}, estimate=item.estimate || {}, gate=item.gate || {};
         const waiting=['QUEUED','WAITING_ACTIVE_DOWNLOAD','WAITING_SPACE'].includes(item.status);
         const tone=waiting?'waiting':item.status==='RUNNING'||item.status==='STARTING'?'running':item.status==='COMPLETE'?'complete':'';
@@ -379,6 +397,10 @@
           <div>${canCancel?`<button class="button cancel-queue" type="button" data-queue-id="${esc(item.queue_id)}">取消等待</button>`:''}</div>
         </div>`;
       }).join('');
+      const activeItems=items.filter(item=>['QUEUED','WAITING_ACTIVE_DOWNLOAD','WAITING_SPACE','STARTING','RUNNING'].includes(item.status));
+      const archivedItems=items.filter(item=>!['QUEUED','WAITING_ACTIVE_DOWNLOAD','WAITING_SPACE','STARTING','RUNNING'].includes(item.status));
+      $('queueList').innerHTML=(activeItems.length ? renderItems(activeItems) : '<div class="empty">没有等待或运行中的队列项</div>')
+        +(archivedItems.length ? `<details class="queue-history"><summary>已结束记录（${nf.format(archivedItems.length)} 项，默认折叠）</summary><div class="queue-list">${renderItems(archivedItems)}</div></details>` : '');
       document.querySelectorAll('.cancel-queue').forEach(node=>node.addEventListener('click',async()=>{
         if(!confirm('取消这个尚未启动的队列项？这只修改队列状态，不会删除任何数据。')) return;
         try{ await postAction('/api/actions/cancel-queued-download',{queue_id:node.dataset.queueId}); await refresh(); toast('队列项已取消；没有删除任何数据'); }catch(error){ toast(error.message); }
@@ -444,9 +466,25 @@
       $("platformTable").innerHTML='<table><tr><th>平台</th><th class="num">完成</th><th class="num">目标</th><th>进度</th></tr>'+items.map(x=>`<tr><td><b>${esc(x.platform)}</b></td><td class="num">${nf.format(x.completed)}</td><td class="num">${nf.format(x.found)}</td><td class="bar-cell"><div class="small-track"><div class="small-fill" style="width:${Math.min(100,x.percent)}%"></div></div></td></tr>`).join("")+'</table>';
     }
     function renderParts(parts){
-      $("partHint").textContent = `${parts.count || 0} 个 · ${parts.total_rate_label || "测量中"}`;
+      $("partHint").textContent = `${parts.count || 0} 个 · 显示 ${Math.min(parts.items?.length || 0,15)} 个 · ${parts.total_rate_label || "测量中"}`;
       if(!parts.items?.length){ $("partTable").innerHTML='<div class="empty">当前没有 `.part`；可能处于清单、校验、重试或已完成状态。</div>'; return; }
-      $("partTable").innerHTML='<table><tr><th>文件</th><th>大小</th><th>增长</th></tr>'+parts.items.slice(0,8).map(x=>`<tr><td><code title="${esc(x.path)}">${esc(x.name)}</code></td><td>${esc(x.size_label)}</td><td>${esc(x.rate_label)}</td></tr>`).join("")+'</table>';
+      $("partTable").innerHTML='<table><tr><th>文件</th><th>大小</th><th>增长</th></tr>'+parts.items.slice(0,15).map(x=>`<tr><td><code title="${esc(x.path)}">${esc(x.name)}</code></td><td>${esc(x.size_label)}</td><td>${esc(x.rate_label)}</td></tr>`).join("")+'</table>';
+    }
+    function renderTrendChart(nodeId,samples,series,unit){
+      const rows=(samples || []).map((sample,index)=>({sample,index,values:series.map(item=>Number(sample[item.key]))})).filter(row=>row.values.some(Number.isFinite));
+      if(rows.length<2){ $(nodeId).innerHTML='<div class="empty">正在积累趋势样本；约 5 分钟后显示首个点。</div>'; return; }
+      const values=rows.flatMap(row=>row.values).filter(Number.isFinite), max=Math.max(...values,1), width=640, height=150, pad=16;
+      const line=seriesIndex=>rows.map(row=>{ const value=row.values[seriesIndex]; if(!Number.isFinite(value)) return null; const x=pad+(width-pad*2)*row.index/Math.max(rows.length-1,1); const y=height-pad-(height-pad*2)*value/max; return `${x.toFixed(1)},${y.toFixed(1)}`; }).filter(Boolean).join(' ');
+      const paths=series.map((item,index)=>`<polyline fill="none" stroke="${item.color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${line(index)}"/>`).join('');
+      const last=rows[rows.length-1].sample, labels=series.map(item=>`<span style="color:${item.color}">●</span> ${esc(item.name)} ${Number(last[item.key] || 0).toFixed(1)} ${unit}`).join('　');
+      $(nodeId).innerHTML=`<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(series.map(item=>item.name).join('、'))}趋势"><line x1="${pad}" y1="${height-pad}" x2="${width-pad}" y2="${height-pad}" stroke="#d8d8cf"/>${paths}</svg><div class="trend-legend">${labels}<br>最近 ${nf.format(rows.length)} 个采样点，纵轴最大 ${max.toFixed(1)} ${unit}</div>`;
+    }
+    function renderTrends(trends){
+      const samples=trends?.samples || [];
+      $("trendHint").textContent=`每 ${Math.round((trends?.sample_interval_seconds || 300)/60)} 分钟采样；当前显示最近 ${nf.format(samples.length)} 点；数据仅在本批次 transfer 目录`;
+      renderTrendChart('speedTrend',samples,[{key:'download_rate_bps',name:'下载',color:'#12634c'},{key:'upload_rate_bps',name:'上传',color:'#276b85'}],'B/s');
+      const scaled=samples.map(sample=>({...sample,disk_free_gib:Number(sample.disk_free_bytes || 0)/(1024**3)}));
+      renderTrendChart('spaceTrend',scaled,[{key:'disk_free_gib',name:'可用空间',color:'#b66b20'}],'GiB');
     }
     function renderRecent(items){
       if(!items?.length){ $("recentTable").innerHTML='<div class="empty">暂无完成记录</div>'; return; }
@@ -456,7 +494,7 @@
     async function refresh(){
       try{
         const query=selectedBatchName?`?batch_name=${encodeURIComponent(selectedBatchName)}`:'';
-        const data = await fetch('/api/status'+query,{cache:'no-store'}).then(async response=>{ if(!response.ok) throw new Error(await response.text()); return response.json(); });
+        const data = await fetch('/api/status'+query,{cache:'no-store'}).then(async response=>{ if(!response.ok){ const error=new Error(await response.text()); error.status=response.status; throw error; } return response.json(); });
         $("error").style.display='none';
         if(!selectedBatchName) selectedBatchName=data.batch_name;
         $("updated").textContent = '更新 ' + new Date(data.generated_at).toLocaleTimeString('zh-CN');
@@ -505,7 +543,7 @@
               ? `下载并行：当前旧批次固定 ${nf.format(data.raw_batch_status?.download_workers || data.launcher_status?.download_max_workers || 0)} 路；之后新批次默认启用自动调速`
               : '下载并行：等待任务';
         $("downloadUpdated").textContent=s3.updated_at ? '日志更新 '+new Date(s3.updated_at).toLocaleTimeString('zh-CN') : '等待日志';
-        renderStages(data.pipeline_stages || []); renderPlatforms(data.platforms || []); renderParts(parts); renderRecent(data.download.recent || []);
+        renderStages(data.pipeline_stages || []); renderPlatforms(data.platforms || []); renderParts(parts); renderRecent(data.download.recent || []); renderTrends(data.trends || {});
 
         const manifest=data.transfer_manifest || {}, autoUpload=data.auto_upload || {}, uploadConfig=data.auto_upload_config || {}, xftp=data.xftp || {}, server=data.server_verification || {}, cleanup=data.cleanup_approval || {};
         badge($("manifestBadge"),manifest.status,manifest.exists ? manifest.status : '等待');
@@ -539,7 +577,13 @@
         $("serverCommand").textContent=data.server_verify_command;
         badge($("cleanupBadge"),cleanup.exists,cleanup.exists?'已批准':'锁定');
         $("cleanupButton").disabled=server.status!=='PASS' || !xftp.exists || cleanup.exists;
-      }catch(error){ $("error").style.display='block'; $("error").textContent='读取状态失败：'+error.message; }
+        $("openCleanupFolderButton").hidden=!cleanup.exists;
+      }catch(error){
+        if(error.status===404 && selectedBatchName){
+          const stale=selectedBatchName; selectedBatchName=''; const url=new URL(location.href); url.searchParams.delete('batch_name'); history.replaceState({},'',url); toast(`已移除不存在的旧批次链接：${stale}`); return refresh();
+        }
+        $("error").style.display='block'; $("error").textContent='读取状态失败：'+error.message;
+      }
     }
     async function postAction(path,payload={}){
       const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const data=await response.json();
@@ -610,6 +654,7 @@
     $("autoUploadButton").addEventListener('click',async()=>{ if(!confirm(`开始或续传批次 ${selectedBatchName} 到专用服务器目录？程序不会删除本地文件，也不会覆盖大小异常的服务器正式文件。`)) return; try{await postAction('/api/actions/start-auto-upload',{batch_name:selectedBatchName});toast('自动上传已启动；可切换到其他任务，进度仍会保留在多任务中心');}catch(error){toast(error.message);} });
     $("xftpButton").addEventListener('click',async()=>{ if(!confirm('确认 Xftp 队列已经全部完成且无失败？此操作只写标记，不上传或删除文件。')) return; try{await postAction('/api/actions/mark-xftp-complete',{batch_name:selectedBatchName});toast('已记录 Xftp 完成确认');}catch(error){toast(error.message);} });
     $("cleanupButton").addEventListener('click',async()=>{ if(!confirm('确认服务器验证为 PASS，并允许后续单独执行本地清理？本按钮本身不会删除数据。')) return; try{await postAction('/api/actions/approve-cleanup',{batch_name:selectedBatchName});toast('已记录清理许可；尚未删除任何文件');}catch(error){toast(error.message);} });
+    $("openCleanupFolderButton").addEventListener('click',async()=>{ try{const data=await postAction('/api/actions/open-cleanup-folder',{batch_name:selectedBatchName});toast('已打开本地批次文件夹：'+(data.folder?.folder || ''));}catch(error){toast(error.message);} });
     $("copyCommand").addEventListener('click',async()=>{ try{await navigator.clipboard.writeText($("serverCommand").textContent);toast('服务器验证命令已复制');}catch(_){toast('浏览器未允许复制，请手工选择命令');} });
     updateNotificationButton(); refresh(); setInterval(refresh,5000);
   </script>

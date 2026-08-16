@@ -19,6 +19,7 @@ from geo_ring_cloud_transfer_dashboard import (  # noqa: E402
     HTML_PATH,
     ORDER_SOURCE_CONFIG,
     auto_upload_status,
+    dashboard_trends,
     download_launcher_status,
     parse_disk_gate,
     process_is_running,
@@ -230,6 +231,57 @@ class TransferBatchTests(unittest.TestCase):
         self.assertIsNone(first["rate_bps"])
         self.assertEqual(second["rate_bps"], 20.0)
         self.assertEqual(second["rate_label"], "20.0 B/s")
+
+    def test_dashboard_trends_sample_at_five_minute_interval(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            transfer = Path(temp_dir) / "transfer"
+            transfer.mkdir()
+            sample = {
+                "download_rate_bps": 100,
+                "upload_rate_bps": 50,
+                "disk_free_bytes": 1000,
+                "download_percent": 25,
+                "upload_percent": 10,
+            }
+            with patch.object(transfer_dashboard, "_TREND_LAST_WRITE", {}), patch(
+                "geo_ring_cloud_transfer_dashboard.time.time",
+                side_effect=[100.0, 101.0, 401.0],
+            ):
+                first = dashboard_trends(transfer, sample, True)
+                second = dashboard_trends(transfer, sample, True)
+                third = dashboard_trends(transfer, sample, True)
+
+        self.assertEqual(len(first["samples"]), 1)
+        self.assertEqual(len(second["samples"]), 1)
+        self.assertEqual(len(third["samples"]), 2)
+        self.assertEqual(third["sample_interval_seconds"], 300)
+
+    def test_open_cleanup_folder_requires_approval_and_never_deletes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "batch"
+            transfer = root / "transfer"
+            transfer.mkdir(parents=True)
+            raw = root / "raw.nc"
+            raw.write_bytes(b"keep")
+            dashboard = DashboardState(root)
+            with self.assertRaisesRegex(RuntimeError, "先确认允许清理"):
+                dashboard.open_cleanup_folder()
+            (transfer / "local_cleanup_approval.json").write_text("{}", encoding="utf-8")
+            with patch.object(transfer_dashboard.os, "name", "nt"), patch(
+                "geo_ring_cloud_transfer_dashboard.subprocess.Popen"
+            ) as opener:
+                result = dashboard.open_cleanup_folder()
+                self.assertTrue(result["opened"])
+                self.assertFalse(result["delete_executed"])
+                opener.assert_called_once()
+                self.assertEqual(raw.read_bytes(), b"keep")
+
+    def test_dashboard_html_includes_safe_selection_fallback_and_full_part_view(self):
+        html = HTML_PATH.read_text(encoding="utf-8")
+        self.assertIn("error.status===404 && selectedBatchName", html)
+        self.assertIn("parts.items.slice(0,15)", html)
+        self.assertIn("已结束记录", html)
+        self.assertIn("open-cleanup-folder", html)
 
     def test_dashboard_gates_never_delete_raw_data(self):
         with tempfile.TemporaryDirectory() as temp_dir:
