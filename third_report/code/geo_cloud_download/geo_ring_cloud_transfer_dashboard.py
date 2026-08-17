@@ -471,9 +471,14 @@ def dashboard_trends(
         with _TREND_WRITE_LOCK:
             last = _TREND_LAST_WRITE.get(key)
             existing_samples = _read_recent_jsonl(path, 2)
+            has_speed_sample = any(
+                sample.get("download_rate_bps") is not None
+                or sample.get("upload_rate_bps") is not None
+                for sample in existing_samples
+            )
             required_interval = (
                 TREND_WARMUP_INTERVAL_SECONDS
-                if len(existing_samples) < 2
+                if len(existing_samples) < 2 or not has_speed_sample
                 else TREND_SAMPLE_INTERVAL_SECONDS
             )
             if last is None or now - last >= required_interval:
@@ -489,11 +494,16 @@ def dashboard_trends(
                     handle.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
                 _TREND_LAST_WRITE[key] = now
     samples = _read_recent_jsonl(path, TREND_RETURN_SAMPLE_LIMIT)
+    has_speed_sample = any(
+        sample.get("download_rate_bps") is not None
+        or sample.get("upload_rate_bps") is not None
+        for sample in samples
+    )
     return {
         "path": str(path),
         "sample_interval_seconds": TREND_SAMPLE_INTERVAL_SECONDS,
         "warmup_interval_seconds": TREND_WARMUP_INTERVAL_SECONDS,
-        "warmup_pending": len(samples) < 2,
+        "warmup_pending": len(samples) < 2 or not has_speed_sample,
         "return_limit": TREND_RETURN_SAMPLE_LIMIT,
         "samples": samples,
     }

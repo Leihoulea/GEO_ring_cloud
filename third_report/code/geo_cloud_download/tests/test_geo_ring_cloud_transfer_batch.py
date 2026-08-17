@@ -274,6 +274,27 @@ class TransferBatchTests(unittest.TestCase):
         self.assertFalse(third["warmup_pending"])
         self.assertEqual(third["warmup_interval_seconds"], 30)
 
+    def test_dashboard_trends_keeps_warmup_until_speed_is_observed(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            transfer = Path(temp_dir) / "transfer"
+            transfer.mkdir()
+            trend_path = transfer / "dashboard_trends.jsonl"
+            trend_path.write_text(
+                "{\"download_rate_bps\":null,\"upload_rate_bps\":null}\n"
+                "{\"download_rate_bps\":null,\"upload_rate_bps\":null}\n",
+                encoding="utf-8",
+            )
+            with patch(
+                "geo_ring_cloud_transfer_dashboard.time.time", return_value=100.0
+            ):
+                result = dashboard_trends(
+                    transfer,
+                    {"download_rate_bps": None, "upload_rate_bps": 9.0},
+                    True,
+                )
+        self.assertEqual(len(result["samples"]), 3)
+        self.assertFalse(result["warmup_pending"])
+
     def test_open_cleanup_folder_requires_approval_and_never_deletes(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "batch"
