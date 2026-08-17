@@ -109,6 +109,7 @@ _UPLOAD_SNAPSHOT: Dict[str, List[Tuple[float, int]]] = {}
 _UPLOAD_SNAPSHOT_LOCK = threading.Lock()
 UPLOAD_RATE_WINDOW_SECONDS = 300
 TREND_SAMPLE_INTERVAL_SECONDS = 300
+TREND_WARMUP_INTERVAL_SECONDS = 30
 TREND_RETURN_SAMPLE_LIMIT = 480
 _TREND_WRITE_LOCK = threading.Lock()
 _TREND_LAST_WRITE: Dict[str, float] = {}
@@ -469,7 +470,13 @@ def dashboard_trends(
     if should_record and transfer_dir.is_dir():
         with _TREND_WRITE_LOCK:
             last = _TREND_LAST_WRITE.get(key)
-            if last is None or now - last >= TREND_SAMPLE_INTERVAL_SECONDS:
+            existing_samples = _read_recent_jsonl(path, 2)
+            required_interval = (
+                TREND_WARMUP_INTERVAL_SECONDS
+                if len(existing_samples) < 2
+                else TREND_SAMPLE_INTERVAL_SECONDS
+            )
+            if last is None or now - last >= required_interval:
                 payload = {
                     "ts": utc_now_text(),
                     "download_rate_bps": sample.get("download_rate_bps"),
@@ -481,11 +488,14 @@ def dashboard_trends(
                 with path.open("a", encoding="utf-8") as handle:
                     handle.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
                 _TREND_LAST_WRITE[key] = now
+    samples = _read_recent_jsonl(path, TREND_RETURN_SAMPLE_LIMIT)
     return {
         "path": str(path),
         "sample_interval_seconds": TREND_SAMPLE_INTERVAL_SECONDS,
+        "warmup_interval_seconds": TREND_WARMUP_INTERVAL_SECONDS,
+        "warmup_pending": len(samples) < 2,
         "return_limit": TREND_RETURN_SAMPLE_LIMIT,
-        "samples": _read_recent_jsonl(path, TREND_RETURN_SAMPLE_LIMIT),
+        "samples": samples,
     }
 
 

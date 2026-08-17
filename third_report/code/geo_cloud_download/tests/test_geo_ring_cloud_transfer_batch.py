@@ -256,6 +256,24 @@ class TransferBatchTests(unittest.TestCase):
         self.assertEqual(len(third["samples"]), 2)
         self.assertEqual(third["sample_interval_seconds"], 300)
 
+    def test_dashboard_trends_warms_up_second_sample_in_thirty_seconds(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            transfer = Path(temp_dir) / "transfer"
+            transfer.mkdir()
+            sample = {"download_rate_bps": 2.0, "upload_rate_bps": 3.0}
+            with patch(
+                "geo_ring_cloud_transfer_dashboard.time.time",
+                side_effect=[100.0, 129.0, 130.0],
+            ):
+                first = dashboard_trends(transfer, sample, True)
+                second = dashboard_trends(transfer, sample, True)
+                third = dashboard_trends(transfer, sample, True)
+        self.assertTrue(first["warmup_pending"])
+        self.assertEqual(len(second["samples"]), 1)
+        self.assertEqual(len(third["samples"]), 2)
+        self.assertFalse(third["warmup_pending"])
+        self.assertEqual(third["warmup_interval_seconds"], 30)
+
     def test_open_cleanup_folder_requires_approval_and_never_deletes(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "batch"

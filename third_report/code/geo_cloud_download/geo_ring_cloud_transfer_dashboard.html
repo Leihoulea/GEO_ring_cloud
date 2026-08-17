@@ -472,7 +472,7 @@
     }
     function renderTrendChart(nodeId,samples,series,unit){
       const rows=(samples || []).map((sample,index)=>({sample,index,values:series.map(item=>Number(sample[item.key]))})).filter(row=>row.values.some(Number.isFinite));
-      if(rows.length<2){ $(nodeId).innerHTML='<div class="empty">正在积累趋势样本；约 5 分钟后显示首个点。</div>'; return; }
+      if(rows.length<2){ $(nodeId).innerHTML='<div class="empty">正在积累第二个趋势样本；首图将在约 30 秒后显示。</div>'; return; }
       const values=rows.flatMap(row=>row.values).filter(Number.isFinite), max=Math.max(...values,1), width=640, height=150, pad=16;
       const line=seriesIndex=>rows.map(row=>{ const value=row.values[seriesIndex]; if(!Number.isFinite(value)) return null; const x=pad+(width-pad*2)*row.index/Math.max(rows.length-1,1); const y=height-pad-(height-pad*2)*value/max; return `${x.toFixed(1)},${y.toFixed(1)}`; }).filter(Boolean).join(' ');
       const paths=series.map((item,index)=>`<polyline fill="none" stroke="${item.color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${line(index)}"/>`).join('');
@@ -481,7 +481,10 @@
     }
     function renderTrends(trends){
       const samples=trends?.samples || [];
-      $("trendHint").textContent=`每 ${Math.round((trends?.sample_interval_seconds || 300)/60)} 分钟采样；当前显示最近 ${nf.format(samples.length)} 点；数据仅在本批次 transfer 目录`;
+      const interval=Math.round((trends?.sample_interval_seconds || 300)/60), warmup=trends?.warmup_pending;
+      $("trendHint").textContent=warmup
+        ? `趋势暖启动：首两个点每 ${trends?.warmup_interval_seconds || 30} 秒采样，之后每 ${interval} 分钟；数据仅在本批次 transfer 目录`
+        : `每 ${interval} 分钟采样；当前显示最近 ${nf.format(samples.length)} 点；数据仅在本批次 transfer 目录`;
       renderTrendChart('speedTrend',samples,[{key:'download_rate_bps',name:'下载',color:'#12634c'},{key:'upload_rate_bps',name:'上传',color:'#276b85'}],'B/s');
       const scaled=samples.map(sample=>({...sample,disk_free_gib:Number(sample.disk_free_bytes || 0)/(1024**3)}));
       renderTrendChart('spaceTrend',scaled,[{key:'disk_free_gib',name:'可用空间',color:'#b66b20'}],'GiB');
