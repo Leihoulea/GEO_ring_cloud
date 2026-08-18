@@ -1,3 +1,4 @@
+import hashlib
 import json
 import io
 import os
@@ -321,6 +322,7 @@ class TransferBatchTests(unittest.TestCase):
         self.assertIn("parts.items.slice(0,15)", html)
         self.assertIn("已结束记录", html)
         self.assertIn("open-cleanup-folder", html)
+        self.assertIn("start-fy4b-official-upload", html)
 
     def test_dashboard_gates_never_delete_raw_data(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1086,7 +1088,7 @@ class TransferBatchTests(unittest.TestCase):
                                 "local_path": str(local),
                                 "remote_path": "/data04/1/dhr/GOES16/Cloud/GOES-16/ACMF/20240401/00/sample.nc",
                                 "size_bytes": local.stat().st_size,
-                                "sha256": "placeholder",
+                                "sha256": "",
                             }
                         ],
                     }
@@ -1103,7 +1105,54 @@ class TransferBatchTests(unittest.TestCase):
                 payload["files"][0]["remote_path"],
                 "/data04/1/dhr/geo_ring_cloud_auto_upload/GOES16/Cloud/GOES-16/ACMF/20240401/00/sample.nc",
             )
+            self.assertEqual(
+                payload["files"][0]["sha256"], hashlib.sha256(b"immutable").hexdigest()
+            )
             self.assertFalse(payload["deletion_policy"]["automatic_delete"])
+
+    def test_fy4b_official_import_creates_control_batch_without_copying_source(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "GEO_Cloud_2024_batches" / "current_batch"
+            root.mkdir(parents=True)
+            source = Path(temp_dir) / "FY4B_official"
+            raw = source / "NOM" / "20240401" / "FY4B_sample.HDF"
+            raw.parent.mkdir(parents=True)
+            raw.write_bytes(b"official-client-data")
+            (source / "partial.part").write_bytes(b"incomplete")
+            identity = Path(temp_dir) / "id_ed25519"
+            identity.write_text("key", encoding="utf-8")
+            dashboard = DashboardState(
+                root,
+                ssh_target="dhr@example",
+                identity_file=identity,
+                auto_upload_root="/data04/1/dhr/geo_ring_cloud_auto_upload",
+                allowed_server_parent="/data04/1/dhr",
+            )
+            fake_process = unittest.mock.Mock(pid=24683)
+            with patch(
+                "geo_ring_cloud_transfer_dashboard.subprocess.Popen",
+                return_value=fake_process,
+            ):
+                result = dashboard.start_fy4b_official_upload(
+                    {"source_path": str(source), "batch_label": "202404"}
+                )
+            batch = root.parent / "fy4b_202404"
+            manifest = json.loads(
+                (batch / "transfer" / "geo_ring_cloud_transfer_fy4b_202404_manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(result["batch_name"], "fy4b_202404")
+            self.assertFalse(result["resumed"])
+            self.assertEqual(manifest["file_count"], 1)
+            self.assertEqual(manifest["files"][0]["local_path"], str(raw.resolve()))
+            self.assertEqual(
+                manifest["files"][0]["remote_path"],
+                "/data04/1/dhr/geo_ring_cloud_auto_upload/FY4B/fy4b_202404/NOM/20240401/FY4B_sample.HDF",
+            )
+            self.assertFalse((batch / "NOM").exists())
+            self.assertEqual(raw.read_bytes(), b"official-client-data")
+            self.assertFalse(manifest["deletion_policy"]["automatic_delete"])
 
     def test_auto_upload_root_must_be_a_dedicated_child(self):
         validate_server_root(

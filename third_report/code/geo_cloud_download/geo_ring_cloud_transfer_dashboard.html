@@ -227,6 +227,15 @@
       </div>
     </section>
 
+    <section class="launcher card">
+      <div class="section-head"><h2>FY4B 官方应用本地导入</h2><div class="hint">官方应用下载完成后，仅登记并上传；不会复制、移动或删除原始文件</div></div>
+      <div class="launch-grid">
+        <div class="field" style="grid-column:span 3"><label for="fy4bSourcePath">FY4B 官方应用下载目录</label><input id="fy4bSourcePath" type="text" placeholder="粘贴官方应用的文件夹路径，例如 F:\\FY4B_official_download"></div>
+        <div class="field" style="grid-column:span 2"><label for="fy4bBatchLabel">FY4B 批次标识</label><input id="fy4bBatchLabel" type="text" placeholder="例如 202404 或 20240401_20240430" pattern="[a-z0-9][a-z0-9_-]{2,63}"></div>
+      </div>
+      <div class="launch-actions"><div class="launch-note">递归登记目录中的已完成文件，跳过 <code>.part</code>、<code>transfer</code> 和系统缩略图。上传器会在后台计算 SHA-256、断点续传、服务器复核；服务端路径为 <code>…/FY4B/fy4b_批次标识/</code>。</div><div><button class="button primary" id="startFy4bUploadButton" type="button">创建 FY4B 上传批次</button></div></div>
+    </section>
+
     <section class="queue-center card">
       <div class="section-head"><h2>空间感知批次队列</h2><div class="hint" id="queueSummary">自动等待当前下载结束与磁盘门禁通过；不自动删除数据</div></div>
       <div class="queue-list" id="queueList"><div class="empty">队列为空</div></div>
@@ -652,6 +661,17 @@
       if(!confirm(`在 ${payload.download_drive || '默认磁盘'} 启动 ${payload.start_date} 至 ${payload.end_date} 的新批次？\n${payload.adaptive_download?`下载将从 4 路开始自动调速，最高 ${payload.download_workers} 路。`:`下载固定使用 ${payload.download_workers} 路。`}\n${payload.continuous_upload?'下载时单路上传，下载完成后逐级升至 4 路并执行服务器全量复核。':'只下载，稍后手动启动上传。'}\n清单按天并行且只走直连；不会自动删除本地文件。`)) return;
       const button=$("startDownloadButton"); button.disabled=true;
       try{const data=await postJson('/api/actions/start-download',payload);selectedBatchName=data.download.batch_name;await refresh();toast((data.download.continuous_upload?'全自动批次':'下载批次')+'已在后台启动：'+data.download.batch_root);}catch(error){toast(error.message);}finally{button.disabled=false;}
+    });
+    $("startFy4bUploadButton").addEventListener('click',async()=>{
+      const source_path=$("fy4bSourcePath").value.trim(), batch_label=$("fy4bBatchLabel").value.trim().toLowerCase();
+      if(!source_path || !batch_label){ toast('请填写 FY4B 官方应用下载目录和批次标识'); return; }
+      if(!confirm(`创建 FY4B 本地导入批次 fy4b_${batch_label} 并上传 ${source_path} 中已完成的文件？\n不会复制、移动或删除官方应用下载的原始文件；上传后会执行服务器 SHA-256 复核。`)) return;
+      const button=$("startFy4bUploadButton"); button.disabled=true;
+      try{
+        const data=await postJson('/api/actions/start-fy4b-official-upload',{source_path,batch_label});
+        selectedBatchName=data.fy4b.batch_name; const url=new URL(location.href); url.searchParams.set('batch_name',selectedBatchName); history.replaceState({},'',url);
+        await refresh(); toast(`FY4B 上传已在后台启动：${data.fy4b.source_file_count || '已登记'} 个文件`);
+      }catch(error){ toast(error.message); }finally{ button.disabled=false; }
     });
     $("continuousUploadButton").addEventListener('click',async()=>{ if(!confirm(`接管正在下载的批次 ${selectedBatchName}？程序只上传已完成且连续两次检查保持稳定的文件，不读取 .part，也不会自动删除本地数据。`)) return; try{await postAction('/api/actions/start-continuous-upload',{batch_name:selectedBatchName});await refresh();toast('边下边传已启动；此后无需再手工点击上传');}catch(error){toast(error.message);} });
     $("autoUploadButton").addEventListener('click',async()=>{ if(!confirm(`开始或续传批次 ${selectedBatchName} 到专用服务器目录？程序不会删除本地文件，也不会覆盖大小异常的服务器正式文件。`)) return; try{await postAction('/api/actions/start-auto-upload',{batch_name:selectedBatchName});toast('自动上传已启动；可切换到其他任务，进度仍会保留在多任务中心');}catch(error){toast(error.message);} });

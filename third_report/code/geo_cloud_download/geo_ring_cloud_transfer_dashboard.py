@@ -11,6 +11,7 @@ import ast
 import csv
 import json
 import os
+import re
 import secrets
 import shutil
 import string
@@ -21,7 +22,7 @@ import time
 from collections import Counter
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Dict, Iterable, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
@@ -83,6 +84,7 @@ DOWNLOAD_PLATFORM_NAMES = (
     "Meteosat-0deg",
     "Meteosat-IODC",
 )
+FY4B_EXTERNAL_SOURCE = "FY4B 官方应用本地导入"
 ORDER_SOURCE_CONFIG = {
     "CLAAS3-0deg": {
         "display_name": "CLAAS-3（CM SAF）",
@@ -1021,6 +1023,151 @@ class DashboardState:
         if requested not in drives:
             raise RuntimeError("下载磁盘不可用：{}".format(requested))
         return Path(str(drives[requested]["batch_parent"])).resolve()
+
+    @staticmethod
+    def _fy4b_source_files(source_root: Path) -> List[Tuple[Path, Path, int]]:
+        """Inventory finalized FY4B files without copying or modifying them."""
+        ignored_names = {"thumbs.db", "desktop.ini"}
+        records: List[Tuple[Path, Path, int]] = []
+        for candidate in source_root.rglob("*"):
+            try:
+                if candidate.is_symlink() or not candidate.is_file():
+                    continue
+                relative = candidate.relative_to(source_root)
+                if (
+                    "transfer" in relative.parts
+                    or candidate.name.lower() in ignored_names
+                    or candidate.suffix.lower() == ".part"
+                ):
+                    continue
+                stat = candidate.stat()
+            except (OSError, ValueError):
+                continue
+            records.append((candidate.resolve(), relative, int(stat.st_size)))
+        return sorted(records, key=lambda row: row[1].as_posix().lower())
+
+    def start_fy4b_official_upload(self, request: Dict[str, object]) -> Dict[str, object]:
+        """Create a control-only FY4B import batch, then reuse the safe uploader."""
+        self._require_upload_configuration()
+        source_text = str(request.get("source_path", "")).strip()
+        label = str(request.get("batch_label", "")).strip().lower()
+        if not source_text:
+            raise RuntimeError("请填写 FY4B 官方应用的本地下载目录。")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{2,63}", label):
+            raise RuntimeError("FY4B 批次标识仅可使用 3–64 位小写字母、数字、下划线或连字符。")
+        source_root = Path(source_text).expanduser().resolve()
+        if not source_root.is_dir() or source_root == Path(source_root.anchor):
+            raise RuntimeError("FY4B 来源必须是存在的非根目录。")
+        if any(source_root == parent for parent in self._known_batch_parents()):
+            raise RuntimeError("FY4B 来源不能是整个 GEO_Cloud_2024_batches 父目录。")
+
+        batch_name = "fy4b_{}".format(label)
+        batch_root = (self.batch_parent / batch_name).resolve()
+        if batch_root.parent != self.batch_parent:
+            raise RuntimeError("FY4B 控制批次目录无效。")
+        transfer_dir = batch_root / "transfer"
+        request_path = transfer_dir / "fy4b_official_import_request.json"
+        manifest_path = transfer_dir / "geo_ring_cloud_transfer_{}_manifest.json".format(
+            batch_name
+        )
+        if batch_root.exists():
+            existing = read_json(request_path)
+            if str(existing.get("source_root", "")) != str(source_root):
+                raise RuntimeError("同名 FY4B 批次已对应另一来源目录；请使用新的批次标识。")
+            if manifest_path.is_file():
+                result = self.start_auto_upload(batch_name)
+                result.update({"source_root": str(source_root), "resumed": True})
+                return result
+            raise RuntimeError("同名 FY4B 批次的控制记录不完整；请使用新的批次标识。")
+
+        records = self._fy4b_source_files(source_root)
+        if not records:
+            raise RuntimeError("FY4B 来源目录中未发现可上传的已完成文件。")
+        batch_root.mkdir(parents=True, exist_ok=False)
+        transfer_dir.mkdir(parents=True, exist_ok=True)
+        remote_base = PurePosixPath(self.auto_upload_root) / "FY4B" / batch_name
+        files = [
+            {
+                "platform": "FY4B",
+                "product": "official_application",
+                "local_path": str(local_path),
+                "remote_path": str(remote_base / PurePosixPath(relative.as_posix())),
+                "size_bytes": size_bytes,
+            }
+            for local_path, relative, size_bytes in records
+        ]
+        now = utc_now_text()
+        common = {
+            "project_id": "geo_ring_cloud",
+            "canonical_stage_id": "",
+            "related_stage_ids": RELATED_STAGE_IDS,
+            "batch_id": batch_name,
+            "platforms": ["FY4B"],
+            "source_mode": FY4B_EXTERNAL_SOURCE,
+            "source_root": str(source_root),
+            "automatic_delete": False,
+        }
+        write_json_atomic(
+            request_path,
+            {
+                **common,
+                "component_role": "external_source_upload_request",
+                "created_at": now,
+                "source_file_count": len(files),
+                "source_size_bytes": sum(item["size_bytes"] for item in files),
+                "note": "仅记录来源；不会复制、移动或删除 FY4B 原始文件。",
+            },
+        )
+        write_json_atomic(
+            transfer_dir / "batch_status.json",
+            {
+                **common,
+                "component_role": "external_source_upload_orchestrator",
+                "status": "complete",
+                "phase": "ready_for_xftp",
+                "message": "FY4B 官方应用本地文件已登记，等待自动上传。",
+                "updated_at": now,
+            },
+        )
+        write_json_atomic(
+            transfer_dir / "download_launcher_status.json",
+            {
+                **common,
+                "component_role": "external_source_upload_orchestrator",
+                "status": "COMPLETE",
+                "process_alive": False,
+                "message": "FY4B 数据由官方应用下载；本系统不执行远端下载。",
+                "updated_at": now,
+            },
+        )
+        write_json_atomic(
+            manifest_path,
+            {
+                **common,
+                "component_role": "external_source_transfer_manifest",
+                "created_at": now,
+                "status": "READY_FOR_XFTP_UPLOAD",
+                "server_root": self.auto_upload_root,
+                "files": files,
+                "file_count": len(files),
+                "total_size_bytes": sum(item["size_bytes"] for item in files),
+                "deletion_policy": {
+                    "automatic_delete": False,
+                    "delete_allowed_only_after": "server SHA-256 verification PASS and explicit user confirmation",
+                },
+            },
+        )
+        self._set_batch_root(batch_root)
+        result = self.start_auto_upload(batch_name)
+        result.update(
+            {
+                "source_root": str(source_root),
+                "source_file_count": len(files),
+                "source_size_bytes": sum(item["size_bytes"] for item in files),
+                "resumed": False,
+            }
+        )
+        return result
 
     @staticmethod
     def _task_summary(batch_root: Path) -> Dict[str, object]:
@@ -2407,6 +2554,15 @@ def make_handler(state: DashboardState):
                             "upload": state.start_auto_upload(
                                 str(payload.get("batch_name", ""))
                             ),
+                        }
+                    )
+                    return
+                if path == "/api/actions/start-fy4b-official-upload":
+                    payload = self.read_json_body(required=True)
+                    self.send_json(
+                        {
+                            "ok": True,
+                            "fy4b": state.start_fy4b_official_upload(payload),
                         }
                     )
                     return

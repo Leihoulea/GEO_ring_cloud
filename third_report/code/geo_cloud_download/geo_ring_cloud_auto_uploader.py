@@ -149,7 +149,8 @@ def build_auto_upload_manifest(
         if not local_path.is_file():
             raise FileNotFoundError("Local source file is missing: {}".format(local_path))
         expected_size = int(item.get("size_bytes", -1))
-        if local_path.stat().st_size != expected_size:
+        before = local_path.stat()
+        if before.st_size != expected_size:
             raise RuntimeError("Local source size changed: {}".format(local_path))
         old_remote = PurePosixPath(str(item.get("remote_path", "")))
         try:
@@ -159,6 +160,14 @@ def build_auto_upload_manifest(
                 "Remote path is outside manifest server_root: {}".format(old_remote)
             ) from exc
         new_item = dict(item)
+        # Official-client imports first write a fast path/size manifest.  Compute
+        # their checksum inside this detached uploader process so the dashboard
+        # remains responsive, but reject a source that changes while hashing.
+        if not str(new_item.get("sha256", "")).strip():
+            new_item["sha256"] = sha256_file(local_path)
+        after = local_path.stat()
+        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            raise RuntimeError("Local source changed while hashing: {}".format(local_path))
         new_item["remote_path"] = str(server_root / relative)
         remapped_files.append(new_item)
 
