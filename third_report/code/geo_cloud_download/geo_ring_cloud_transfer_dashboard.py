@@ -85,6 +85,15 @@ DOWNLOAD_PLATFORM_NAMES = (
     "Meteosat-IODC",
 )
 FY4B_EXTERNAL_SOURCE = "FY4B 官方应用本地导入"
+FY4B_OFFICIAL_MAPPING_PROFILE = "fy4b_agri_l2_product_day_hour_v1"
+# Examples from the FY4B official application use a nominal acquisition start
+# time after ``NOM_``.  Do not derive archive paths from a user-supplied folder
+# name: product, day, and hour must be present in the official filename.
+FY4B_OFFICIAL_FILENAME_RE = re.compile(
+    r"^FY4B-_AGRI--_N_DISK_1050E_L2-_"
+    r"(?P<product>[A-Z0-9]+)-_.+?_NOM_(?P<nominal_time>\d{14})_\d{14}_.+\.NC$",
+    re.IGNORECASE,
+)
 ORDER_SOURCE_CONFIG = {
     "CLAAS3-0deg": {
         "display_name": "CLAAS-3（CM SAF）",
@@ -1025,10 +1034,17 @@ class DashboardState:
         return Path(str(drives[requested]["batch_parent"])).resolve()
 
     @staticmethod
-    def _fy4b_source_files(source_root: Path) -> List[Tuple[Path, Path, int]]:
-        """Inventory finalized FY4B files without copying or modifying them."""
+    def _fy4b_source_files(source_root: Path) -> List[Dict[str, object]]:
+        """Validate and map official FY4B L2 files without modifying them.
+
+        The source folders created by the official application can be flat.
+        Its filename is the authoritative archive key for this importer:
+        ``FY4B/<product>/<YYYYMMDD>/<HH>/<original filename>``.
+        """
         ignored_names = {"thumbs.db", "desktop.ini"}
-        records: List[Tuple[Path, Path, int]] = []
+        records: List[Dict[str, object]] = []
+        rejected: List[str] = []
+        mapped_paths: Dict[str, Path] = {}
         for candidate in source_root.rglob("*"):
             try:
                 if candidate.is_symlink() or not candidate.is_file():
@@ -1040,11 +1056,98 @@ class DashboardState:
                     or candidate.suffix.lower() == ".part"
                 ):
                     continue
+                if candidate.suffix.lower() != ".nc":
+                    continue
+                match = FY4B_OFFICIAL_FILENAME_RE.fullmatch(candidate.name)
+                if not match:
+                    rejected.append(relative.as_posix())
+                    continue
+                nominal_time = match.group("nominal_time")
+                try:
+                    datetime.strptime(nominal_time, "%Y%m%d%H%M%S")
+                except ValueError:
+                    rejected.append(relative.as_posix())
+                    continue
+                product = match.group("product").upper()
+                remote_relative_path = PurePosixPath(
+                    "FY4B",
+                    product,
+                    nominal_time[:8],
+                    nominal_time[8:10],
+                    candidate.name,
+                )
+                remote_key = remote_relative_path.as_posix()
+                prior = mapped_paths.get(remote_key)
+                if prior is not None and prior != candidate.resolve():
+                    raise RuntimeError(
+                        "FY4B 来源中有两个文件会映射到同一服务器路径：{}".format(
+                            remote_key
+                        )
+                    )
                 stat = candidate.stat()
             except (OSError, ValueError):
                 continue
-            records.append((candidate.resolve(), relative, int(stat.st_size)))
-        return sorted(records, key=lambda row: row[1].as_posix().lower())
+            mapped_paths[remote_key] = candidate.resolve()
+            records.append(
+                {
+                    "local_path": candidate.resolve(),
+                    "source_relative_path": relative.as_posix(),
+                    "product": product,
+                    "nominal_time": nominal_time,
+                    "remote_relative_path": remote_key,
+                    "size_bytes": int(stat.st_size),
+                }
+            )
+        if rejected:
+            examples = "；".join(rejected[:5])
+            suffix = "（仅显示前 5 个）" if len(rejected) > 5 else ""
+            raise RuntimeError(
+                "发现 {} 个 .NC 文件不符合 FY4B AGRI L2 官方命名规则，无法安全判断变量、日期和小时：{}{}".format(
+                    len(rejected), examples, suffix
+                )
+            )
+        return sorted(records, key=lambda row: str(row["remote_relative_path"]).lower())
+
+    def preview_fy4b_official_upload(self, request: Dict[str, object]) -> Dict[str, object]:
+        """Return a read-only mapping preview for official FY4B files."""
+        source_text = str(request.get("source_path", "")).strip()
+        if not source_text:
+            raise RuntimeError("请填写 FY4B 官方应用的本地下载目录。")
+        source_root = Path(source_text).expanduser().resolve()
+        if not source_root.is_dir() or source_root == Path(source_root.anchor):
+            raise RuntimeError("FY4B 来源必须是存在的非根目录。")
+        if any(source_root == parent for parent in self._known_batch_parents()):
+            raise RuntimeError("FY4B 来源不能是整个 GEO_Cloud_2024_batches 父目录。")
+        records = self._fy4b_source_files(source_root)
+        if not records:
+            raise RuntimeError("FY4B 来源目录中未发现符合命名规则的已完成 .NC 文件。")
+        products = []
+        for product in sorted({str(row["product"]) for row in records}):
+            product_rows = [row for row in records if row["product"] == product]
+            products.append(
+                {
+                    "product": product,
+                    "file_count": len(product_rows),
+                    "size_bytes": sum(int(row["size_bytes"]) for row in product_rows),
+                    "first_nominal_time": min(str(row["nominal_time"]) for row in product_rows),
+                    "last_nominal_time": max(str(row["nominal_time"]) for row in product_rows),
+                }
+            )
+        return {
+            "source_root": str(source_root),
+            "mapping_profile": FY4B_OFFICIAL_MAPPING_PROFILE,
+            "remote_root": str(PurePosixPath(self.auto_upload_root) / "FY4B"),
+            "file_count": len(records),
+            "total_size_bytes": sum(int(row["size_bytes"]) for row in records),
+            "products": products,
+            "sample_mappings": [
+                {
+                    "source_relative_path": str(row["source_relative_path"]),
+                    "remote_path": str(PurePosixPath(self.auto_upload_root) / str(row["remote_relative_path"])),
+                }
+                for row in records[:10]
+            ],
+        }
 
     def start_fy4b_official_upload(self, request: Dict[str, object]) -> Dict[str, object]:
         """Create a control-only FY4B import batch, then reuse the safe uploader."""
@@ -1085,16 +1188,20 @@ class DashboardState:
             raise RuntimeError("FY4B 来源目录中未发现可上传的已完成文件。")
         batch_root.mkdir(parents=True, exist_ok=False)
         transfer_dir.mkdir(parents=True, exist_ok=True)
-        remote_base = PurePosixPath(self.auto_upload_root) / "FY4B" / batch_name
         files = [
             {
                 "platform": "FY4B",
-                "product": "official_application",
-                "local_path": str(local_path),
-                "remote_path": str(remote_base / PurePosixPath(relative.as_posix())),
-                "size_bytes": size_bytes,
+                "product": str(record["product"]),
+                "local_path": str(record["local_path"]),
+                "source_relative_path": str(record["source_relative_path"]),
+                "nominal_time": str(record["nominal_time"]),
+                "remote_path": str(
+                    PurePosixPath(self.auto_upload_root)
+                    / PurePosixPath(str(record["remote_relative_path"]))
+                ),
+                "size_bytes": int(record["size_bytes"]),
             }
-            for local_path, relative, size_bytes in records
+            for record in records
         ]
         now = utc_now_text()
         common = {
@@ -1104,6 +1211,7 @@ class DashboardState:
             "batch_id": batch_name,
             "platforms": ["FY4B"],
             "source_mode": FY4B_EXTERNAL_SOURCE,
+            "mapping_profile": FY4B_OFFICIAL_MAPPING_PROFILE,
             "source_root": str(source_root),
             "automatic_delete": False,
         }
@@ -1115,6 +1223,8 @@ class DashboardState:
                 "created_at": now,
                 "source_file_count": len(files),
                 "source_size_bytes": sum(item["size_bytes"] for item in files),
+                "mapping_profile": FY4B_OFFICIAL_MAPPING_PROFILE,
+                "mapped_products": sorted({str(item["product"]) for item in files}),
                 "note": "仅记录来源；不会复制、移动或删除 FY4B 原始文件。",
             },
         )
@@ -1164,6 +1274,8 @@ class DashboardState:
                 "source_root": str(source_root),
                 "source_file_count": len(files),
                 "source_size_bytes": sum(item["size_bytes"] for item in files),
+                "mapping_profile": FY4B_OFFICIAL_MAPPING_PROFILE,
+                "mapped_products": sorted({str(item["product"]) for item in files}),
                 "resumed": False,
             }
         )
@@ -2554,6 +2666,15 @@ def make_handler(state: DashboardState):
                             "upload": state.start_auto_upload(
                                 str(payload.get("batch_name", ""))
                             ),
+                        }
+                    )
+                    return
+                if path == "/api/actions/preview-fy4b-official-upload":
+                    payload = self.read_json_body(required=True)
+                    self.send_json(
+                        {
+                            "ok": True,
+                            "preview": state.preview_fy4b_official_upload(payload),
                         }
                     )
                     return

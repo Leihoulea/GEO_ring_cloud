@@ -323,6 +323,7 @@ class TransferBatchTests(unittest.TestCase):
         self.assertIn("已结束记录", html)
         self.assertIn("open-cleanup-folder", html)
         self.assertIn("start-fy4b-official-upload", html)
+        self.assertIn("preview-fy4b-official-upload", html)
 
     def test_dashboard_gates_never_delete_raw_data(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1115,7 +1116,11 @@ class TransferBatchTests(unittest.TestCase):
             root = Path(temp_dir) / "GEO_Cloud_2024_batches" / "current_batch"
             root.mkdir(parents=True)
             source = Path(temp_dir) / "FY4B_official"
-            raw = source / "NOM" / "20240401" / "FY4B_sample.HDF"
+            raw = (
+                source
+                / "FY4B-_AGRI--_N_DISK_1050E_L2-_CLM-_MULT_"
+                "NOM_20240401080000_20240401081459_4000M_V0001.NC"
+            )
             raw.parent.mkdir(parents=True)
             raw.write_bytes(b"official-client-data")
             (source / "partial.part").write_bytes(b"incomplete")
@@ -1146,13 +1151,36 @@ class TransferBatchTests(unittest.TestCase):
             self.assertFalse(result["resumed"])
             self.assertEqual(manifest["file_count"], 1)
             self.assertEqual(manifest["files"][0]["local_path"], str(raw.resolve()))
+            self.assertEqual(manifest["files"][0]["product"], "CLM")
+            self.assertEqual(manifest["files"][0]["nominal_time"], "20240401080000")
             self.assertEqual(
                 manifest["files"][0]["remote_path"],
-                "/data04/1/dhr/geo_ring_cloud_auto_upload/FY4B/fy4b_202404/NOM/20240401/FY4B_sample.HDF",
+                "/data04/1/dhr/geo_ring_cloud_auto_upload/FY4B/CLM/20240401/08/"
+                "FY4B-_AGRI--_N_DISK_1050E_L2-_CLM-_MULT_"
+                "NOM_20240401080000_20240401081459_4000M_V0001.NC",
             )
-            self.assertFalse((batch / "NOM").exists())
+            self.assertFalse((batch / "CLM").exists())
             self.assertEqual(raw.read_bytes(), b"official-client-data")
             self.assertFalse(manifest["deletion_policy"]["automatic_delete"])
+
+    def test_fy4b_official_preview_rejects_ambiguous_nc_filename(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "GEO_Cloud_2024_batches" / "current_batch"
+            root.mkdir(parents=True)
+            source = Path(temp_dir) / "FY4B_official"
+            source.mkdir()
+            (source / "not_an_official_fy4b_file.NC").write_bytes(b"unsafe")
+            identity = Path(temp_dir) / "id_ed25519"
+            identity.write_text("key", encoding="utf-8")
+            dashboard = DashboardState(
+                root,
+                ssh_target="dhr@example",
+                identity_file=identity,
+                auto_upload_root="/data04/1/dhr/geo_ring_cloud_auto_upload",
+                allowed_server_parent="/data04/1/dhr",
+            )
+            with self.assertRaisesRegex(RuntimeError, "无法安全判断变量、日期和小时"):
+                dashboard.preview_fy4b_official_upload({"source_path": str(source)})
 
     def test_auto_upload_root_must_be_a_dedicated_child(self):
         validate_server_root(
