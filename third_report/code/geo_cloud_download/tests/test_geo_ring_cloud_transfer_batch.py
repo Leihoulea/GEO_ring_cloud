@@ -324,6 +324,9 @@ class TransferBatchTests(unittest.TestCase):
         self.assertIn("open-cleanup-folder", html)
         self.assertIn("start-fy4b-official-upload", html)
         self.assertIn("preview-fy4b-official-upload", html)
+        self.assertIn("fy4bPreviewPanel", html)
+        self.assertIn("fy4bPreviewMappings", html)
+        self.assertIn("复制路径", html)
 
     def test_dashboard_gates_never_delete_raw_data(self):
         with tempfile.TemporaryDirectory() as temp_dir:

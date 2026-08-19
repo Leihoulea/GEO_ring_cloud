@@ -1,6 +1,6 @@
 | path | relevance | role | file_count | size_text | referenced_by_code | exists_now | move_candidate | path_risk | note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| D:\AAAresearch_paper\data | 强相关 | 原始卫星数据（FY4A/FY4B L1 + FY4B 云产品 CLM/CLP/CLT/CTH/CTP/CTT/GEO + H09_Data） | 7712 | 113.7 GB | 是 | 是 | 否 | keep_in_place | geo_ring_cloud.paths.HIMAWARI_R21_DIR；06f 扫描 data/ |
+| D:\AAAresearch_paper\data | 强相关 | 原始卫星数据（FY4A/FY4B L1 + FY4B 云产品 CLM/CLP/CLT/CTH/CTP/CTT/GEO + H09_Data） | 7790 | 114.7 GB | 是 | 是 | 否 | keep_in_place | geo_ring_cloud.paths.HIMAWARI_R21_DIR；06f 扫描 data/ |
 | D:\AAAresearch_paper\data_check_report | 强相关 | 前序数据审计报告（REPORT_ROOT，00-00f 阶段证据源） | 250 | 887.2 MB | 是 | 是 | 否 | keep_in_place | geo_ring_cloud.paths + pipeline_layout 中的 REPORT_ROOT、PARSED_METADATA、MAPPING_YAML |
 | D:\AAAresearch_paper\geo_geometry_check | 强相关 | 几何校验样本（download_geo_geometry_samples.py 产物 + 06c/06d 审计） | 50 | 1.3 GB | 是 | 是 | 否 | keep_in_place | download_geo_geometry_samples.py:22 OUT_ROOT；06c/06d/06e 引用 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1 | 强相关 | Stage1 主产物根目录（STAGE_ROOT） | 836 | 6.4 GB | 是 | 是 | 否 | keep_in_place | standardized_native/reprojected_grid/fused_best_source/overlap_validation/reports 等产物 + scripts 副本 |
@@ -13,7 +13,7 @@
 | D:\AAAresearch_paper\third_report\code\Himawari | 上游相关 | Himawari-9/AHI standardized_L1 builder | 11 | 8.5 MB | 间接 | 是 | 否 | keep_in_place | 同上 |
 | D:\AAAresearch_paper\third_report\code\L1g | 上游相关 | standardized_L1_source 规范 + 全球 0.05° 网格规范 | 4 | 60.9 KB | 间接 | 是 | 否 | keep_in_place | ring cloud 上游标准化层规范文档 |
 | D:\AAAresearch_paper\third_report\code\Meteosat | 上游相关 | Meteosat-9/10/SEVIRI standardized_L1 builder | 14 | 8.4 MB | 间接 | 是 | 否 | keep_in_place | 同上 |
-| D:\AAAresearch_paper\third_report\code\geo_cloud_download | 上游相关 | GEO 云产品下载器（EUMETSAT API + S3） | 37 | 487.1 KB | 间接 | 是 | 否 | keep_in_place | 下载原始云产品到 data/ 与 E 盘 |
+| D:\AAAresearch_paper\third_report\code\geo_cloud_download | 上游相关 | GEO 云产品下载器（EUMETSAT API + S3） | 37 | 490.1 KB | 间接 | 是 | 否 | keep_in_place | 下载原始云产品到 data/ 与 E 盘 |
 | D:\AAAresearch_paper\third_report\code\geo_data_audit | 上游相关 | 数据审计脚本（前序审计 00-00f 的执行代码） | 17 | 482.0 KB | 间接 | 是 | 否 | keep_in_place | audit_geometry_and_variables.py 等产出 data_check_report |
 | D:\AAAresearch_paper\third_report\code\plot_geo_satellite_coverage.py | 上游相关 | 六星地球覆盖边界图 | 1 | 4.2 KB | 间接 | 是 | 否 | keep_in_place |  |
 | D:\AAAresearch_paper\third_report\code\preview_baselines | 上游相关 | 基线预览图索引 | 13 | 20.8 MB | 间接 | 是 | 否 | keep_in_place | 六星基线 quicklook |

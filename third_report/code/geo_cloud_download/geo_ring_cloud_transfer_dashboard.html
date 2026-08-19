@@ -63,6 +63,14 @@
     .platform-choice { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 999px; padding: 8px 11px; background: #faf9f4; font-size: 12px; cursor: pointer; }
     .launch-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
     .launch-note { color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .fy4b-preview { margin-top: 16px; padding: 16px; border: 1px solid #9fc5d5; border-radius: 15px; background: #eef7fa; }
+    .fy4b-preview[hidden] { display: none; }
+    .fy4b-preview h3 { margin: 0; font-size: 15px; }
+    .fy4b-preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 12px 0; }
+    .fy4b-preview-kpi { border: 1px solid #c8dce5; border-radius: 11px; padding: 10px; background: rgba(255,255,255,.78); }
+    .fy4b-preview-kpi b { display: block; font-size: 14px; margin-bottom: 4px; }
+    .fy4b-preview-kpi span { color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .fy4b-preview-paths { max-height: 360px; overflow: auto; padding: 12px; border: 1px solid #c8dce5; border-radius: 11px; background: #fff; color: #243932; font: 12px/1.6 Consolas, "Microsoft YaHei", monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
     .metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; margin-bottom: 16px; }
     .metric { padding: 18px; min-width: 0; }
     .metric-value { font: 700 clamp(24px, 3vw, 36px)/1 Georgia, serif; letter-spacing: -.04em; }
@@ -234,6 +242,11 @@
         <div class="field" style="grid-column:span 2"><label for="fy4bBatchLabel">FY4B 批次标识</label><input id="fy4bBatchLabel" type="text" placeholder="例如 202404 或 20240401_20240430" pattern="[a-z0-9][a-z0-9_-]{2,63}"></div>
       </div>
       <div class="launch-actions"><div class="launch-note">仅接受 FY4B AGRI L2 官方命名的 <code>.NC</code> 文件，并从文件名校验变量、日期与小时；不符合规则的文件不会上传。请先点击“预览映射”。服务端路径固定为 <code>…/FY4B/变量/YYYYMMDD/HH/原始文件名</code>；上传器会在后台计算 SHA-256、断点续传和服务器复核，不会复制、移动或删除原始文件。</div><div><button class="button" id="previewFy4bUploadButton" type="button">预览 FY4B 映射</button> <button class="button primary" id="startFy4bUploadButton" type="button">创建 FY4B 上传批次</button></div></div>
+      <div class="fy4b-preview" id="fy4bPreviewPanel" hidden aria-live="polite">
+        <div class="section-head"><h3>FY4B 映射预览</h3><div><button class="button" id="copyFy4bPreviewButton" type="button">复制路径</button> <button class="button" id="closeFy4bPreviewButton" type="button">关闭预览</button></div></div>
+        <div class="fy4b-preview-grid" id="fy4bPreviewSummary"></div>
+        <div class="fy4b-preview-paths" id="fy4bPreviewMappings"></div>
+      </div>
     </section>
 
     <section class="queue-center card">
@@ -351,6 +364,7 @@
     const statusNames = {pass:"通过", running:"进行中", pending:"等待", warning:"警告", fail:"失败", locked:"锁定"};
     function esc(value){ return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch])); }
     function pct(value){ return Number(value || 0).toFixed(1) + "%"; }
+    function fmtBytes(value){ const n=Number(value || 0); if(!Number.isFinite(n) || n<0) return '--'; const units=['B','KiB','MiB','GiB','TiB']; let size=n, index=0; while(size>=1024 && index<units.length-1){size/=1024;index++;} return `${size.toFixed(index?2:0)} ${units[index]}`; }
     function setWidth(id, value){ $(id).style.width = Math.max(0, Math.min(100, Number(value || 0))) + "%"; }
     function eta(hours){ if(hours === null || hours === undefined) return "估算中"; if(hours < 1) return Math.max(1, Math.round(hours*60)) + " 分钟"; return Number(hours).toFixed(1) + " 小时"; }
     function toast(message){ const node=$("toast"); node.textContent=message; node.classList.add("show"); setTimeout(()=>node.classList.remove("show"),2600); }
@@ -663,6 +677,17 @@
       try{const data=await postJson('/api/actions/start-download',payload);selectedBatchName=data.download.batch_name;await refresh();toast((data.download.continuous_upload?'全自动批次':'下载批次')+'已在后台启动：'+data.download.batch_root);}catch(error){toast(error.message);}finally{button.disabled=false;}
     });
     let lastFy4bPreview=null;
+    function renderFy4bPreview(preview){
+      const products=(preview.products||[]).map(product=>`<div class="fy4b-preview-kpi"><b>${esc(product.product)}</b><span>${nf.format(product.file_count||0)} 文件 · ${fmtBytes(product.size_bytes)}<br>${esc(product.first_nominal_time||'--')} 至 ${esc(product.last_nominal_time||'--')}</span></div>`).join('');
+      $("fy4bPreviewSummary").innerHTML=`<div class="fy4b-preview-kpi"><b>${nf.format(preview.file_count||0)} 个文件</b><span>总计 ${fmtBytes(preview.total_size_bytes)}<br>映射规则：变量 / 日期 / 小时</span></div>${products}`;
+      const paths=(preview.sample_mappings||[]).map((row,index)=>`${index+1}. 本地：${row.source_relative_path}\n   服务器：${row.remote_path}`).join('\n\n');
+      $("fy4bPreviewMappings").textContent=paths || '没有可显示的路径样例。';
+      $("fy4bPreviewPanel").hidden=false;
+      $("fy4bPreviewPanel").scrollIntoView({behavior:'smooth',block:'nearest'});
+    }
+    $("closeFy4bPreviewButton").addEventListener('click',()=>{$("fy4bPreviewPanel").hidden=true;});
+    $("copyFy4bPreviewButton").addEventListener('click',async()=>{try{await navigator.clipboard.writeText($("fy4bPreviewMappings").textContent);toast('FY4B 路径样例已复制');}catch(_){toast('浏览器未允许复制，请手工选择路径');}});
+    $("fy4bSourcePath").addEventListener('input',()=>{lastFy4bPreview=null;$("fy4bPreviewPanel").hidden=true;});
     $("previewFy4bUploadButton").addEventListener('click',async()=>{
       const source_path=$("fy4bSourcePath").value.trim();
       if(!source_path){ toast('请先填写 FY4B 官方应用下载目录'); return; }
@@ -670,9 +695,8 @@
       try{
         const data=await postJson('/api/actions/preview-fy4b-official-upload',{source_path});
         lastFy4bPreview=data.preview;
-        const products=(data.preview.products||[]).map(p=>`${p.product}: ${p.file_count} 文件`).join('，');
-        const example=(data.preview.sample_mappings||[])[0];
-        toast(`FY4B 映射预览：${data.preview.file_count} 个文件，${products}。${example?`示例：${example.remote_path}`:''}`);
+        renderFy4bPreview(data.preview);
+        toast('FY4B 映射预览已显示在下方；可滚动查看并复制路径。');
       }catch(error){lastFy4bPreview=null;toast(error.message);}finally{button.disabled=false;}
     });
     $("startFy4bUploadButton").addEventListener('click',async()=>{
