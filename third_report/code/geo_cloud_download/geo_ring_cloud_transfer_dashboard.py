@@ -2573,18 +2573,37 @@ class DashboardState:
     def open_cleanup_folder(self, batch_name: str = "") -> Dict[str, object]:
         """Open Explorer only after the user has recorded cleanup approval."""
         batch_root = self._resolve_existing_batch(batch_name)
-        approval = marker_status(batch_root / "transfer" / "local_cleanup_approval.json")
+        transfer_dir = batch_root / "transfer"
+        approval = marker_status(transfer_dir / "local_cleanup_approval.json")
         if not approval.get("exists"):
             raise RuntimeError("请先确认允许清理；此操作不会删除任何文件。")
         if os.name != "nt":
             raise RuntimeError("当前系统不支持打开 Windows 资源管理器。")
+        # FY4B files remain in the official application's external source
+        # folder; the dashboard batch only holds control manifests.  Open the
+        # actual approved raw-data location so the user can make the explicit
+        # deletion decision after server verification, while other platforms
+        # keep opening their batch root.
+        folder = batch_root
+        source_kind = "batch_root"
+        fy4b_request = read_json(transfer_dir / "fy4b_official_import_request.json")
+        source_text = str(fy4b_request.get("source_root", "")).strip()
+        if source_text:
+            source_root = Path(source_text).expanduser()
+            if source_root.is_dir() and source_root != Path(source_root.anchor):
+                folder = source_root.resolve()
+                source_kind = "fy4b_official_source"
         try:
-            subprocess.Popen(["explorer.exe", str(batch_root)])
+            subprocess.Popen(
+                ["explorer.exe", str(folder)],
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
         except OSError as exc:
-            raise RuntimeError("无法打开本地批次文件夹：{}".format(exc)) from exc
+            raise RuntimeError("无法打开本地数据文件夹：{}".format(exc)) from exc
         return {
             "batch_name": batch_root.name,
-            "folder": str(batch_root),
+            "folder": str(folder),
+            "folder_kind": source_kind,
             "opened": True,
             "delete_executed": False,
         }

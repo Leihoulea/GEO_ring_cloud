@@ -259,6 +259,11 @@ def process_snapshot() -> dict:
             text=True,
             stderr=subprocess.DEVNULL,
             timeout=5,
+            # This probe runs during dashboard refreshes.  Without this flag
+            # Windows briefly shows a PowerShell console for every sample.
+            creationflags=(
+                getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+            ),
         ).strip()
         if not output:
             return {"known": []}

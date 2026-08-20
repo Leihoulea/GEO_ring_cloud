@@ -313,8 +313,33 @@ class TransferBatchTests(unittest.TestCase):
                 result = dashboard.open_cleanup_folder()
                 self.assertTrue(result["opened"])
                 self.assertFalse(result["delete_executed"])
+                self.assertEqual(result["folder_kind"], "batch_root")
                 opener.assert_called_once()
                 self.assertEqual(raw.read_bytes(), b"keep")
+
+    def test_fy4b_cleanup_folder_opens_external_official_source(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "GEO_Cloud_2024_batches" / "fy4b_20240601_20240601"
+            transfer = root / "transfer"
+            source = Path(temp_dir) / "official_fy4b"
+            transfer.mkdir(parents=True)
+            source.mkdir()
+            raw = source / "FY4B-_AGRI--_N_DISK_1050E_L2-_CLM-_MULT_NOM_20240601000000_20240601001459_4000M_V0001.NC"
+            raw.write_bytes(b"keep")
+            (transfer / "local_cleanup_approval.json").write_text("{}", encoding="utf-8")
+            (transfer / "fy4b_official_import_request.json").write_text(
+                json.dumps({"source_root": str(source)}), encoding="utf-8"
+            )
+            dashboard = DashboardState(root)
+            with patch.object(transfer_dashboard.os, "name", "nt"), patch(
+                "geo_ring_cloud_transfer_dashboard.subprocess.Popen"
+            ) as opener:
+                result = dashboard.open_cleanup_folder()
+            self.assertEqual(result["folder"], str(source.resolve()))
+            self.assertEqual(result["folder_kind"], "fy4b_official_source")
+            self.assertFalse(result["delete_executed"])
+            self.assertEqual(raw.read_bytes(), b"keep")
+            opener.assert_called_once()
 
     def test_dashboard_html_includes_safe_selection_fallback_and_full_part_view(self):
         html = HTML_PATH.read_text(encoding="utf-8")
