@@ -1120,12 +1120,25 @@ class DashboardState:
         return sorted(records, key=lambda row: str(row["remote_relative_path"]).lower())
 
     def _fy4b_batch_label(self, source_root: Path, records: List[Dict[str, object]]) -> str:
-        """Derive a stable, resume-safe FY4B control label from official timestamps."""
+        """Derive a stable, product-scoped, resume-safe FY4B control label."""
         first_day = min(str(row["nominal_time"])[:8] for row in records)
         last_day = max(str(row["nominal_time"])[:8] for row in records)
-        base_label = "{}_{}".format(first_day, last_day)
+        products = sorted({str(row["product"]).lower() for row in records})
+        product_scope = "-".join(products)
+        base_label = "{}_{}_{}".format(first_day, last_day, product_scope)
         base_root = (self.batch_parent / "fy4b_{}".format(base_label)).resolve()
         if not base_root.exists():
+            # Do not silently create a second control batch for an already
+            # completed legacy date-only batch sourced from the same folder.
+            # Historical records remain immutable; new imports use the
+            # product-scoped format above.
+            legacy_label = "{}_{}".format(first_day, last_day)
+            legacy_root = (self.batch_parent / "fy4b_{}".format(legacy_label)).resolve()
+            legacy_request = read_json(
+                legacy_root / "transfer" / "fy4b_official_import_request.json"
+            )
+            if str(legacy_request.get("source_root", "")) == str(source_root):
+                return legacy_label
             return base_label
         existing = read_json(base_root / "transfer" / "fy4b_official_import_request.json")
         if str(existing.get("source_root", "")) == str(source_root):
@@ -1241,6 +1254,7 @@ class DashboardState:
             "source_mode": FY4B_EXTERNAL_SOURCE,
             "mapping_profile": FY4B_OFFICIAL_MAPPING_PROFILE,
             "source_root": str(source_root),
+            "batch_product_scope": sorted({str(item["product"]).lower() for item in files}),
             "automatic_delete": False,
         }
         write_json_atomic(

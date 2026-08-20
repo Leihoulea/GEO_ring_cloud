@@ -1178,13 +1178,13 @@ class TransferBatchTests(unittest.TestCase):
                 result = dashboard.start_fy4b_official_upload(
                     {"source_path": str(source)}
                 )
-            batch = root.parent / "fy4b_20240401_20240401"
+            batch = root.parent / "fy4b_20240401_20240401_clm"
             manifest = json.loads(
-                (batch / "transfer" / "geo_ring_cloud_transfer_fy4b_20240401_20240401_manifest.json").read_text(
+                (batch / "transfer" / "geo_ring_cloud_transfer_fy4b_20240401_20240401_clm_manifest.json").read_text(
                     encoding="utf-8"
                 )
             )
-            self.assertEqual(result["batch_name"], "fy4b_20240401_20240401")
+            self.assertEqual(result["batch_name"], "fy4b_20240401_20240401_clm")
             self.assertFalse(result["resumed"])
             self.assertEqual(manifest["file_count"], 1)
             self.assertEqual(manifest["files"][0]["local_path"], str(raw.resolve()))
@@ -1199,6 +1199,24 @@ class TransferBatchTests(unittest.TestCase):
             self.assertFalse((batch / "CLM").exists())
             self.assertEqual(raw.read_bytes(), b"official-client-data")
             self.assertFalse(manifest["deletion_policy"]["automatic_delete"])
+
+    def test_fy4b_batch_label_includes_sorted_product_scope(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "GEO_Cloud_2024_batches" / "current_batch"
+            source = Path(temp_dir) / "FY4B_official"
+            root.mkdir(parents=True)
+            source.mkdir()
+            dashboard = DashboardState(root)
+            label = dashboard._fy4b_batch_label(
+                source,
+                [
+                    {"product": "CTH", "nominal_time": "20240402000000"},
+                    {"product": "CLM", "nominal_time": "20240401000000"},
+                    {"product": "CTT", "nominal_time": "20240401010000"},
+                    {"product": "CLM", "nominal_time": "20240402000000"},
+                ],
+            )
+            self.assertEqual(label, "20240401_20240402_clm-cth-ctt")
 
     def test_fy4b_official_preview_rejects_ambiguous_nc_filename(self):
         with tempfile.TemporaryDirectory() as temp_dir:
