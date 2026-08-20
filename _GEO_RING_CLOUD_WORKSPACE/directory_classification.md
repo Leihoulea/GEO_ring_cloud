@@ -1,6 +1,6 @@
 | path | relevance | role | file_count | size_text | referenced_by_code | exists_now | move_candidate | path_risk | note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| D:\AAAresearch_paper\data | 强相关 | 原始卫星数据（FY4A/FY4B L1 + FY4B 云产品 CLM/CLP/CLT/CTH/CTP/CTT/GEO + H09_Data） | 8427 | 123.1 GB | 是 | 是 | 否 | keep_in_place | geo_ring_cloud.paths.HIMAWARI_R21_DIR；06f 扫描 data/ |
+| D:\AAAresearch_paper\data | 强相关 | 原始卫星数据（FY4A/FY4B L1 + FY4B 云产品 CLM/CLP/CLT/CTH/CTP/CTT/GEO + H09_Data） | 6213 | 122.2 GB | 是 | 是 | 否 | keep_in_place | geo_ring_cloud.paths.HIMAWARI_R21_DIR；06f 扫描 data/ |
 | D:\AAAresearch_paper\data_check_report | 强相关 | 前序数据审计报告（REPORT_ROOT，00-00f 阶段证据源） | 250 | 887.2 MB | 是 | 是 | 否 | keep_in_place | geo_ring_cloud.paths + pipeline_layout 中的 REPORT_ROOT、PARSED_METADATA、MAPPING_YAML |
 | D:\AAAresearch_paper\geo_geometry_check | 强相关 | 几何校验样本（download_geo_geometry_samples.py 产物 + 06c/06d 审计） | 50 | 1.3 GB | 是 | 是 | 否 | keep_in_place | download_geo_geometry_samples.py:22 OUT_ROOT；06c/06d/06e 引用 |
 | D:\AAAresearch_paper\geo_ring_cloud_stage1 | 强相关 | Stage1 主产物根目录（STAGE_ROOT） | 836 | 6.4 GB | 是 | 是 | 否 | keep_in_place | standardized_native/reprojected_grid/fused_best_source/overlap_validation/reports 等产物 + scripts 副本 |
@@ -13,7 +13,7 @@
 | D:\AAAresearch_paper\third_report\code\Himawari | 上游相关 | Himawari-9/AHI standardized_L1 builder | 11 | 8.5 MB | 间接 | 是 | 否 | keep_in_place | 同上 |
 | D:\AAAresearch_paper\third_report\code\L1g | 上游相关 | standardized_L1_source 规范 + 全球 0.05° 网格规范 | 4 | 60.9 KB | 间接 | 是 | 否 | keep_in_place | ring cloud 上游标准化层规范文档 |
 | D:\AAAresearch_paper\third_report\code\Meteosat | 上游相关 | Meteosat-9/10/SEVIRI standardized_L1 builder | 14 | 8.4 MB | 间接 | 是 | 否 | keep_in_place | 同上 |
-| D:\AAAresearch_paper\third_report\code\geo_cloud_download | 上游相关 | GEO 云产品下载器（EUMETSAT API + S3） | 37 | 499.5 KB | 间接 | 是 | 否 | keep_in_place | 下载原始云产品到 data/ 与 E 盘 |
+| D:\AAAresearch_paper\third_report\code\geo_cloud_download | 上游相关 | GEO 云产品下载器（EUMETSAT API + S3） | 37 | 501.5 KB | 间接 | 是 | 否 | keep_in_place | 下载原始云产品到 data/ 与 E 盘 |
 | D:\AAAresearch_paper\third_report\code\geo_data_audit | 上游相关 | 数据审计脚本（前序审计 00-00f 的执行代码） | 17 | 482.0 KB | 间接 | 是 | 否 | keep_in_place | audit_geometry_and_variables.py 等产出 data_check_report |
 | D:\AAAresearch_paper\third_report\code\plot_geo_satellite_coverage.py | 上游相关 | 六星地球覆盖边界图 | 1 | 4.2 KB | 间接 | 是 | 否 | keep_in_place |  |
 | D:\AAAresearch_paper\third_report\code\preview_baselines | 上游相关 | 基线预览图索引 | 13 | 20.8 MB | 间接 | 是 | 否 | keep_in_place | 六星基线 quicklook |
@@ -28,7 +28,7 @@
 | D:\AAAresearch_paper\research_tracker | 弱相关 | 研究追踪器（项目治理元工具，扫描全项目建知识图谱） | 36 | 88.4 MB | 否 | 是 | 否 | document_only | 元工具，不参与流水线；识别 ring_cloud 为最大子项目 |
 | D:\AAAresearch_paper\third_report\beamer | 弱相关 | LaTeX Beamer 组会幻灯片（讲标准化上游） | 58 | 45.0 MB | 否 | 是 | 否 | document_only | 讲稿明确讲 L1g 前期工作，非 ring cloud 本体 |
 | D:\AAAresearch_paper\data\3-科大蓝（竞赛 科技）.pptx | 无关 | 存于 data/ 下的竞赛演示文稿 | 1 | 43.0 MB | 否 | 是 | 是 | archive_candidate | 与 ring cloud 无关 |
-| D:\AAAresearch_paper\data\A202607010902106154 | 无关 | 空目录 |  | 0 | 否 | 是 | 是 | archive_candidate | 空 |
+| D:\AAAresearch_paper\data\A202607010902106154 | 无关 | 空目录 |  | 0 | 否 | 否 | 否 | missing | 空 |
 | D:\AAAresearch_paper\forth | 无关 | 导航相机 DAT 数据解析 + QuickView 工具（独立任务） |  | 约 1.3 GB | 否 | 否 | 否 | missing | nav_camera_dat.py；ring cloud 代码零引用 |
 | D:\AAAresearch_paper\second_report | 无关 | FY 数据分析第二次报告（FYDataService + 探查 notebook + 论文） |  | 约 18 GB | 否 | 否 | 否 | missing | ring cloud 代码零引用 |
 | D:\AAAresearch_paper\third_report\code\epic_ceres | 无关 | EPIC→CERES 深度学习独立分支（Stage 1-13） |  | 中 | 否 | 否 | 否 | missing | 估算 CERES TOA 辐射通量，与云产品融合无关；代码零引用 |

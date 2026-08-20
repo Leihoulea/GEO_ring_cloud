@@ -2,6 +2,7 @@ import hashlib
 import json
 import io
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -33,6 +34,7 @@ from geo_ring_cloud_auto_uploader import (  # noqa: E402
     progressive_upload_worker_counts,
     sftp_quote,
     subprocess_creation_flags,
+    subprocess_startupinfo,
     validate_server_root,
     write_json_atomic as uploader_write_json_atomic,
 )
@@ -1239,8 +1241,12 @@ class TransferBatchTests(unittest.TestCase):
     def test_windows_ssh_children_use_no_window_flag(self):
         if sys.platform == "win32":
             self.assertNotEqual(subprocess_creation_flags(), 0)
+            startupinfo = subprocess_startupinfo()
+            self.assertIsNotNone(startupinfo)
+            self.assertEqual(startupinfo.wShowWindow, subprocess.SW_HIDE)
         else:
             self.assertEqual(subprocess_creation_flags(), 0)
+            self.assertIsNone(subprocess_startupinfo())
 
     def test_goes_inventory_platform_filter(self):
         target = datetime(2024, 4, 1, tzinfo=timezone.utc)

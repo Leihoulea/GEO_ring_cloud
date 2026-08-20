@@ -21,6 +21,16 @@ if str(CORE_CODE_ROOT) not in sys.path:
 from geo_ring_cloud.paths import EXTERNAL_GEO_CLOUD_ROOT, THIRD_REPORT_ROOT  # noqa: E402
 
 
+def hidden_startupinfo():
+    """Return Windows startup settings that prevent a probe console flash."""
+    if os.name != "nt":
+        return None
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+    return startupinfo
+
+
 PROJECT_ROOT = THIRD_REPORT_ROOT
 DOWNLOAD_ROOT = EXTERNAL_GEO_CLOUD_ROOT
 CODE_DIR = PROJECT_ROOT / "code" / "geo_cloud_download"
@@ -264,6 +274,7 @@ def process_snapshot() -> dict:
             creationflags=(
                 getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
             ),
+            startupinfo=hidden_startupinfo(),
         ).strip()
         if not output:
             return {"known": []}

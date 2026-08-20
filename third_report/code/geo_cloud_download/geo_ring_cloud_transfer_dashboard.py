@@ -200,6 +200,16 @@ def utc_now_text() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def hidden_startupinfo():
+    """Prevent Windows console children from briefly appearing on screen."""
+    if os.name != "nt":
+        return None
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+    return startupinfo
+
+
 def iso_mtime(path: Path) -> str:
     try:
         return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat().replace(
@@ -1681,6 +1691,7 @@ class DashboardState:
                 stdout=stdout_handle,
                 stderr=stderr_handle,
                 creationflags=creationflags,
+                startupinfo=hidden_startupinfo(),
                 start_new_session=os.name != "nt",
             )
 
@@ -2240,6 +2251,7 @@ class DashboardState:
                         stdout=stdout_handle,
                         stderr=stderr_handle,
                         creationflags=creationflags,
+                        startupinfo=hidden_startupinfo(),
                         start_new_session=os.name != "nt",
                     )
             except Exception as exc:
@@ -2402,6 +2414,7 @@ class DashboardState:
                         stdout=stdout_handle,
                         stderr=stderr_handle,
                         creationflags=creationflags,
+                        startupinfo=hidden_startupinfo(),
                         start_new_session=os.name != "nt",
                     )
             except Exception as exc:
@@ -2509,6 +2522,7 @@ class DashboardState:
                     stdout=stdout_handle,
                     stderr=stderr_handle,
                     creationflags=creationflags,
+                    startupinfo=hidden_startupinfo(),
                     start_new_session=os.name != "nt",
                 )
             payload = read_json(status_path)

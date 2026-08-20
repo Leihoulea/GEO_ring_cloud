@@ -70,6 +70,22 @@ def subprocess_creation_flags() -> int:
     return getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
+def subprocess_startupinfo():
+    """Hide transient Windows console windows created by OpenSSH children.
+
+    ``CREATE_NO_WINDOW`` is necessary but is not sufficient on every Windows
+    OpenSSH build: a short-lived ``conhost.exe`` can still be created while an
+    ``ssh.exe`` or ``sftp.exe`` child starts.  Explicitly requesting
+    ``SW_HIDE`` prevents that console from being shown to the desktop user.
+    """
+    if os.name != "nt":
+        return None
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+    return startupinfo
+
+
 def write_json_atomic(
     path: Path,
     payload: Dict[str, object],
@@ -278,6 +294,7 @@ def run_ssh(
         capture_output=True,
         check=False,
         creationflags=subprocess_creation_flags(),
+        startupinfo=subprocess_startupinfo(),
     )
     if check and result.returncode != 0:
         message = (result.stderr or result.stdout or "SSH command failed").strip()
@@ -305,6 +322,7 @@ def run_sftp_batch(
         capture_output=True,
         check=False,
         creationflags=subprocess_creation_flags(),
+        startupinfo=subprocess_startupinfo(),
     )
     if result.returncode != 0:
         message = (result.stderr or result.stdout or "SFTP command failed").strip()
