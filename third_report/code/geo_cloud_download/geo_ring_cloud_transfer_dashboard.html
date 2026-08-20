@@ -58,7 +58,8 @@
     .launcher { padding: 20px; margin-bottom: 16px; }
     .launch-grid { display: grid; grid-template-columns: 1fr 1fr 1.05fr .8fr .8fr; gap: 12px; }
     .field label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
-    .field input, .field select { width: 100%; border: 1px solid var(--line); border-radius: 11px; padding: 10px 11px; background: #fff; color: var(--ink); }
+    .field input, .field select, .field output { width: 100%; border: 1px solid var(--line); border-radius: 11px; padding: 10px 11px; background: #fff; color: var(--ink); }
+    .field output { display: block; min-height: 41px; color: var(--green); font: 700 13px/1.45 Consolas, monospace; overflow-wrap: anywhere; }
     .platform-choices { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
     .platform-choice { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 999px; padding: 8px 11px; background: #faf9f4; font-size: 12px; cursor: pointer; }
     .launch-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
@@ -239,7 +240,7 @@
       <div class="section-head"><h2>FY4B 官方应用本地导入</h2><div class="hint">官方应用下载完成后，仅登记并上传；不会复制、移动或删除原始文件</div></div>
       <div class="launch-grid">
         <div class="field" style="grid-column:span 3"><label for="fy4bSourcePath">FY4B 官方应用下载目录</label><input id="fy4bSourcePath" type="text" placeholder="粘贴官方应用的文件夹路径，例如 F:\\FY4B_official_download"></div>
-        <div class="field" style="grid-column:span 2"><label for="fy4bBatchLabel">FY4B 批次标识</label><input id="fy4bBatchLabel" type="text" placeholder="例如 202404 或 20240401_20240430" pattern="[a-z0-9][a-z0-9_-]{2,63}"></div>
+        <div class="field" style="grid-column:span 2"><label for="fy4bBatchLabel">FY4B 自动批次标识</label><output id="fy4bBatchLabel">填写目录后自动生成</output></div>
       </div>
       <div class="launch-actions"><div class="launch-note">仅接受 FY4B AGRI L2 官方命名的 <code>.NC</code> 文件，并从文件名校验变量、日期与小时；不符合规则的文件不会上传。请先点击“预览映射”。服务端路径固定为 <code>…/FY4B/变量/YYYYMMDD/HH/原始文件名</code>；上传器会在后台计算 SHA-256、断点续传和服务器复核，不会复制、移动或删除原始文件。</div><div><button class="button" id="previewFy4bUploadButton" type="button">预览 FY4B 映射</button> <button class="button primary" id="startFy4bUploadButton" type="button">创建 FY4B 上传批次</button></div></div>
       <div class="fy4b-preview" id="fy4bPreviewPanel" hidden aria-live="polite">
@@ -577,8 +578,10 @@
         const uploadRunning=['RUNNING','STARTING'].includes(autoUpload.status);
         const uploadPassed=autoUpload.status==='PASS';
         const uploadStopped=['FAIL','STOPPED','STALLED'].includes(autoUpload.status);
+        const preparingManifest=autoUpload.phase==='preparing_manifest';
+        const uploadDisplayPercent=preparingManifest ? Number(autoUpload.preflight_percent || 0) : Number(autoUpload.percent || 0);
         badge($("autoUploadBadge"),uploadStopped?'FAIL':autoUpload.status,uploadRunning?'进行中':uploadPassed?'PASS':autoUpload.status==='STOPPED'?'已停止':autoUpload.status==='STALLED'?'疑似卡住':autoUpload.status==='FAIL'?'FAIL':'等待');
-        setWidth('autoUploadBar',autoUpload.percent || 0);
+        setWidth('autoUploadBar',uploadDisplayPercent);
         $("autoUploadPath").textContent='服务器目录：'+(uploadConfig.server_root || '--');
         const continuousMode=autoUpload.mode==='continuous_download_upload';
         $("autoUploadSpeed").textContent='上传速度（近 5 分钟已确认吞吐）：'+(autoUpload.rate_label || '测量中');
@@ -586,7 +589,9 @@
           ? `上传并行：自动模式，当前 ${nf.format(autoUpload.active_workers || 0)} 路 / 上限 ${nf.format(autoUpload.max_workers || 4)} 路（${autoUpload.parallelism_reason || autoUpload.phase || '等待'}）`
           : `上传并行：${nf.format(autoUpload.active_workers || 0)} 路`;
         $("autoUploadCopy").textContent=uploadRunning
-          ? `${continuousMode?'边下边传':'批次上传'}：${nf.format(autoUpload.completed_files || 0)} / ${nf.format(autoUpload.file_count || 0)} 个文件，${pct(autoUpload.percent)}；${autoUpload.current_file || autoUpload.phase || ''}`
+          ? (preparingManifest
+            ? `准备上传清单（本地 SHA-256）：${nf.format(autoUpload.preflight_completed_files || 0)} / ${nf.format(autoUpload.preflight_file_count || autoUpload.file_count || 0)} 个文件，${pct(uploadDisplayPercent)}；${autoUpload.current_file || '正在计算校验值'}`
+            : `${continuousMode?'边下边传':'批次上传'}：${nf.format(autoUpload.completed_files || 0)} / ${nf.format(autoUpload.file_count || 0)} 个文件，${pct(uploadDisplayPercent)}；${autoUpload.current_file || autoUpload.phase || ''}`)
           : uploadPassed
             ? `自动上传与服务器 SHA-256 复核均已通过，共 ${nf.format(autoUpload.completed_files || 0)} 个文件。`
             : uploadStopped
@@ -679,7 +684,8 @@
     let lastFy4bPreview=null;
     function renderFy4bPreview(preview){
       const products=(preview.products||[]).map(product=>`<div class="fy4b-preview-kpi"><b>${esc(product.product)}</b><span>${nf.format(product.file_count||0)} 文件 · ${fmtBytes(product.size_bytes)}<br>${esc(product.first_nominal_time||'--')} 至 ${esc(product.last_nominal_time||'--')}</span></div>`).join('');
-      $("fy4bPreviewSummary").innerHTML=`<div class="fy4b-preview-kpi"><b>${nf.format(preview.file_count||0)} 个文件</b><span>总计 ${fmtBytes(preview.total_size_bytes)}<br>映射规则：变量 / 日期 / 小时</span></div>${products}`;
+      $("fy4bBatchLabel").textContent=preview.suggested_batch_label ? `fy4b_${preview.suggested_batch_label}` : '将在创建时自动生成';
+      $("fy4bPreviewSummary").innerHTML=`<div class="fy4b-preview-kpi"><b>${nf.format(preview.file_count||0)} 个文件</b><span>总计 ${fmtBytes(preview.total_size_bytes)}<br>自动批次：${esc(preview.suggested_batch_label ? `fy4b_${preview.suggested_batch_label}` : '--')}<br>映射规则：变量 / 日期 / 小时</span></div>${products}`;
       const paths=(preview.sample_mappings||[]).map((row,index)=>`${index+1}. 本地：${row.source_relative_path}\n   服务器：${row.remote_path}`).join('\n\n');
       $("fy4bPreviewMappings").textContent=paths || '没有可显示的路径样例。';
       $("fy4bPreviewPanel").hidden=false;
@@ -687,7 +693,7 @@
     }
     $("closeFy4bPreviewButton").addEventListener('click',()=>{$("fy4bPreviewPanel").hidden=true;});
     $("copyFy4bPreviewButton").addEventListener('click',async()=>{try{await navigator.clipboard.writeText($("fy4bPreviewMappings").textContent);toast('FY4B 路径样例已复制');}catch(_){toast('浏览器未允许复制，请手工选择路径');}});
-    $("fy4bSourcePath").addEventListener('input',()=>{lastFy4bPreview=null;$("fy4bPreviewPanel").hidden=true;});
+    $("fy4bSourcePath").addEventListener('input',()=>{lastFy4bPreview=null;$("fy4bPreviewPanel").hidden=true;$("fy4bBatchLabel").textContent='填写目录后自动生成';});
     $("previewFy4bUploadButton").addEventListener('click',async()=>{
       const source_path=$("fy4bSourcePath").value.trim();
       if(!source_path){ toast('请先填写 FY4B 官方应用下载目录'); return; }
@@ -700,13 +706,14 @@
       }catch(error){lastFy4bPreview=null;toast(error.message);}finally{button.disabled=false;}
     });
     $("startFy4bUploadButton").addEventListener('click',async()=>{
-      const source_path=$("fy4bSourcePath").value.trim(), batch_label=$("fy4bBatchLabel").value.trim().toLowerCase();
-      if(!source_path || !batch_label){ toast('请填写 FY4B 官方应用下载目录和批次标识'); return; }
+      const source_path=$("fy4bSourcePath").value.trim();
+      if(!source_path){ toast('请填写 FY4B 官方应用下载目录'); return; }
       const previewText=lastFy4bPreview?`已预览 ${lastFy4bPreview.file_count} 个文件。`:'尚未预览；系统会在创建前重新校验变量、日期和小时。';
-      if(!confirm(`创建 FY4B 本地导入批次 fy4b_${batch_label} 并上传 ${source_path} 中已完成的文件？\n${previewText}\n服务端按 FY4B/变量/YYYYMMDD/HH/原始文件名归档；不会复制、移动或删除官方应用下载的原始文件，上传后会执行服务器 SHA-256 复核。`)) return;
+      const batchLabel=lastFy4bPreview?.suggested_batch_label ? `fy4b_${lastFy4bPreview.suggested_batch_label}` : '自动生成的 FY4B 批次';
+      if(!confirm(`创建 ${batchLabel} 并上传 ${source_path} 中已完成的文件？\n${previewText}\n批次标识由文件实际时间范围自动生成；服务端按 FY4B/变量/YYYYMMDD/HH/原始文件名归档。不会复制、移动或删除官方应用下载的原始文件，上传后会执行服务器 SHA-256 复核。`)) return;
       const button=$("startFy4bUploadButton"); button.disabled=true;
       try{
-        const data=await postJson('/api/actions/start-fy4b-official-upload',{source_path,batch_label});
+        const data=await postJson('/api/actions/start-fy4b-official-upload',{source_path});
         selectedBatchName=data.fy4b.batch_name; const url=new URL(location.href); url.searchParams.set('batch_name',selectedBatchName); history.replaceState({},'',url);
         await refresh(); toast(`FY4B 上传已在后台启动：${data.fy4b.source_file_count || '已登记'} 个文件`);
       }catch(error){ toast(error.message); }finally{ button.disabled=false; }

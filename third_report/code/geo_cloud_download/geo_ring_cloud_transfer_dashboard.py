@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import ast
 import csv
+import hashlib
 import json
 import os
 import re
@@ -1108,6 +1109,23 @@ class DashboardState:
             )
         return sorted(records, key=lambda row: str(row["remote_relative_path"]).lower())
 
+    def _fy4b_batch_label(self, source_root: Path, records: List[Dict[str, object]]) -> str:
+        """Derive a stable, resume-safe FY4B control label from official timestamps."""
+        first_day = min(str(row["nominal_time"])[:8] for row in records)
+        last_day = max(str(row["nominal_time"])[:8] for row in records)
+        base_label = "{}_{}".format(first_day, last_day)
+        base_root = (self.batch_parent / "fy4b_{}".format(base_label)).resolve()
+        if not base_root.exists():
+            return base_label
+        existing = read_json(base_root / "transfer" / "fy4b_official_import_request.json")
+        if str(existing.get("source_root", "")) == str(source_root):
+            return base_label
+        # A different official-client folder may legitimately cover the same
+        # dates.  Add a deterministic source fingerprint instead of asking the
+        # user to invent a label; the raw server archive path is unaffected.
+        source_tag = hashlib.sha256(str(source_root).casefold().encode("utf-8")).hexdigest()[:8]
+        return "{}_{}".format(base_label, source_tag)
+
     def preview_fy4b_official_upload(self, request: Dict[str, object]) -> Dict[str, object]:
         """Return a read-only mapping preview for official FY4B files."""
         source_text = str(request.get("source_path", "")).strip()
@@ -1135,6 +1153,7 @@ class DashboardState:
             )
         return {
             "source_root": str(source_root),
+            "suggested_batch_label": self._fy4b_batch_label(source_root, records),
             "mapping_profile": FY4B_OFFICIAL_MAPPING_PROFILE,
             "remote_root": str(PurePosixPath(self.auto_upload_root) / "FY4B"),
             "file_count": len(records),
@@ -1153,16 +1172,18 @@ class DashboardState:
         """Create a control-only FY4B import batch, then reuse the safe uploader."""
         self._require_upload_configuration()
         source_text = str(request.get("source_path", "")).strip()
-        label = str(request.get("batch_label", "")).strip().lower()
         if not source_text:
             raise RuntimeError("请填写 FY4B 官方应用的本地下载目录。")
-        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{2,63}", label):
-            raise RuntimeError("FY4B 批次标识仅可使用 3–64 位小写字母、数字、下划线或连字符。")
         source_root = Path(source_text).expanduser().resolve()
         if not source_root.is_dir() or source_root == Path(source_root.anchor):
             raise RuntimeError("FY4B 来源必须是存在的非根目录。")
         if any(source_root == parent for parent in self._known_batch_parents()):
             raise RuntimeError("FY4B 来源不能是整个 GEO_Cloud_2024_batches 父目录。")
+
+        records = self._fy4b_source_files(source_root)
+        if not records:
+            raise RuntimeError("FY4B 来源目录中未发现可上传的已完成文件。")
+        label = self._fy4b_batch_label(source_root, records)
 
         batch_name = "fy4b_{}".format(label)
         batch_root = (self.batch_parent / batch_name).resolve()
@@ -1183,9 +1204,6 @@ class DashboardState:
                 return result
             raise RuntimeError("同名 FY4B 批次的控制记录不完整；请使用新的批次标识。")
 
-        records = self._fy4b_source_files(source_root)
-        if not records:
-            raise RuntimeError("FY4B 来源目录中未发现可上传的已完成文件。")
         batch_root.mkdir(parents=True, exist_ok=False)
         transfer_dir.mkdir(parents=True, exist_ok=True)
         files = [

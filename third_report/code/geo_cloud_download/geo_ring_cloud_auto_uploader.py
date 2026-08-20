@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
 if str(CORE_CODE_ROOT) not in sys.path:
@@ -134,6 +134,7 @@ def build_auto_upload_manifest(
     source_manifest_path: Path,
     server_root: PurePosixPath,
     output_path: Optional[Path] = None,
+    progress_callback: Optional[Callable[[Dict[str, object]], None]] = None,
 ) -> Tuple[Path, Dict[str, object]]:
     source_manifest_path = source_manifest_path.resolve()
     source = json.loads(source_manifest_path.read_text(encoding="utf-8"))
@@ -143,8 +144,14 @@ def build_auto_upload_manifest(
     if not source_server_root.is_absolute():
         raise RuntimeError("Transfer manifest has no absolute server_root")
 
+    source_files = list(source.get("files", []))
+    if not source_files:
+        raise RuntimeError("Transfer manifest contains no files")
+    total_source_bytes = sum(int(item.get("size_bytes", 0) or 0) for item in source_files)
     remapped_files: List[Dict[str, object]] = []
-    for item in source.get("files", []):
+    prepared_files = 0
+    prepared_bytes = 0
+    for item in source_files:
         local_path = Path(str(item.get("local_path", "")))
         if not local_path.is_file():
             raise FileNotFoundError("Local source file is missing: {}".format(local_path))
@@ -170,6 +177,25 @@ def build_auto_upload_manifest(
             raise RuntimeError("Local source changed while hashing: {}".format(local_path))
         new_item["remote_path"] = str(server_root / relative)
         remapped_files.append(new_item)
+        prepared_files += 1
+        prepared_bytes += expected_size
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "phase": "preparing_manifest",
+                    "preflight_completed_files": prepared_files,
+                    "preflight_file_count": len(source_files),
+                    "preflight_completed_size_bytes": prepared_bytes,
+                    "preflight_total_size_bytes": total_source_bytes,
+                    "preflight_percent": (
+                        round(prepared_bytes / total_source_bytes * 100, 2)
+                        if total_source_bytes
+                        else 100.0
+                    ),
+                    "current_file": str(local_path),
+                    "current_files": [str(local_path)],
+                }
+            )
 
     if not remapped_files:
         raise RuntimeError("Transfer manifest contains no files")
@@ -801,7 +827,75 @@ def upload_batch(
         raise ValueError(
             "max_upload_workers must be between 1 and {}".format(MAX_UPLOAD_WORKERS)
         )
-    auto_manifest_path, manifest = build_auto_upload_manifest(manifest_path, server_root)
+    source = json.loads(manifest_path.resolve().read_text(encoding="utf-8"))
+    source_files = list(source.get("files", []))
+    source_total_bytes = sum(int(item.get("size_bytes", 0) or 0) for item in source_files)
+    preflight_status: Dict[str, object] = {
+        "project_id": "geo_ring_cloud",
+        "canonical_stage_id": "",
+        "component_role": COMPONENT_ROLE,
+        "related_stage_ids": RELATED_STAGE_IDS,
+        "batch_id": str(source.get("batch_id") or "batch"),
+        "target": target,
+        "server_root": str(server_root),
+        "manifest": str(manifest_path),
+        "status": "RUNNING",
+        "phase": "preparing_manifest",
+        "mode": "adaptive_upload",
+        "started_at": utc_now(),
+        "updated_at": utc_now(),
+        "pid": os.getpid(),
+        "file_count": len(source_files),
+        "completed_files": 0,
+        "total_size_bytes": source_total_bytes,
+        "completed_size_bytes": 0,
+        "preflight_file_count": len(source_files),
+        "preflight_completed_files": 0,
+        "preflight_total_size_bytes": source_total_bytes,
+        "preflight_completed_size_bytes": 0,
+        "preflight_percent": 0.0,
+        "current_file": "",
+        "current_files": [],
+        "parallelism_mode": "adaptive",
+        "active_workers": 0,
+        "max_workers": max_upload_workers,
+        "parallelism_reason": "calculating_sha256_manifest",
+        "automatic_delete": False,
+    }
+    write_json_atomic(status_path, preflight_status)
+    last_preflight_write = 0.0
+
+    def report_manifest_progress(progress: Dict[str, object]) -> None:
+        nonlocal last_preflight_write
+        now = time.monotonic()
+        completed = int(progress.get("preflight_completed_files", 0) or 0)
+        total = int(progress.get("preflight_file_count", 0) or 0)
+        if completed < total and now - last_preflight_write < 0.5:
+            return
+        preflight_status.update(progress)
+        preflight_status["updated_at"] = utc_now()
+        write_json_atomic(status_path, preflight_status)
+        last_preflight_write = now
+
+    try:
+        auto_manifest_path, manifest = build_auto_upload_manifest(
+            manifest_path,
+            server_root,
+            progress_callback=report_manifest_progress,
+        )
+    except Exception as exc:
+        preflight_status.update(
+            {
+                "status": "FAIL",
+                "phase": "failed",
+                "failed_at": utc_now(),
+                "updated_at": utc_now(),
+                "error": "{}: {}".format(type(exc).__name__, exc),
+            }
+        )
+        write_json_atomic(status_path, preflight_status)
+        print(preflight_status["error"], file=sys.stderr)
+        return 2
     files = list(manifest["files"])
     total_bytes = int(manifest["total_size_bytes"])
     batch_id = str(manifest.get("batch_id") or "batch")
@@ -863,11 +957,23 @@ def upload_batch(
 
     update()
     try:
+        update(
+            phase="connectivity_check",
+            current_file="",
+            current_files=[],
+            active_workers=1,
+            parallelism_reason="checking_ssh_connection",
+        )
         run_ssh(target, identity_file, "true", connect_timeout)
         remote_paths = [str(item["remote_path"]) for item in files]
         directories = sorted(
             {str(PurePosixPath(path).parent) for path in remote_paths}
             | {str(control_root)}
+        )
+        update(
+            phase="remote_preflight",
+            active_workers=1,
+            parallelism_reason="checking_remote_completed_files",
         )
         remote = inspect_remote(
             target,

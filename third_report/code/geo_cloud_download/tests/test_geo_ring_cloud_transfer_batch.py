@@ -326,6 +326,8 @@ class TransferBatchTests(unittest.TestCase):
         self.assertIn("preview-fy4b-official-upload", html)
         self.assertIn("fy4bPreviewPanel", html)
         self.assertIn("fy4bPreviewMappings", html)
+        self.assertIn("FY4B 自动批次标识", html)
+        self.assertIn("preparing_manifest", html)
         self.assertIn("复制路径", html)
 
     def test_dashboard_gates_never_delete_raw_data(self):
@@ -1099,9 +1101,11 @@ class TransferBatchTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            progress = []
             output, payload = build_auto_upload_manifest(
                 source,
                 PurePosixPath("/data04/1/dhr/geo_ring_cloud_auto_upload"),
+                progress_callback=progress.append,
             )
             self.assertTrue(output.is_file())
             self.assertEqual(payload["status"], "READY_FOR_AUTOMATED_SFTP_UPLOAD")
@@ -1112,6 +1116,9 @@ class TransferBatchTests(unittest.TestCase):
             self.assertEqual(
                 payload["files"][0]["sha256"], hashlib.sha256(b"immutable").hexdigest()
             )
+            self.assertEqual(progress[-1]["preflight_completed_files"], 1)
+            self.assertEqual(progress[-1]["preflight_file_count"], 1)
+            self.assertEqual(progress[-1]["preflight_percent"], 100.0)
             self.assertFalse(payload["deletion_policy"]["automatic_delete"])
 
     def test_fy4b_official_import_creates_control_batch_without_copying_source(self):
@@ -1142,15 +1149,15 @@ class TransferBatchTests(unittest.TestCase):
                 return_value=fake_process,
             ):
                 result = dashboard.start_fy4b_official_upload(
-                    {"source_path": str(source), "batch_label": "202404"}
+                    {"source_path": str(source)}
                 )
-            batch = root.parent / "fy4b_202404"
+            batch = root.parent / "fy4b_20240401_20240401"
             manifest = json.loads(
-                (batch / "transfer" / "geo_ring_cloud_transfer_fy4b_202404_manifest.json").read_text(
+                (batch / "transfer" / "geo_ring_cloud_transfer_fy4b_20240401_20240401_manifest.json").read_text(
                     encoding="utf-8"
                 )
             )
-            self.assertEqual(result["batch_name"], "fy4b_202404")
+            self.assertEqual(result["batch_name"], "fy4b_20240401_20240401")
             self.assertFalse(result["resumed"])
             self.assertEqual(manifest["file_count"], 1)
             self.assertEqual(manifest["files"][0]["local_path"], str(raw.resolve()))
