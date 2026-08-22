@@ -2,17 +2,17 @@
   "schema_version": 1,
   "project_id": "geo_ring_cloud",
   "component_role": "project_memory_index",
-  "generated_at": "2026-08-22T15:34:55Z",
+  "generated_at": "2026-08-22T15:45:56Z",
   "source_fingerprint": {
     "algorithm": "sha256(path_length+path+content_length+lf_normalized_content)",
-    "sha256": "7d1666e49ef598217126301e930ed59202dbc26b7ad922d769bdf0f18d637cfc",
+    "sha256": "014d212c10793e3ee23eecd701d1113ee4d002c3aec4a6717d74ded428a14df6",
     "file_count": 189
   },
   "index_database": {
     "generated_path": "_GEO_RING_CLOUD_INDEX/geo_ring_cloud_index.sqlite",
     "row_counts": {
       "directories": 36,
-      "files": 1731,
+      "files": 1733,
       "scripts": 146,
       "module_registry": 26,
       "stage_registry": 51,

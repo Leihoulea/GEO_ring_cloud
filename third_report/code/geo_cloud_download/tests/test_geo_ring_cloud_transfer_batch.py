@@ -409,7 +409,11 @@ class TransferBatchTests(unittest.TestCase):
             transfer.mkdir(parents=True)
             raw = root / "raw.nc"
             raw.write_bytes(b"keep")
-            dashboard = DashboardState(root)
+            identity = root / "id_ed25519"
+            identity.write_text("test", encoding="utf-8")
+            dashboard = DashboardState(
+                root, ssh_target="dhr@node05", identity_file=identity
+            )
             with self.assertRaisesRegex(RuntimeError, "先确认允许清理"):
                 dashboard.open_cleanup_folder()
             (transfer / "local_cleanup_approval.json").write_text("{}", encoding="utf-8")
@@ -1384,6 +1388,50 @@ class TransferBatchTests(unittest.TestCase):
             self.assertEqual(status["phase"], "process_exited")
             self.assertEqual(status["exit_code"], 7)
             self.assertIn("退出但没有完成状态", status["error"])
+
+    def test_restart_upload_keeps_prior_remote_preflight_as_display_baseline(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "batch"
+            transfer = root / "transfer"
+            transfer.mkdir(parents=True)
+            (transfer / "geo_ring_cloud_transfer_sample_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "status": "READY_FOR_XFTP_UPLOAD",
+                        "file_count": 10,
+                        "total_size_bytes": 1000,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (transfer / "auto_upload_status.json").write_text(
+                json.dumps(
+                    {
+                        "status": "STOPPED",
+                        "progress_source": "remote_preflight",
+                        "completed_files": 7,
+                        "completed_size_bytes": 700,
+                        "total_size_bytes": 1000,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            identity = root / "id_ed25519"
+            identity.write_text("test", encoding="utf-8")
+            dashboard = DashboardState(
+                root, ssh_target="dhr@node05", identity_file=identity
+            )
+            fake_process = unittest.mock.Mock(pid=12345)
+            fake_process.poll.return_value = None
+            with patch(
+                "geo_ring_cloud_transfer_dashboard.subprocess.Popen",
+                return_value=fake_process,
+            ), patch.object(DashboardState, "_watch_auto_upload_process"):
+                dashboard.start_auto_upload()
+            status = json.loads((transfer / "auto_upload_status.json").read_text(encoding="utf-8"))
+            self.assertEqual(status["completed_files"], 7)
+            self.assertEqual(status["completed_size_bytes"], 700)
+            self.assertEqual(status["progress_source"], "previous_remote_preflight_pending_recheck")
 
     def test_process_identity_rejects_recycled_pid(self):
         fake_process = unittest.mock.Mock()

@@ -2662,6 +2662,14 @@ class DashboardState:
                 raise RuntimeError("自动上传进程已经在运行。")
 
             status_path = transfer_dir / "auto_upload_status.json"
+            previous_files = max(0, int(current.get("completed_files", 0) or 0))
+            previous_bytes = max(0, int(current.get("completed_size_bytes", 0) or 0))
+            previous_total = max(0, int(current.get("total_size_bytes", 0) or 0))
+            previous_source = str(current.get("progress_source", ""))
+            preserve_remote_progress = previous_source in {
+                "remote_preflight",
+                "previous_remote_preflight_pending_recheck",
+            }
             write_json_atomic(
                 status_path,
                 {
@@ -2681,6 +2689,20 @@ class DashboardState:
                     "active_workers": 0,
                     "max_workers": 4,
                     "parallelism_reason": "starting",
+                    "file_count": int(transfer.get("file_count", 0) or 0),
+                    "total_size_bytes": int(transfer.get("total_size_bytes", 0) or 0),
+                    "completed_files": previous_files if preserve_remote_progress else 0,
+                    "completed_size_bytes": previous_bytes if preserve_remote_progress else 0,
+                    "percent": (
+                        round(previous_bytes / previous_total * 100, 2)
+                        if preserve_remote_progress and previous_total
+                        else 0.0
+                    ),
+                    "progress_source": (
+                        "previous_remote_preflight_pending_recheck"
+                        if preserve_remote_progress
+                        else "starting_pending_remote_preflight"
+                    ),
                     "automatic_delete": False,
                 },
             )
