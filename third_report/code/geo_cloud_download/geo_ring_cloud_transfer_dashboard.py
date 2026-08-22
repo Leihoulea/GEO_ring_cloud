@@ -811,6 +811,13 @@ def process_matches_status(payload: Dict[str, object]) -> bool:
         # Lack of an identity probe is not evidence of failure; retain the
         # existing PID-only fallback on systems without psutil permissions.
         return True
+    except Exception as exc:
+        # ``pid_exists`` and ``Process(pid).create_time`` are necessarily two
+        # separate system calls.  A worker can therefore exit in between; that
+        # normal race must be reported as stopped, not crash the HTTP handler.
+        if type(exc).__name__ in {"NoSuchProcess", "ZombieProcess"}:
+            return False
+        return True
 
 
 def background_subprocess_creation_flags() -> int:

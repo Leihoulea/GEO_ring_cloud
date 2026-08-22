@@ -1448,6 +1448,17 @@ class TransferBatchTests(unittest.TestCase):
                 process_matches_status({"pid": 4001, "process_created_epoch": 100.0})
             )
 
+    def test_process_identity_treats_vanished_pid_as_stopped(self):
+        no_such_process = type("NoSuchProcess", (Exception,), {})
+        fake_process = unittest.mock.Mock()
+        fake_process.create_time.side_effect = no_such_process()
+        with patch(
+            "geo_ring_cloud_transfer_dashboard.process_is_running", return_value=True
+        ), patch.dict(sys.modules, {"psutil": unittest.mock.Mock(Process=lambda _pid: fake_process)}):
+            self.assertFalse(
+                process_matches_status({"pid": 4001, "process_created_epoch": 100.0})
+            )
+
     def test_fy4b_official_import_creates_control_batch_without_copying_source(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "GEO_Cloud_2024_batches" / "current_batch"
