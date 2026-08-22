@@ -499,6 +499,11 @@ class TransferBatchTests(unittest.TestCase):
         self.assertIn("复制路径", html)
         self.assertIn('id="taskArchive"', html)
         self.assertIn("function taskRowMarkup(task)", html)
+        self.assertIn(
+            "if(!archived.length){\n        $('taskArchiveList').innerHTML='';\n        // Active tasks still need their click handlers",
+            html,
+        )
+        self.assertIn("bindTaskSelection();\n        return;", html)
 
     def test_dashboard_gates_never_delete_raw_data(self):
         with tempfile.TemporaryDirectory() as temp_dir:

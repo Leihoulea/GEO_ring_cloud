@@ -415,7 +415,14 @@
         : '<div class="empty">没有活动或待处理任务；已完成且本地原始数据已清理的任务在下方归档记录中。</div>';
       const archive=$('taskArchive');
       archive.hidden=!archived.length;
-      if(!archived.length){ $('taskArchiveList').innerHTML=''; return; }
+      if(!archived.length){
+        $('taskArchiveList').innerHTML='';
+        // Active tasks still need their click handlers when there are no
+        // archived rows.  Returning before this bind made task switching
+        // silently stop working for the common all-active-task case.
+        bindTaskSelection();
+        return;
+      }
       $('taskArchiveSummary').textContent=`已归档记录（${nf.format(archived.length)}）`;
       $('taskArchiveList').innerHTML=archived.map(taskRowMarkup).join('');
       if(archived.some(task=>task.batch_name===selectedBatchName)) archive.open=true;
