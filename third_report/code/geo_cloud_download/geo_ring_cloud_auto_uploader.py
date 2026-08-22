@@ -12,6 +12,7 @@ import csv
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -41,10 +42,22 @@ RELATED_STAGE_IDS = ["stage_00"]
 DEFAULT_SERVER_ROOT = PurePosixPath("/data04/1/dhr/geo_ring_cloud_auto_upload")
 DEFAULT_ALLOWED_PARENT = PurePosixPath("/data04/1/dhr")
 MAX_UPLOAD_WORKERS = 4
+DEFAULT_SERVER_VERIFY_WORKERS = 2
+MAX_SERVER_VERIFY_WORKERS = 4
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def current_process_created_epoch() -> Optional[float]:
+    """Return a PID-reuse guard when psutil is available."""
+    try:
+        import psutil  # type: ignore
+
+        return float(psutil.Process(os.getpid()).create_time())
+    except (ImportError, OSError, ValueError):
+        return None
 
 
 def runtime_lineage() -> Dict[str, object]:
@@ -164,6 +177,70 @@ def build_auto_upload_manifest(
     if not source_files:
         raise RuntimeError("Transfer manifest contains no files")
     total_source_bytes = sum(int(item.get("size_bytes", 0) or 0) for item in source_files)
+    batch_id = str(source.get("batch_id") or source_manifest_path.stem)
+    target = output_path or source_manifest_path.parent / (
+        "geo_ring_cloud_auto_upload_{}_manifest.json".format(batch_id)
+    )
+
+    # A completed automatic manifest already contains immutable per-file
+    # SHA-256 values.  Rebuilding it on every resume used to read every FY4B
+    # file again before SFTP could start.  Reuse it only after a cheap local
+    # identity check (path, size, mapped remote path, and checksum shape).
+    # Any mismatch falls through to a full rehash, preserving integrity.
+    existing = read_json_file(target) if target.is_file() else {}
+    existing_files = list(existing.get("files", [])) if isinstance(existing, dict) else []
+    source_by_path = {str(item.get("local_path", "")): item for item in source_files}
+    reusable = (
+        isinstance(existing, dict)
+        and existing.get("status") == "READY_FOR_AUTOMATED_SFTP_UPLOAD"
+        and str(existing.get("source_transfer_manifest", "")) == str(source_manifest_path)
+        and str(existing.get("source_server_root", "")) == str(source_server_root)
+        and str(existing.get("server_root", "")) == str(server_root)
+        and len(existing_files) == len(source_files)
+        and len(source_by_path) == len(source_files)
+    )
+    if reusable:
+        for cached in existing_files:
+            local_key = str(cached.get("local_path", ""))
+            source_item = source_by_path.get(local_key)
+            digest = str(cached.get("sha256", "")).strip().lower()
+            if source_item is None or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                reusable = False
+                break
+            try:
+                expected_size = int(source_item.get("size_bytes", -1))
+                if int(cached.get("size_bytes", -2)) != expected_size:
+                    reusable = False
+                    break
+                local_path = Path(local_key)
+                if not local_path.is_file() or local_path.stat().st_size != expected_size:
+                    reusable = False
+                    break
+                old_remote = PurePosixPath(str(source_item.get("remote_path", "")))
+                expected_remote = str(server_root / old_remote.relative_to(source_server_root))
+                if str(cached.get("remote_path", "")) != expected_remote:
+                    reusable = False
+                    break
+            except (OSError, TypeError, ValueError):
+                reusable = False
+                break
+    if reusable:
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "phase": "preparing_manifest",
+                    "preflight_completed_files": len(existing_files),
+                    "preflight_file_count": len(source_files),
+                    "preflight_completed_size_bytes": total_source_bytes,
+                    "preflight_total_size_bytes": total_source_bytes,
+                    "preflight_percent": 100.0,
+                    "current_file": "",
+                    "current_files": [],
+                    "preflight_reused_existing_sha256": True,
+                }
+            )
+        return target, existing
+
     remapped_files: List[Dict[str, object]] = []
     prepared_files = 0
     prepared_bytes = 0
@@ -216,10 +293,6 @@ def build_auto_upload_manifest(
     if not remapped_files:
         raise RuntimeError("Transfer manifest contains no files")
 
-    batch_id = str(source.get("batch_id") or source_manifest_path.stem)
-    target = output_path or source_manifest_path.parent / (
-        "geo_ring_cloud_auto_upload_{}_manifest.json".format(batch_id)
-    )
     payload = dict(source)
     payload.update(
         {
@@ -522,6 +595,32 @@ def load_stream_ledger(path: Path) -> Dict[str, Dict[str, object]]:
     return completed
 
 
+def ledger_progress_for_files(
+    files: Sequence[Dict[str, object]], ledger: Dict[str, Dict[str, object]]
+) -> Tuple[int, int]:
+    """Return conservatively matched continuous-upload progress.
+
+    A continuous ledger entry is only a progress observation until the remote
+    preflight checks it again.  Matching both local path and expected size
+    keeps that observation useful without allowing an old or changed file to
+    inflate the displayed count.
+    """
+    completed_files = 0
+    completed_bytes = 0
+    for item in files:
+        local_path = str(item.get("local_path", ""))
+        expected_size = int(item.get("size_bytes", 0) or 0)
+        entry = ledger.get(local_path, {})
+        try:
+            recorded_size = int(entry.get("size_bytes", -1) or -1)
+        except (TypeError, ValueError):
+            recorded_size = -1
+        if local_path and recorded_size == expected_size:
+            completed_files += 1
+            completed_bytes += expected_size
+    return completed_files, completed_bytes
+
+
 def append_stream_ledger(path: Path, row: Dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
@@ -603,6 +702,7 @@ def watch_and_upload(
     poll_seconds: int = 10,
     connect_timeout: int = 20,
     max_upload_workers: int = MAX_UPLOAD_WORKERS,
+    server_verify_workers: int = DEFAULT_SERVER_VERIFY_WORKERS,
 ) -> int:
     """Upload finalized files while the downloader continues, then reconcile fully."""
     batch_root = batch_root.resolve()
@@ -632,6 +732,7 @@ def watch_and_upload(
         "started_at": started_at,
         "updated_at": started_at,
         "pid": os.getpid(),
+        "process_created_epoch": current_process_created_epoch(),
         "batch_root": str(batch_root),
         "target": target,
         "server_root": str(server_root),
@@ -686,6 +787,7 @@ def watch_and_upload(
                 verification_report,
                 connect_timeout,
                 max_upload_workers,
+                server_verify_workers,
             )
 
         raw_batch = read_json_file(transfer_dir / "batch_status.json")
@@ -782,6 +884,10 @@ def watch_and_upload(
                         "local_path": str(local_path),
                         "remote_path": remote_path,
                         "size_bytes": expected_size,
+                        "local_signature": {
+                            "size_bytes": int(after.st_size),
+                            "mtime_ns": int(after.st_mtime_ns),
+                        },
                         "sha256": digest,
                         "remote_preexisting": final_size is not None,
                     }
@@ -838,6 +944,7 @@ def upload_batch(
     verification_report: Path,
     connect_timeout: int = 20,
     max_upload_workers: int = MAX_UPLOAD_WORKERS,
+    server_verify_workers: int = DEFAULT_SERVER_VERIFY_WORKERS,
 ) -> int:
     validate_server_root(server_root, allowed_parent)
     ensure_tools_and_identity(identity_file)
@@ -845,9 +952,42 @@ def upload_batch(
         raise ValueError(
             "max_upload_workers must be between 1 and {}".format(MAX_UPLOAD_WORKERS)
         )
+    if not 1 <= server_verify_workers <= MAX_SERVER_VERIFY_WORKERS:
+        raise ValueError(
+            "server_verify_workers must be between 1 and {}".format(MAX_SERVER_VERIFY_WORKERS)
+        )
     source = json.loads(manifest_path.resolve().read_text(encoding="utf-8"))
     source_files = list(source.get("files", []))
     source_total_bytes = sum(int(item.get("size_bytes", 0) or 0) for item in source_files)
+    continuous_ledger = load_stream_ledger(status_path.parent / "continuous_upload_ledger.jsonl")
+    ledger_completed_files, ledger_completed_bytes = ledger_progress_for_files(
+        source_files, continuous_ledger
+    )
+    # A restarted uploader always performs remote preflight again before it
+    # skips any payload.  Preserve a bounded, previously confirmed remote
+    # observation merely as a UI baseline so an interrupted preflight does not
+    # appear to erase hundreds of completed uploads.
+    previous_status = read_json_file(status_path)
+    prior_completed_files = max(
+        0,
+        min(len(source_files), int(previous_status.get("completed_files", 0) or 0)),
+    )
+    prior_completed_bytes = max(
+        0,
+        min(source_total_bytes, int(previous_status.get("completed_size_bytes", 0) or 0)),
+    )
+    prior_is_remote_observation = str(previous_status.get("progress_source", "")) in {
+        "remote_preflight",
+        "previous_remote_preflight_pending_recheck",
+    }
+    if prior_is_remote_observation:
+        ledger_completed_files = max(ledger_completed_files, prior_completed_files)
+        ledger_completed_bytes = max(ledger_completed_bytes, prior_completed_bytes)
+    ledger_percent = (
+        round(ledger_completed_bytes / source_total_bytes * 100, 2)
+        if source_total_bytes
+        else 100.0
+    )
     preflight_status: Dict[str, object] = {
         "project_id": "geo_ring_cloud",
         "canonical_stage_id": "",
@@ -863,10 +1003,17 @@ def upload_batch(
         "started_at": utc_now(),
         "updated_at": utc_now(),
         "pid": os.getpid(),
+        "process_created_epoch": current_process_created_epoch(),
         "file_count": len(source_files),
-        "completed_files": 0,
+        "completed_files": ledger_completed_files,
         "total_size_bytes": source_total_bytes,
-        "completed_size_bytes": 0,
+        "completed_size_bytes": ledger_completed_bytes,
+        "percent": ledger_percent,
+        "progress_source": (
+            "previous_remote_preflight_pending_recheck"
+            if prior_is_remote_observation
+            else "continuous_upload_ledger_pending_remote_preflight"
+        ),
         "preflight_file_count": len(source_files),
         "preflight_completed_files": 0,
         "preflight_total_size_bytes": source_total_bytes,
@@ -877,7 +1024,7 @@ def upload_batch(
         "parallelism_mode": "adaptive",
         "active_workers": 0,
         "max_workers": max_upload_workers,
-        "parallelism_reason": "calculating_sha256_manifest",
+        "parallelism_reason": "preserving_continuous_upload_progress_while_preparing_manifest",
         "automatic_delete": False,
     }
     write_json_atomic(status_path, preflight_status)
@@ -926,6 +1073,8 @@ def upload_batch(
         verifier_local.stem, short_sha256(verifier_local)
     )
     remote_report = control_root / "server_verification.json"
+    remote_progress = control_root / "server_verification_progress.json"
+    local_progress = status_path.parent / "server_verification_progress.json"
 
     base_status: Dict[str, object] = {
         "project_id": "geo_ring_cloud",
@@ -942,10 +1091,13 @@ def upload_batch(
         "started_at": utc_now(),
         "updated_at": utc_now(),
         "pid": os.getpid(),
+        "process_created_epoch": current_process_created_epoch(),
         "file_count": len(files),
-        "completed_files": 0,
+        "completed_files": ledger_completed_files,
         "total_size_bytes": total_bytes,
-        "completed_size_bytes": 0,
+        "completed_size_bytes": ledger_completed_bytes,
+        "percent": ledger_percent,
+        "progress_source": "continuous_upload_ledger_pending_remote_preflight",
         "current_file": "",
         "current_files": [],
         "parallelism_mode": "adaptive",
@@ -991,7 +1143,7 @@ def upload_batch(
         update(
             phase="remote_preflight",
             active_workers=1,
-            parallelism_reason="checking_remote_completed_files",
+            parallelism_reason="checking_remote_completed_files_preserving_continuous_progress",
         )
         remote = inspect_remote(
             target,
@@ -1027,6 +1179,7 @@ def upload_batch(
             completed_files=completed_files,
             completed_size_bytes=completed_bytes,
             percent=round(completed_bytes / total_bytes * 100, 2) if total_bytes else 100.0,
+            progress_source="remote_preflight",
             parallelism_reason="download_complete_ramping",
         )
         cursor = 0
@@ -1108,19 +1261,91 @@ def upload_batch(
                 resume=control_state.get("part_size") is not None,
             )
 
-        update(phase="server_sha256_verification", current_file="")
-        verify_command = "python3 {} verify --manifest {} --report {} --location server".format(
+        update(
+            phase="server_sha256_verification",
+            current_file="",
+            current_files=[],
+            active_workers=server_verify_workers,
+            parallelism_reason="server_sha256_verification_{}way".format(server_verify_workers),
+            verification_status="RUNNING",
+            verification_file_count=len(files),
+            verification_completed_files=0,
+            verification_failed_files=0,
+            verification_total_size_bytes=total_bytes,
+            verification_completed_size_bytes=0,
+            verification_percent=0.0,
+            verification_current_file="",
+        )
+        verify_command = "python3 {} verify --manifest {} --report {} --progress {} --location server --workers {}".format(
             shlex.quote(str(remote_verifier)),
             shlex.quote(str(remote_manifest)),
             shlex.quote(str(remote_report)),
+            shlex.quote(str(remote_progress)),
+            server_verify_workers,
         )
-        verification = run_ssh(
-            target,
-            identity_file,
-            verify_command,
-            connect_timeout,
-            check=False,
-        )
+
+        def sync_verification_progress() -> None:
+            try:
+                download_one(
+                    target,
+                    identity_file,
+                    str(remote_progress),
+                    local_progress,
+                    connect_timeout,
+                )
+            except (OSError, RuntimeError):
+                # The first poll can occur before the server-side verifier has
+                # written its initial control record.  Verification remains
+                # authoritative even if this observational refresh is missed.
+                return
+            progress = read_json_file(local_progress)
+            if not progress:
+                return
+            total_progress_files = max(
+                0, min(len(files), int(progress.get("total_file_count", len(files)) or 0))
+            )
+            completed_progress_files = max(
+                0,
+                min(total_progress_files, int(progress.get("completed_file_count", 0) or 0)),
+            )
+            total_progress_bytes = max(
+                0, int(progress.get("total_size_bytes", total_bytes) or 0)
+            )
+            completed_progress_bytes = max(
+                0,
+                min(
+                    total_progress_bytes,
+                    int(progress.get("completed_size_bytes", 0) or 0),
+                ),
+            )
+            update(
+                verification_status=str(progress.get("status", "RUNNING")),
+                verification_file_count=total_progress_files,
+                verification_completed_files=completed_progress_files,
+                verification_failed_files=max(
+                    0, int(progress.get("failed_file_count", 0) or 0)
+                ),
+                verification_total_size_bytes=total_progress_bytes,
+                verification_completed_size_bytes=completed_progress_bytes,
+                verification_percent=float(progress.get("percent", 0) or 0),
+                verification_current_file=str(progress.get("current_file", "")),
+            )
+
+        with ThreadPoolExecutor(max_workers=1) as verification_executor:
+            verification_future = verification_executor.submit(
+                run_ssh,
+                target,
+                identity_file,
+                verify_command,
+                connect_timeout,
+                None,
+                False,
+            )
+            while not verification_future.done():
+                time.sleep(5)
+                sync_verification_progress()
+            verification = verification_future.result()
+        sync_verification_progress()
         download_one(
             target,
             identity_file,
@@ -1200,6 +1425,13 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         choices=range(1, MAX_UPLOAD_WORKERS + 1),
         help="After download completion, ramp SFTP streams up to this value (1-4).",
     )
+    parser.add_argument(
+        "--server-verify-workers",
+        type=int,
+        default=DEFAULT_SERVER_VERIFY_WORKERS,
+        choices=range(1, MAX_SERVER_VERIFY_WORKERS + 1),
+        help="Bounded concurrent SHA-256 reads on the lab server (default: 2).",
+    )
     return parser.parse_args(argv)
 
 
@@ -1236,6 +1468,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             args.poll_seconds,
             args.connect_timeout,
             args.max_upload_workers,
+            args.server_verify_workers,
         )
     return upload_batch(
         manifest_path,
@@ -1247,6 +1480,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         report_path,
         args.connect_timeout,
         args.max_upload_workers,
+        args.server_verify_workers,
     )
 
 

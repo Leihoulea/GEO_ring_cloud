@@ -43,6 +43,37 @@ DEFAULT_S3_RANGE_MIB = 4
 DEFAULT_INVENTORY_WORKERS = 8
 MAX_S3_WORKERS = 16
 MAX_INVENTORY_WORKERS = 16
+
+
+class AdaptiveS3RangeController:
+    """Per-source bounded Range controller targeting 4--12 s requests."""
+
+    def __init__(self, initial_mib: int) -> None:
+        self._mib = initial_mib
+        self._lock = threading.Lock()
+        self._stable = 0
+
+    def current_mib(self) -> int:
+        with self._lock:
+            return self._mib
+
+    def snapshot(self) -> dict[str, int]:
+        """Return lightweight telemetry without exposing mutable controller state."""
+        with self._lock:
+            return {"range_mib": self._mib, "stable_segments": self._stable}
+
+    def record(self, elapsed_seconds: float, success: bool) -> None:
+        with self._lock:
+            if not success or elapsed_seconds > 16.0:
+                self._mib = max(1, self._mib // 2)
+                self._stable = 0
+            elif 4.0 <= elapsed_seconds <= 12.0:
+                self._stable += 1
+                if self._stable >= 8:
+                    self._mib = min(64, self._mib * 2)
+                    self._stable = 0
+            else:
+                self._stable = 0
 MAX_METEOSAT_WORKERS = 8
 DEFAULT_ADAPTIVE_MIN_WORKERS = 2
 DEFAULT_ADAPTIVE_INITIAL_WORKERS = 4
@@ -1643,6 +1674,7 @@ def download_s3_row(
     s3_client,
     row: dict,
     range_mib: int = DEFAULT_S3_RANGE_MIB,
+    range_controller: Optional[AdaptiveS3RangeController] = None,
 ) -> tuple[bool, str]:
     """Download one S3 object with resumable bounded Range requests."""
     target = Path(row["local_path"])
@@ -1662,7 +1694,6 @@ def download_s3_row(
             Bucket=row["bucket"], Key=row["remote_key_or_product_id"]
         )
         expected_size = int(metadata["ContentLength"])
-    range_bytes = range_mib * 1024 * 1024
     if tmp.exists() and tmp.stat().st_size > expected_size:
         platform_root = next(
             (ancestor for ancestor in target.parents if ancestor.name in PLATFORM_CHOICES),
@@ -1678,6 +1709,8 @@ def download_s3_row(
     resumed_from = tmp.stat().st_size if tmp.exists() else 0
     offset = resumed_from
     while offset < expected_size:
+        effective_mib = range_controller.current_mib() if range_controller else range_mib
+        range_bytes = effective_mib * 1024 * 1024
         range_end = min(offset + range_bytes - 1, expected_size - 1)
         last_error = ""
         segment_complete = False
@@ -1685,6 +1718,7 @@ def download_s3_row(
             if delay:
                 time.sleep(delay)
             body = None
+            started = time.monotonic()
             try:
                 response = s3_client.get_object(
                     Bucket=row["bucket"],
@@ -1703,9 +1737,13 @@ def download_s3_row(
                     handle.write(segment)
                     handle.flush()
                 offset += len(segment)
+                if range_controller:
+                    range_controller.record(time.monotonic() - started, True)
                 segment_complete = True
                 break
             except Exception as exc:
+                if range_controller:
+                    range_controller.record(time.monotonic() - started, False)
                 last_error = f"{type(exc).__name__}: {exc}"
                 if delay_index == len(RETRY_DELAYS_SECONDS):
                     return False, (
@@ -1893,9 +1931,17 @@ def run_download_s3_range(
         )
         log.flush()
 
+        range_controllers: dict[str, AdaptiveS3RangeController] = {}
+        range_controller_lock = threading.Lock()
+
         def worker(row: dict) -> dict:
             s3_client = get_s3_client()
-            success, note = download_s3_row(s3_client, row, range_mib=range_mib)
+            source = str(row.get("bucket") or "default")
+            with range_controller_lock:
+                controller = range_controllers.setdefault(source, AdaptiveS3RangeController(range_mib))
+            success, note = download_s3_row(
+                s3_client, row, range_mib=range_mib, range_controller=controller
+            )
             out = dict(row)
             out["status"] = "downloaded" if success else "corrupt"
             out["note"] = note
@@ -1915,6 +1961,25 @@ def run_download_s3_range(
             )
         )
 
+        adaptive_status = {
+            "updated_at_utc": utc_now(),
+            "initial_range_mib": range_mib,
+            "target_request_seconds": {"min": 4, "max": 12},
+            "backoff_request_seconds": 16,
+            "sources": {
+                source: controller.snapshot()
+                for source, controller in sorted(range_controllers.items())
+            },
+        }
+        manifest_path(root, "s3_range_adaptive_status.json").write_text(
+            json.dumps(adaptive_status, indent=2), encoding="utf-8"
+        )
+        log.write(
+            f"{utc_now()} s3_range_adaptive_final "
+            f"sources={json.dumps(adaptive_status['sources'], sort_keys=True)}\n"
+        )
+        log.flush()
+
     out_path = manifest_path(root, "manifest_downloaded.csv")
     write_csv(out_path, downloaded)
     run_validate(root)
@@ -1927,7 +1992,21 @@ def run_validate(root: Path) -> None:
     inventory_rows = read_manifest(inventory_path) if inventory_path.exists() else []
     downloaded_rows = read_manifest(downloaded_path) if downloaded_path.exists() else []
 
-    missing_rows = [row for row in inventory_rows if row["status"] != "found"]
+    # Inventory discovery and local completeness are separate audit questions.
+    # Neither is an upload gate: a batch may intentionally proceed with the
+    # files that were available, but the dashboard must make omissions visible.
+    unavailable_remote_rows = [row for row in inventory_rows if row["status"] != "found"]
+    expected_local_missing_rows: list[dict] = []
+    for row in inventory_rows:
+        if row.get("status") != "found":
+            continue
+        local_path = row.get("local_path", "")
+        if not local_path:
+            expected_local_missing_rows.append({**row, "note": "expected_found_row_has_no_local_path"})
+            continue
+        ok, note = validate_file(Path(local_path), row)
+        if not ok:
+            expected_local_missing_rows.append({**row, "note": f"expected_local_missing_or_invalid:{note}"})
     corrupt_rows: list[dict] = []
     seen: dict[str, dict] = {}
     duplicate_rows: list[dict] = []
@@ -1946,7 +2025,10 @@ def run_validate(root: Path) -> None:
         if not ok:
             corrupt_rows.append({**row, "note": note})
 
-    write_csv(manifest_path(root, "missing_targets.csv"), missing_rows)
+    # Keep the historical filename for compatibility; its rows mean that the
+    # upstream inventory did not expose a target, not that a local file is absent.
+    write_csv(manifest_path(root, "missing_targets.csv"), unavailable_remote_rows)
+    write_csv(manifest_path(root, "expected_local_missing.csv"), expected_local_missing_rows)
     write_csv(manifest_path(root, "corrupt_files.csv"), corrupt_rows)
     write_csv(manifest_path(root, "duplicate_files.csv"), duplicate_rows)
 
@@ -1954,7 +2036,15 @@ def run_validate(root: Path) -> None:
         "created_at": utc_now(),
         "inventory_rows": len(inventory_rows),
         "downloaded_rows": len(downloaded_rows),
-        "missing_rows": len(missing_rows),
+        "missing_rows": len(unavailable_remote_rows),
+        "remote_unavailable_rows": len(unavailable_remote_rows),
+        "expected_found_rows": sum(1 for row in inventory_rows if row.get("status") == "found"),
+        "expected_local_missing_rows": len(expected_local_missing_rows),
+        "completeness_audit": {
+            "status": "WARN" if expected_local_missing_rows else "PASS",
+            "is_upload_gate": False,
+            "missing_report": "manifests/expected_local_missing.csv",
+        },
         "corrupt_rows": len(corrupt_rows),
         "duplicate_rows": len(duplicate_rows),
     }

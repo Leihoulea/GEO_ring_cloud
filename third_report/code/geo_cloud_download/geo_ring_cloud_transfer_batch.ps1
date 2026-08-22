@@ -36,6 +36,7 @@ $TransferRoot = Join-Path $BatchRoot "transfer"
 $StatusPath = Join-Path $TransferRoot "batch_status.json"
 $RunLog = Join-Path $TransferRoot "batch_run.log"
 $LockPath = Join-Path $TransferRoot "batch_run.lock"
+$CondaTempRoot = Join-Path $TransferRoot "conda_tmp"
 $CondaExe = $GeoRingCondaExe
 $AllowedPlatforms = @("GOES-16", "GOES-18", "Himawari-9", "Meteosat-0deg", "Meteosat-IODC")
 $SelectedPlatforms = @(
@@ -176,13 +177,23 @@ function Invoke-DownloadPython {
     # be inspected.  Capture the complete diagnostic stream, then decide solely
     # from the native process exit code.
     $previousErrorActionPreference = $ErrorActionPreference
+    $previousTemp = $env:TEMP
+    $previousTmp = $env:TMP
     try {
+        # ``conda run`` creates wrapper files beneath TEMP.  Isolating that
+        # small control directory per transfer batch prevents independent
+        # launches from racing over a shared Windows Conda temporary file.
+        New-Item -ItemType Directory -Force -Path $CondaTempRoot | Out-Null
+        $env:TEMP = $CondaTempRoot
+        $env:TMP = $CondaTempRoot
         $ErrorActionPreference = "Continue"
         $commandOutput = & $CondaExe run -n $CondaEnvironment python @Arguments 2>&1
         $commandExitCode = $LASTEXITCODE
     }
     finally {
         $ErrorActionPreference = $previousErrorActionPreference
+        if ($null -eq $previousTemp) { Remove-Item Env:\TEMP -ErrorAction SilentlyContinue } else { $env:TEMP = $previousTemp }
+        if ($null -eq $previousTmp) { Remove-Item Env:\TMP -ErrorAction SilentlyContinue } else { $env:TMP = $previousTmp }
     }
     if ($commandOutput) {
         $commandOutput | Add-Content -LiteralPath $RunLog -Encoding UTF8
@@ -316,7 +327,10 @@ try {
     }
 
     Clear-DownloadProxy
-    Write-BatchStatus -Phase "manifest" -Status "running" -Message "Computing SHA-256 checksums."
+    # The raw files are complete at this point.  Keep the final manifest
+    # preparation auditable, but release the dashboard's download slot so a
+    # space-gated next batch can begin while this read-only SHA-256 pass runs.
+    Write-BatchStatus -Phase "manifest" -Status "finalizing" -Message "Raw download complete; computing final SHA-256 manifest."
     Invoke-DownloadPython -Arguments @(
         $TransferTool, "prepare", "--batch-root", $BatchRoot,
         "--output-dir", $TransferRoot, "--server-root", $ServerRoot,

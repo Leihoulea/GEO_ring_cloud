@@ -14,6 +14,8 @@ import json
 import os
 import re
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -140,6 +142,55 @@ def find_partial_files(batch_root: Path) -> List[str]:
     return sorted(partial_files)
 
 
+def file_signature(path: Path) -> Dict[str, int]:
+    stat = path.stat()
+    return {"size_bytes": int(stat.st_size), "mtime_ns": int(stat.st_mtime_ns)}
+
+
+def load_integrity_cache(transfer_dir: Path) -> Dict[str, Dict[str, object]]:
+    """Read only trustworthy, signature-bound SHA-256 ledger entries.
+
+    Older ledgers without an mtime signature are deliberately ignored: size
+    alone is insufficient to reuse a checksum for an immutable transfer
+    manifest.
+    """
+    cache: Dict[str, Dict[str, object]] = {}
+    for path in (
+        transfer_dir / "file_integrity_ledger.jsonl",
+        transfer_dir / "continuous_upload_ledger.jsonl",
+    ):
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            signature = row.get("local_signature") if isinstance(row, dict) else None
+            digest = str(row.get("sha256", "")) if isinstance(row, dict) else ""
+            local_path = str(row.get("local_path", "")) if isinstance(row, dict) else ""
+            if (
+                local_path
+                and isinstance(signature, dict)
+                and len(digest) == 64
+                and all(key in signature for key in ("size_bytes", "mtime_ns"))
+            ):
+                cache[local_path] = row
+    return cache
+
+
+def append_integrity_records(path: Path, records: List[Dict[str, object]]) -> None:
+    if not records:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        handle.flush()
+
+
 def write_csv_manifest(path: Path, rows: List[Dict[str, object]]) -> None:
     fields = [
         "platform",
@@ -149,6 +200,7 @@ def write_csv_manifest(path: Path, rows: List[Dict[str, object]]) -> None:
         "remote_path",
         "size_bytes",
         "sha256",
+        "sha256_source",
     ]
     with path.open("w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
@@ -179,6 +231,8 @@ def prepare_manifest(
         )
 
     rows: List[Dict[str, object]] = []
+    cached_hashes = load_integrity_cache(output_dir)
+    newly_hashed: List[Dict[str, object]] = []
     for platform, local_path, relative in iter_batch_files(
         batch_root, start_day, end_day, platforms
     ):
@@ -187,6 +241,26 @@ def prepare_manifest(
         remote_path = server_root / PLATFORM_REMOTE_RELATIVE[platform] / PurePosixPath(
             relative.as_posix()
         )
+        signature = file_signature(local_path)
+        cached = cached_hashes.get(str(local_path))
+        cached_signature = cached.get("local_signature", {}) if cached else {}
+        if cached_signature == signature:
+            digest = str(cached["sha256"])
+            hash_source = "signature_matched_ledger"
+        else:
+            digest = sha256_file(local_path)
+            if file_signature(local_path) != signature:
+                raise RuntimeError("Local source changed while hashing: {}".format(local_path))
+            hash_source = "computed_for_manifest"
+            newly_hashed.append(
+                {
+                    "recorded_at": utc_now(),
+                    "local_path": str(local_path),
+                    "local_signature": signature,
+                    "sha256": digest,
+                    "source": hash_source,
+                }
+            )
         rows.append(
             {
                 "platform": platform,
@@ -195,7 +269,8 @@ def prepare_manifest(
                 "local_path": str(local_path),
                 "remote_path": str(remote_path),
                 "size_bytes": local_path.stat().st_size,
-                "sha256": sha256_file(local_path),
+                "sha256": digest,
+                "sha256_source": hash_source,
             }
         )
 
@@ -203,6 +278,7 @@ def prepare_manifest(
         raise RuntimeError("No data files matched the requested batch")
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    append_integrity_records(output_dir / "file_integrity_ledger.jsonl", newly_hashed)
     batch_id = "{}_{}".format(start_day, end_day)
     csv_path = output_dir / "geo_ring_cloud_transfer_{}_files.csv".format(batch_id)
     json_path = output_dir / "geo_ring_cloud_transfer_{}_manifest.json".format(batch_id)
@@ -272,10 +348,76 @@ def prepare_manifest(
     return json_path
 
 
-def verify_manifest(manifest_path: Path, report_path: Path, location: str) -> int:
+def write_json_atomic(path: Path, payload: Dict[str, object]) -> None:
+    """Write a small control record without exposing a partially written JSON file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(".{}.{}.tmp".format(path.name, os.getpid()))
+    try:
+        temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(temporary, path)
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def verify_manifest(
+    manifest_path: Path,
+    report_path: Path,
+    location: str,
+    progress_path: Optional[Path] = None,
+    workers: int = 1,
+) -> int:
+    if not 1 <= workers <= 4:
+        raise ValueError("verification workers must be between 1 and 4")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    results = []
-    for row in manifest.get("files", []):
+    files = list(manifest.get("files", []))
+    total_files = len(files)
+    total_bytes = sum(int(row.get("size_bytes", 0) or 0) for row in files)
+    completed_files = 0
+    completed_bytes = 0
+    failed_files = 0
+    last_progress_write = 0.0
+    verification_started = time.monotonic()
+
+    def write_progress(status: str, current_file: str = "", force: bool = False) -> None:
+        nonlocal last_progress_write
+        if progress_path is None:
+            return
+        now = time.monotonic()
+        if not force and now - last_progress_write < 2.0:
+            return
+        payload = {
+            "project_id": manifest.get("project_id", "geo_ring_cloud"),
+            "canonical_stage_id": "",
+            "component_role": COMPONENT_ROLE,
+            "related_stage_ids": RELATED_STAGE_IDS,
+            "location": location,
+            "status": status,
+            "phase": "server_sha256_verification",
+            "total_file_count": total_files,
+            "completed_file_count": completed_files,
+            "failed_file_count": failed_files,
+            "total_size_bytes": total_bytes,
+            "completed_size_bytes": completed_bytes,
+            "percent": round(completed_bytes / total_bytes * 100, 2) if total_bytes else 100.0,
+            "current_file": current_file,
+            "worker_count": workers,
+            "throughput_bps": round(
+                completed_bytes / max(time.monotonic() - verification_started, 0.001), 2
+            ),
+            "updated_at": utc_now(),
+        }
+        try:
+            write_json_atomic(progress_path, payload)
+            last_progress_write = now
+        except OSError:
+            # Progress is observational.  A transient control-directory lock
+            # must not invalidate a completed SHA-256 verification.
+            pass
+
+    def verify_row(row: Dict[str, object]) -> Dict[str, object]:
         candidate = Path(row["remote_path"] if location == "server" else row["local_path"])
         result = {
             "path": str(candidate),
@@ -292,9 +434,33 @@ def verify_manifest(manifest_path: Path, report_path: Path, location: str) -> in
                 result["sha256_match"] = result["actual_sha256"] == row["sha256"]
         if result["exists"] and result["size_match"] and result["sha256_match"]:
             result["status"] = "PASS"
-        results.append(result)
+        return result
 
-    failures = [row for row in results if row["status"] != "PASS"]
+    results: List[Optional[Dict[str, object]]] = [None] * total_files
+    write_progress("RUNNING", force=True)
+    if workers == 1:
+        completed_rows = ((index, row, verify_row(row)) for index, row in enumerate(files))
+    else:
+        executor = ThreadPoolExecutor(max_workers=workers)
+        futures = {executor.submit(verify_row, row): (index, row) for index, row in enumerate(files)}
+        completed_rows = (
+            (futures[future][0], futures[future][1], future.result())
+            for future in as_completed(futures)
+        )
+    try:
+        for index, row, result in completed_rows:
+            results[index] = result
+            completed_files += 1
+            completed_bytes += int(row.get("size_bytes", 0) or 0)
+            if result["status"] != "PASS":
+                failed_files += 1
+            write_progress("RUNNING", str(result["path"]))
+    finally:
+        if workers > 1:
+            executor.shutdown(wait=True)
+
+    finalized_results = [row for row in results if row is not None]
+    failures = [row for row in finalized_results if row["status"] != "PASS"]
     report = {
         "project_id": manifest.get("project_id", "geo_ring_cloud"),
         "canonical_stage_id": "",
@@ -306,11 +472,16 @@ def verify_manifest(manifest_path: Path, report_path: Path, location: str) -> in
         "status": "PASS" if results and not failures else "FAIL",
         "verified_file_count": len(results),
         "failed_file_count": len(failures),
+        "total_file_count": total_files,
+        "total_size_bytes": total_bytes,
+        "completed_size_bytes": completed_bytes,
+        "percent": round(completed_bytes / total_bytes * 100, 2) if total_bytes else 100.0,
         "delete_local_allowed": False,
-        "results": results,
+        "results": finalized_results,
     }
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    write_progress(str(report["status"]), force=True)
     print(report_path)
     return 0 if report["status"] == "PASS" else 2
 
@@ -331,6 +502,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     verify.add_argument("--manifest", required=True)
     verify.add_argument("--report", required=True)
     verify.add_argument("--location", choices=("local", "server"), required=True)
+    verify.add_argument("--progress", help="Optional JSON progress record, updated during verification.")
+    verify.add_argument("--workers", type=int, default=1, choices=range(1, 5))
     return parser.parse_args(argv)
 
 
@@ -347,7 +520,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
         print(manifest)
         return 0
-    return verify_manifest(Path(args.manifest), Path(args.report), args.location)
+    return verify_manifest(
+        Path(args.manifest),
+        Path(args.report),
+        args.location,
+        Path(args.progress) if args.progress else None,
+        args.workers,
+    )
 
 
 if __name__ == "__main__":

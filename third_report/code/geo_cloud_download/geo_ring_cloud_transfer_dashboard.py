@@ -78,6 +78,7 @@ AUTO_UPLOADER_PATH = APP_ROOT / "geo_ring_cloud_auto_uploader.py"
 NOTIFICATION_SERVICE_PATH = APP_ROOT / "geo_ring_cloud_notification_service.py"
 BATCH_SCRIPT_PATH = APP_ROOT / "geo_ring_cloud_transfer_batch.ps1"
 AUTO_UPLOAD_STALE_SECONDS = 15 * 60
+CONTROL_ONLY_BATCH_CHILDREN = frozenset({"transfer", "logs", "manifests", "conda_tmp"})
 DOWNLOAD_PLATFORM_NAMES = (
     "GOES-16",
     "GOES-18",
@@ -628,11 +629,65 @@ def transfer_manifest_status(transfer_dir: Path) -> Dict[str, object]:
     }
 
 
+def local_payload_presence(batch_root: Path, transfer_dir: Path) -> Dict[str, object]:
+    """Cheaply distinguish retained raw payload from control-only batch folders.
+
+    This deliberately looks only at direct children, rather than recursively
+    scanning data files on every five-second dashboard refresh.  Normal GEO
+    batches keep their platform/raw directories directly under ``batch_root``.
+    FY4B imports retain the official-client source outside the control batch,
+    so that source root is inspected instead.  An unreadable folder remains
+    ``unknown`` and is never auto-archived.
+    """
+    source_root = batch_root
+    ignore_names = CONTROL_ONLY_BATCH_CHILDREN
+    request = read_json(transfer_dir / "fy4b_official_import_request.json")
+    configured_source = str(request.get("source_root", "")).strip()
+    if configured_source:
+        source_root = Path(configured_source)
+        ignore_names = frozenset()
+    try:
+        if not source_root.exists():
+            return {"state": "absent", "root": str(source_root), "reason": "source_root_missing"}
+        with os.scandir(source_root) as entries:
+            for entry in entries:
+                if entry.name not in ignore_names:
+                    return {"state": "present", "root": str(source_root), "reason": "payload_entry_present"}
+    except OSError as exc:
+        return {"state": "unknown", "root": str(source_root), "reason": type(exc).__name__}
+    return {"state": "absent", "root": str(source_root), "reason": "only_control_records_remain"}
+
+
 def server_verification_status(transfer_dir: Path) -> Dict[str, object]:
     exact = transfer_dir / "server_verification.json"
-    path = exact if exact.is_file() else latest_file(transfer_dir, "server_verification*.json")
+    progress_path = transfer_dir / "server_verification_progress.json"
+    if exact.is_file():
+        path: Optional[Path] = exact
+    else:
+        reports = [
+            candidate
+            for candidate in transfer_dir.glob("server_verification*.json")
+            if candidate.is_file() and candidate.name != progress_path.name
+        ]
+        path = max(reports, key=lambda candidate: candidate.stat().st_mtime) if reports else None
+    progress = read_json(progress_path) if progress_path.is_file() else {}
     if path is None:
-        return {"exists": False, "status": "PENDING", "path": ""}
+        if not progress:
+            return {"exists": False, "status": "PENDING", "path": ""}
+        return {
+            "exists": True,
+            "path": str(progress_path),
+            "status": progress.get("status", "RUNNING"),
+            "verified_file_count": progress.get("completed_file_count", 0),
+            "total_file_count": progress.get("total_file_count", 0),
+            "failed_file_count": progress.get("failed_file_count", 0),
+            "total_size_bytes": progress.get("total_size_bytes", 0),
+            "completed_size_bytes": progress.get("completed_size_bytes", 0),
+            "percent": progress.get("percent", 0),
+            "current_file": progress.get("current_file", ""),
+            "verified_at": progress.get("updated_at", iso_mtime(progress_path)),
+            "failure_examples": [],
+        }
     payload = read_json(path)
     failures = [row for row in payload.get("results", []) if row.get("status") != "PASS"]
     return {
@@ -640,7 +695,12 @@ def server_verification_status(transfer_dir: Path) -> Dict[str, object]:
         "path": str(path),
         "status": payload.get("status", "UNKNOWN"),
         "verified_file_count": payload.get("verified_file_count", 0),
+        "total_file_count": payload.get("total_file_count", payload.get("verified_file_count", 0)),
         "failed_file_count": payload.get("failed_file_count", len(failures)),
+        "total_size_bytes": payload.get("total_size_bytes", 0),
+        "completed_size_bytes": payload.get("completed_size_bytes", 0),
+        "percent": payload.get("percent", 100.0 if payload.get("status") == "PASS" else 0),
+        "current_file": "",
         "verified_at": payload.get("verified_at", iso_mtime(path)),
         "failure_examples": failures[:5],
     }
@@ -676,7 +736,7 @@ def auto_upload_status(transfer_dir: Path) -> Dict[str, object]:
     payload.setdefault("percent", 0)
     status = str(payload.get("status", "UNKNOWN")).upper()
     terminal_statuses = {"PASS", "FAIL", "FAILED", "STOPPED", "EXITED", "CANCELLED", "CANCELED"}
-    process_alive = False if status in terminal_statuses else process_is_running(payload.get("pid"))
+    process_alive = False if status in terminal_statuses else process_matches_status(payload)
     payload["process_alive"] = process_alive
     if status not in {"STARTING", "RUNNING"}:
         return payload
@@ -729,6 +789,45 @@ def process_is_running(pid: object) -> bool:
         return False
     except (TypeError, ValueError):
         return False
+
+
+def process_matches_status(payload: Dict[str, object]) -> bool:
+    """Reject a recycled Windows PID when the worker recorded its birth time."""
+    if not process_is_running(payload.get("pid")):
+        return False
+    expected = payload.get("process_created_epoch")
+    try:
+        expected_epoch = float(expected)
+    except (TypeError, ValueError):
+        return True
+    if expected_epoch <= 0:
+        return True
+    try:
+        import psutil  # type: ignore
+
+        observed_epoch = float(psutil.Process(int(payload["pid"])).create_time())
+        return abs(observed_epoch - expected_epoch) < 2.0
+    except (ImportError, OSError, ValueError, KeyError, TypeError):
+        # Lack of an identity probe is not evidence of failure; retain the
+        # existing PID-only fallback on systems without psutil permissions.
+        return True
+
+
+def background_subprocess_creation_flags() -> int:
+    """Launch durable Windows workers without opening a console window.
+
+    The dashboard may itself be hosted in a Windows job object.  A background
+    downloader/uploader must explicitly break away when that host permits it;
+    otherwise it can disappear as soon as the request that created it returns.
+    ``CREATE_NO_WINDOW`` preserves the no-black-console user experience.
+    """
+    if os.name != "nt":
+        return 0
+    return (
+        getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        | getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+    )
 
 
 def inspect_batch_lock(lock_path: Path) -> Dict[str, object]:
@@ -897,7 +996,11 @@ def build_pipeline_stages(
         xftp_state = "pending"
         upload_detail = "等待自动 SFTP 或人工 Xftp"
     server_state = "pass" if server.get("status") == "PASS" else (
-        "fail" if server.get("status") == "FAIL" else "pending"
+        "fail"
+        if server.get("status") == "FAIL"
+        else "running"
+        if server.get("status") == "RUNNING"
+        else "pending"
     )
     cleanup_state = (
         "pass"
@@ -918,11 +1021,24 @@ def build_pipeline_stages(
             validation_state,
             "validation",
             "本地校验",
-            "等待完整批次" if not validation else "损坏记录 {}".format(validation.get("corrupt_rows", 0)),
+            "等待完整批次" if not validation else "损坏记录 {}；预期本地缺失 {}（仅审计，不阻断）".format(
+                validation.get("corrupt_rows", 0), validation.get("expected_local_missing_rows", 0)
+            ),
         ),
         stage(transfer_state, "manifest", "传输清单", transfer.get("status", "等待生成")),
         stage(xftp_state, "upload", "上传到服务器", upload_detail),
-        stage(server_state, "server", "服务器复核", server.get("status", "等待报告")),
+        stage(
+            server_state,
+            "server",
+            "服务器复核",
+            "{} / {} 个文件，{}%".format(
+                server.get("verified_file_count", 0),
+                server.get("total_file_count", 0),
+                server.get("percent", 0),
+            )
+            if server_state == "running"
+            else server.get("status", "等待报告"),
+        ),
         stage(
             cleanup_state,
             "cleanup",
@@ -1331,17 +1447,40 @@ class DashboardState:
         upload = auto_upload_status(transfer_dir)
         transfer = transfer_manifest_status(transfer_dir)
         server = server_verification_status(transfer_dir)
+        payload = local_payload_presence(batch_root, transfer_dir)
         xftp = marker_status(transfer_dir / "xftp_upload_complete.json")
-        error = str(launcher.get("message") or raw.get("message") or upload.get("error") or "")
-        disk_gate = enrich_disk_gate(parse_disk_gate(error), batch_root)
+        cleanup = marker_status(transfer_dir / "local_cleanup_approval.json")
         download_status = str(launcher.get("status", "UNKNOWN"))
         if raw.get("status") == "complete":
             download_status = "COMPLETE"
+        elif raw.get("status") == "finalizing":
+            # The PowerShell batch is still building the final immutable
+            # manifest, but it no longer writes raw payload files.  It must
+            # not monopolize the single-download scheduler slot.
+            download_status = "FINALIZING"
         elif raw.get("status") == "failed":
             download_status = "FAIL"
         upload_status = str(upload.get("status", "PENDING"))
         if xftp.get("payload", {}).get("status") == "AUTOMATED_SFTP_COMPLETE":
             upload_status = "PASS"
+        upload_error = str(upload.get("error") or "")
+        # A completed FY4B import intentionally reports that it did not run a
+        # remote downloader.  That informational message must not conceal a
+        # real later upload failure in the task centre.
+        if upload_status in {"FAIL", "STOPPED", "STALLED"} and upload_error:
+            error = upload_error
+        else:
+            error = str(launcher.get("message") or raw.get("message") or upload_error)
+        disk_gate = enrich_disk_gate(parse_disk_gate(error), batch_root)
+        archive_ready = (
+            download_status == "COMPLETE"
+            and upload_status == "PASS"
+            and str(server.get("status", "")) == "PASS"
+        )
+        # Archiving is a display classification only.  It never moves or
+        # deletes the transfer records, and a non-readable source remains in
+        # the main task list for safety.
+        archived = archive_ready and payload.get("state") == "absent"
         updated_candidates = [
             str(raw.get("updated_at", "")),
             str(launcher.get("updated_at", "")),
@@ -1364,6 +1503,10 @@ class DashboardState:
             "upload_percent": float(upload.get("percent", 0) or 0),
             "server_status": str(server.get("status", "PENDING")),
             "transfer_status": str(transfer.get("status", "PENDING")),
+            "cleanup_approved": bool(cleanup.get("exists")),
+            "local_payload": payload,
+            "archive_ready": archive_ready,
+            "archived": archived,
             "error": error,
             "disk_gate": disk_gate,
             "updated_at": max(updated_candidates),
@@ -1549,6 +1692,15 @@ class DashboardState:
                 item.update(
                     status="COMPLETE",
                     status_message="下载批次已完成。",
+                    updated_at=utc_now_text(),
+                )
+            elif download_status == "FINALIZING":
+                item.update(
+                    # Keep this queue item semantically active so a duplicate
+                    # request is not accepted, while _active_download_task()
+                    # releases the slot for the next batch.
+                    status="RUNNING",
+                    status_message="原始下载已完成，正在生成最终 SHA-256 清单；不占用下一批下载槽位。",
                     updated_at=utc_now_text(),
                 )
             elif download_status in {"FAIL", "failed"}:
@@ -1780,6 +1932,41 @@ class DashboardState:
         )
         write_json_atomic(launcher_status_path, payload)
 
+    @staticmethod
+    def _watch_auto_upload_process(
+        process: subprocess.Popen,
+        status_path: Path,
+    ) -> None:
+        """Persist a terminal reason when an uploader exits without reporting one."""
+        exit_code = process.wait()
+        payload = read_json(status_path)
+        try:
+            recorded_pid = int(payload.get("pid", 0) or 0)
+        except (TypeError, ValueError):
+            recorded_pid = 0
+        # A launcher may hand off to a child process which has already written
+        # its own PID.  Do not overwrite that newer worker's status.
+        if recorded_pid and recorded_pid != process.pid and process_matches_status(payload):
+            return
+        status = str(payload.get("status", "")).upper()
+        if status in {"PASS", "FAIL", "FAILED", "STOPPED", "CANCELLED", "CANCELED"}:
+            return
+        payload.update(
+            {
+                "status": "PASS" if exit_code == 0 and status == "PASS" else "FAIL",
+                "phase": "process_exited",
+                "process_alive": False,
+                "exit_code": exit_code,
+                "finished_at": utc_now_text(),
+                "updated_at": utc_now_text(),
+                "error": (
+                    "自动上传进程退出但没有完成状态：exit_code={}，最后阶段为 {}。"
+                ).format(exit_code, payload.get("phase", "unknown")),
+                "automatic_delete": False,
+            }
+        )
+        write_json_atomic(status_path, payload)
+
     def status(self, batch_name: str = "") -> Dict[str, object]:
         batch_root = self._resolve_existing_batch(batch_name)
         manifest_dir = batch_root / "manifests"
@@ -1828,6 +2015,11 @@ class DashboardState:
                 + int(met_validation.get("corrupt_rows", 0)),
                 "downloaded_rows": int(s3_validation.get("downloaded_rows", 0))
                 + int(met_validation.get("downloaded_rows", 0)),
+                "expected_local_missing_rows": int(
+                    s3_validation.get("expected_local_missing_rows", 0)
+                ),
+                "expected_found_rows": int(s3_validation.get("expected_found_rows", 0)),
+                "completeness_audit": s3_validation.get("completeness_audit", {}),
             }
         inventory_total = int(s3_inventory.get("found", 0)) + int(
             met_inventory.get("found", 0)
@@ -2223,12 +2415,7 @@ class DashboardState:
             environment["no_proxy"] = "*"
             stdout_path = batch_root / "transfer" / "launcher.stdout.log"
             stderr_path = batch_root / "transfer" / "launcher.stderr.log"
-            creationflags = 0
-            if os.name == "nt":
-                creationflags = (
-                    getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                    | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-                )
+            creationflags = background_subprocess_creation_flags()
             launcher_payload = {
                 "project_id": "geo_ring_cloud",
                 "canonical_stage_id": "",
@@ -2412,11 +2599,7 @@ class DashboardState:
                 command.extend(["--platform", str(platform)])
             stdout_path = transfer_dir / "continuous_upload.stdout.log"
             stderr_path = transfer_dir / "continuous_upload.stderr.log"
-            creationflags = 0
-            if os.name == "nt":
-                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
-                    subprocess, "DETACHED_PROCESS", 0
-                )
+            creationflags = background_subprocess_creation_flags()
             try:
                 with stdout_path.open("ab") as stdout_handle, stderr_path.open(
                     "ab"
@@ -2523,11 +2706,7 @@ class DashboardState:
             ]
             stdout_path = transfer_dir / "auto_upload.stdout.log"
             stderr_path = transfer_dir / "auto_upload.stderr.log"
-            creationflags = 0
-            if os.name == "nt":
-                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
-                    subprocess, "DETACHED_PROCESS", 0
-                )
+            creationflags = background_subprocess_creation_flags()
             with stdout_path.open("ab") as stdout_handle, stderr_path.open("ab") as stderr_handle:
                 process = subprocess.Popen(
                     command,
@@ -2541,8 +2720,18 @@ class DashboardState:
                 )
             payload = read_json(status_path)
             payload["pid"] = process.pid
+            payload["process_alive"] = process.poll() is None
             payload["updated_at"] = utc_now_text()
             write_json_atomic(status_path, payload)
+            if process.poll() is None:
+                threading.Thread(
+                    target=self._watch_auto_upload_process,
+                    args=(process, status_path),
+                    daemon=True,
+                    name="geo-cloud-auto-upload-watcher-{}".format(process.pid),
+                ).start()
+            else:
+                self._watch_auto_upload_process(process, status_path)
             return {
                 "status": "STARTING",
                 "pid": process.pid,
