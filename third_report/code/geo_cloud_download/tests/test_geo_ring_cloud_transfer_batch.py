@@ -1165,6 +1165,49 @@ class TransferBatchTests(unittest.TestCase):
             self.assertTrue(process_is_running(34056))
             destructive_probe.assert_not_called()
 
+    def test_download_status_reconciles_from_terminal_artifacts(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "batch"
+            transfer = root / "transfer"
+            manifests = root / "manifests"
+            transfer.mkdir(parents=True)
+            manifests.mkdir(parents=True)
+            (transfer / "download_launcher_status.json").write_text(
+                json.dumps({"status": "FAIL", "pid": 1234}), encoding="utf-8"
+            )
+            (manifests / "download_summary.json").write_text(
+                json.dumps(
+                    {
+                        "downloaded_rows": 1436,
+                        "expected_found_rows": 1436,
+                        "expected_local_missing_rows": 0,
+                        "remote_unavailable_rows": 4,
+                        "completeness_audit": {"status": "PASS"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (transfer / "geo_ring_cloud_transfer_test_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "status": "READY_FOR_XFTP_UPLOAD",
+                        "file_count": 1436,
+                        "total_size_bytes": 100,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            status = download_launcher_status(transfer, {"status": "running"})
+
+            self.assertEqual(status["status"], "COMPLETE")
+            self.assertFalse(status["process_alive"])
+            self.assertEqual(
+                status["reconciliation_source"],
+                "download_summary_and_transfer_manifest",
+            )
+            self.assertEqual(status["remote_unavailable_rows"], 4)
+
     def test_status_record_retries_transient_windows_lock(self):
         import os
 

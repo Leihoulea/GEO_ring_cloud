@@ -928,6 +928,39 @@ def download_launcher_status(
     payload["path"] = str(path)
     payload.setdefault("status", "UNKNOWN")
     payload.setdefault("message", "")
+    # A launcher can disappear after the downloader has already completed all
+    # locally available targets and written the immutable transfer manifest.
+    # Re-running that batch while its uploader is reading the same manifest is
+    # unnecessary and risks control-file contention.  Reconcile only from the
+    # two independent, terminal artifacts produced by the downloader.
+    summary = read_json(transfer_dir.parent / "manifests" / "download_summary.json")
+    audit = summary.get("completeness_audit", {})
+    transfer = transfer_manifest_status(transfer_dir)
+    locally_complete = (
+        str(audit.get("status", "")).upper() == "PASS"
+        and int(summary.get("expected_local_missing_rows", -1) or 0) == 0
+        and int(summary.get("downloaded_rows", -1) or 0)
+        == int(summary.get("expected_found_rows", -2) or 0)
+        and int(summary.get("downloaded_rows", 0) or 0) > 0
+        and str(transfer.get("status", "")).upper() == "READY_FOR_XFTP_UPLOAD"
+    )
+    if locally_complete:
+        changed = str(payload.get("status", "")).upper() != "COMPLETE"
+        payload.update(
+            {
+                "status": "COMPLETE",
+                "process_alive": False,
+                "finished_at": payload.get("finished_at") or utc_now_text(),
+                "updated_at": utc_now_text(),
+                "message": "本地可获得目标已全部下载，完整性审计和传输清单均已通过。",
+                "reconciliation_source": "download_summary_and_transfer_manifest",
+                "downloaded_rows": int(summary.get("downloaded_rows", 0) or 0),
+                "remote_unavailable_rows": int(summary.get("remote_unavailable_rows", 0) or 0),
+            }
+        )
+        if changed:
+            write_json_atomic(path, payload)
+        return payload
     terminal_statuses = {
         "FAIL",
         "FAILED",
@@ -1529,6 +1562,9 @@ class DashboardState:
             str(upload.get("updated_at", "")),
             str(server.get("verified_at", "")),
         ]
+        download_phase = raw.get("phase", "waiting")
+        if launcher.get("reconciliation_source") == "download_summary_and_transfer_manifest":
+            download_phase = "ready_for_xftp"
         return {
             "batch_name": batch_root.name,
             "batch_root": str(batch_root),
@@ -1536,7 +1572,7 @@ class DashboardState:
             "end_date": raw.get("end_date", launcher.get("end_date", "")),
             "platforms": raw.get("platforms", launcher.get("platforms", [])),
             "download_status": download_status,
-            "download_phase": raw.get("phase", "waiting"),
+            "download_phase": download_phase,
             "download_process_alive": bool(launcher.get("process_alive")),
             "upload_status": upload_status,
             "upload_phase": upload.get("phase", "waiting"),
