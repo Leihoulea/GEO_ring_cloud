@@ -70,6 +70,7 @@ Thumbs.db
 /third_report/code/**/*.h5
 /third_report/code/**/*.ipynb
 /third_report/code/geo_cloud_download/*.log
+/third_report/code/geo_cloud_download/logs/
 /third_report/code/geo_cloud_download/*.pid
 /third_report/code/geo_cloud_download/current_download_pid.txt
 /third_report/code/geo_cloud_download/*status.json
