@@ -1156,12 +1156,14 @@ class TransferBatchTests(unittest.TestCase):
 
             self.assertEqual([row[1] for row in discovered], [final_file.resolve()])
 
-    def test_windows_permission_error_uses_read_only_pid_fallback(self):
+    def test_windows_pid_probe_never_calls_os_kill(self):
         with patch(
-            "geo_ring_cloud_transfer_dashboard.os.kill",
-            side_effect=PermissionError,
-        ), patch("psutil.pid_exists", return_value=True):
+            "geo_ring_cloud_transfer_dashboard.os.name", "nt"
+        ), patch(
+            "geo_ring_cloud_transfer_dashboard.os.kill"
+        ) as destructive_probe, patch("psutil.pid_exists", return_value=True):
             self.assertTrue(process_is_running(34056))
+            destructive_probe.assert_not_called()
 
     def test_status_record_retries_transient_windows_lock(self):
         import os

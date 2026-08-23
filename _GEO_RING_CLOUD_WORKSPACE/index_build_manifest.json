@@ -2,10 +2,10 @@
   "schema_version": 1,
   "project_id": "geo_ring_cloud",
   "component_role": "project_memory_index",
-  "generated_at": "2026-08-23T17:25:51Z",
+  "generated_at": "2026-08-23T17:39:09Z",
   "source_fingerprint": {
     "algorithm": "sha256(path_length+path+content_length+lf_normalized_content)",
-    "sha256": "a59301580d48a79baab024bc336b12ded3df2164abeb110ba9804b2510e791c1",
+    "sha256": "435c5af5a725ed230a95761a88c843ca5d7be8913c924fafa91a1a39d5c2aacc",
     "file_count": 191
   },
   "index_database": {

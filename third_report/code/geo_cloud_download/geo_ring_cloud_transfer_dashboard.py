@@ -791,21 +791,25 @@ def process_is_running(pid: object) -> bool:
         numeric_pid = int(pid)
         if numeric_pid <= 0:
             return False
+    except (TypeError, ValueError):
+        return False
+    if os.name == "nt":
+        # ``os.kill(pid, 0)`` is a harmless existence probe on POSIX.  CPython's
+        # Windows implementation routes non-console signals through
+        # TerminateProcess, however, so signal 0 can terminate the target with
+        # exit code 0.  This became catastrophic once an upload worker used the
+        # dashboard PID: merely refreshing /api/status killed the dashboard.
+        # psutil.pid_exists only queries the process table and is safe here.
+        try:
+            import psutil  # type: ignore
+
+            return psutil.pid_exists(numeric_pid)
+        except (ImportError, OSError, ValueError):
+            return False
+    try:
         os.kill(numeric_pid, 0)
         return True
     except (OSError, SystemError):
-        # Windows may return access denied *or* ERROR_INVALID_PARAMETER for
-        # os.kill(pid, 0) even when the PID is healthy.  psutil's PID table
-        # query remains read-only and avoids falsely marking that task failed.
-        if os.name == "nt":
-            try:
-                import psutil  # type: ignore
-
-                return psutil.pid_exists(numeric_pid)
-            except (ImportError, OSError, ValueError):
-                return False
-        return False
-    except (TypeError, ValueError):
         return False
 
 
