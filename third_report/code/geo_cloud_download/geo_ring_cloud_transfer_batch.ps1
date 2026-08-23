@@ -6,6 +6,11 @@ param(
     [string]$StartDate = "2024-04-01",
     [string]$EndDate = "2024-04-01",
     [string]$CondaEnvironment = "pytorch",
+    # The dashboard already knows the interpreter it is running under.  Passing
+    # it through avoids a second ``conda run`` wrapper for detached workers.
+    # That wrapper can report success after its child finishes while the
+    # PowerShell orchestrator has not yet written its terminal batch status.
+    [string]$PythonExe = "",
     [string]$Platforms = "GOES-16,GOES-18",
     [ValidateRange(1, 16)]
     [int]$InventoryWorkers = 8,
@@ -38,6 +43,13 @@ $RunLog = Join-Path $TransferRoot "batch_run.log"
 $LockPath = Join-Path $TransferRoot "batch_run.lock"
 $CondaTempRoot = Join-Path $TransferRoot "conda_tmp"
 $CondaExe = $GeoRingCondaExe
+$ResolvedPythonExe = ""
+if (-not [string]::IsNullOrWhiteSpace($PythonExe)) {
+    $ResolvedPythonExe = [System.IO.Path]::GetFullPath($PythonExe)
+    if (-not (Test-Path -LiteralPath $ResolvedPythonExe -PathType Leaf)) {
+        throw "Python executable does not exist: $ResolvedPythonExe"
+    }
+}
 $AllowedPlatforms = @("GOES-16", "GOES-18", "Himawari-9", "Meteosat-0deg", "Meteosat-IODC")
 $SelectedPlatforms = @(
     $Platforms.Split(",") |
@@ -187,7 +199,16 @@ function Invoke-DownloadPython {
         $env:TEMP = $CondaTempRoot
         $env:TMP = $CondaTempRoot
         $ErrorActionPreference = "Continue"
-        $commandOutput = & $CondaExe run -n $CondaEnvironment python @Arguments 2>&1
+        if ($ResolvedPythonExe) {
+            # Invoke the exact interpreter selected by the dashboard.  Besides
+            # avoiding Conda's temporary wrapper process, this keeps the
+            # downloader and dashboard in the same tested environment.
+            $commandOutput = & $ResolvedPythonExe @Arguments 2>&1
+        }
+        else {
+            # Preserve the documented CLI fallback for manual PowerShell use.
+            $commandOutput = & $CondaExe run -n $CondaEnvironment python @Arguments 2>&1
+        }
         $commandExitCode = $LASTEXITCODE
     }
     finally {

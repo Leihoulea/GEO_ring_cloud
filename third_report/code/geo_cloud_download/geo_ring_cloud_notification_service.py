@@ -31,7 +31,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--batch-root", required=True)
     parser.add_argument("--state-path")
-    parser.add_argument("--interval-seconds", type=int, default=15)
+    parser.add_argument("--interval-seconds", type=int, default=30 * 60)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--test-email", action="store_true")
     return parser.parse_args(argv)

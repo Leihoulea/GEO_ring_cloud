@@ -33,6 +33,7 @@ from geo_ring_cloud_transfer_dashboard import (  # noqa: E402
 )
 from geo_ring_cloud_auto_uploader import (  # noqa: E402
     build_auto_upload_manifest,
+    chunked_items,
     discover_completed_files,
     ledger_progress_for_files,
     progressive_upload_worker_counts,
@@ -190,6 +191,14 @@ class TransferBatchTests(unittest.TestCase):
         self.assertEqual(progressive_upload_worker_counts(13, 4), [2, 3, 4, 4])
         self.assertEqual(progressive_upload_worker_counts(5, 3), [2, 3])
         self.assertEqual(progressive_upload_worker_counts(3, 1), [1, 1, 1])
+
+    def test_remote_preflight_is_bounded_into_small_batches(self):
+        self.assertEqual(
+            [list(chunk) for chunk in chunked_items(["a", "b", "c", "d", "e"], 2)],
+            [["a", "b"], ["c", "d"], ["e"]],
+        )
+        with self.assertRaises(ValueError):
+            list(chunked_items(["a"], 0))
 
     def test_download_adaptive_parallelism_probes_and_backs_off(self):
         probe, reason = geo_cloud_downloader.choose_adaptive_worker_count(
@@ -669,6 +678,8 @@ class TransferBatchTests(unittest.TestCase):
         self.assertIn('$CondaTempRoot = Join-Path $TransferRoot "conda_tmp"', script)
         self.assertIn('$env:TEMP = $CondaTempRoot', function_body)
         self.assertIn('$env:TMP = $CondaTempRoot', function_body)
+        self.assertIn("if ($ResolvedPythonExe)", function_body)
+        self.assertIn("& $ResolvedPythonExe @Arguments", function_body)
 
     def test_start_download_recovers_unowned_stale_control_lock(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -844,6 +855,8 @@ class TransferBatchTests(unittest.TestCase):
             self.assertIn("12", command)
             self.assertIn("-DownloadWorkers", command)
             self.assertIn("-AdaptiveDownload", command)
+            self.assertIn("-PythonExe", command)
+            self.assertIn(sys.executable, command)
             self.assertTrue(result["adaptive_download"])
             environment = popen.call_args.kwargs["env"]
             self.assertEqual(environment["NO_PROXY"], "*")
@@ -1426,17 +1439,26 @@ class TransferBatchTests(unittest.TestCase):
             dashboard = DashboardState(
                 root, ssh_target="dhr@node05", identity_file=identity
             )
-            fake_process = unittest.mock.Mock(pid=12345)
-            fake_process.poll.return_value = None
-            with patch(
-                "geo_ring_cloud_transfer_dashboard.subprocess.Popen",
-                return_value=fake_process,
-            ), patch.object(DashboardState, "_watch_auto_upload_process"):
+            with patch.object(DashboardState, "_start_dashboard_upload_worker"):
                 dashboard.start_auto_upload()
             status = json.loads((transfer / "auto_upload_status.json").read_text(encoding="utf-8"))
             self.assertEqual(status["completed_files"], 7)
             self.assertEqual(status["completed_size_bytes"], 700)
             self.assertEqual(status["progress_source"], "previous_remote_preflight_pending_recheck")
+
+    def test_dashboard_upload_worker_marks_unreported_clean_return_as_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "batch"
+            transfer = root / "transfer"
+            transfer.mkdir(parents=True)
+            status_path = transfer / "auto_upload_status.json"
+            status_path.write_text(json.dumps({"status": "RUNNING"}), encoding="utf-8")
+            dashboard = DashboardState(root)
+            with patch("geo_ring_cloud_transfer_dashboard.auto_uploader_main", return_value=0):
+                dashboard._run_dashboard_upload_worker([], status_path, root)
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            self.assertEqual(status["status"], "FAIL")
+            self.assertEqual(status["phase"], "worker_returned_without_terminal_status")
 
     def test_process_identity_rejects_recycled_pid(self):
         fake_process = unittest.mock.Mock()
@@ -1481,13 +1503,7 @@ class TransferBatchTests(unittest.TestCase):
                 auto_upload_root="/data04/1/dhr/geo_ring_cloud_auto_upload",
                 allowed_server_parent="/data04/1/dhr",
             )
-            fake_process = unittest.mock.Mock(pid=24683)
-            with patch(
-                "geo_ring_cloud_transfer_dashboard.subprocess.Popen",
-                return_value=fake_process,
-            ), patch.object(
-                DashboardState, "_watch_auto_upload_process"
-            ):
+            with patch.object(DashboardState, "_start_dashboard_upload_worker"):
                 result = dashboard.start_fy4b_official_upload(
                     {"source_path": str(source)}
                 )

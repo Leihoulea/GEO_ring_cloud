@@ -43,6 +43,7 @@ DEFAULT_SERVER_ROOT = PurePosixPath("/data04/1/dhr/geo_ring_cloud_auto_upload")
 DEFAULT_ALLOWED_PARENT = PurePosixPath("/data04/1/dhr")
 MAX_UPLOAD_WORKERS = 4
 DEFAULT_SERVER_VERIFY_WORKERS = 2
+REMOTE_PREFLIGHT_CHUNK_SIZE = 128
 MAX_SERVER_VERIFY_WORKERS = 4
 
 
@@ -495,6 +496,14 @@ def progressive_upload_worker_counts(total_files: int, max_workers: int) -> List
         remaining -= wave_size
         workers = min(workers + 1, max_workers)
     return waves
+
+
+def chunked_items(items: Sequence[str], chunk_size: int) -> Iterable[Sequence[str]]:
+    """Yield bounded remote-preflight requests without materializing copies."""
+    if chunk_size < 1:
+        raise ValueError("chunk_size must be positive")
+    for offset in range(0, len(items), chunk_size):
+        yield items[offset : offset + chunk_size]
 
 
 def upload_manifest_item(
@@ -1136,24 +1145,41 @@ def upload_batch(
         )
         run_ssh(target, identity_file, "true", connect_timeout)
         remote_paths = [str(item["remote_path"]) for item in files]
-        directories = sorted(
-            {str(PurePosixPath(path).parent) for path in remote_paths}
-            | {str(control_root)}
-        )
         update(
             phase="remote_preflight",
             active_workers=1,
-            parallelism_reason="checking_remote_completed_files_preserving_continuous_progress",
+            preflight_file_count=len(remote_paths),
+            preflight_completed_files=0,
+            preflight_percent=0.0,
+            parallelism_reason="checking_remote_completed_files_in_bounded_batches",
         )
-        remote = inspect_remote(
-            target,
-            identity_file,
-            server_root,
-            allowed_parent,
-            remote_paths,
-            directories,
-            connect_timeout,
-        )
+        remote: Dict[str, Dict[str, Optional[int]]] = {}
+        completed_preflight = 0
+        for remote_chunk in chunked_items(remote_paths, REMOTE_PREFLIGHT_CHUNK_SIZE):
+            directories = sorted(
+                {str(PurePosixPath(path).parent) for path in remote_chunk}
+                | {str(control_root)}
+            )
+            remote.update(
+                inspect_remote(
+                    target,
+                    identity_file,
+                    server_root,
+                    allowed_parent,
+                    remote_chunk,
+                    directories,
+                    connect_timeout,
+                )
+            )
+            completed_preflight += len(remote_chunk)
+            update(
+                phase="remote_preflight",
+                preflight_completed_files=completed_preflight,
+                preflight_file_count=len(remote_paths),
+                preflight_percent=round(completed_preflight / len(remote_paths) * 100, 2),
+                current_file="",
+                current_files=[],
+            )
         completed_files = 0
         completed_bytes = 0
         pending_items: List[Dict[str, object]] = []

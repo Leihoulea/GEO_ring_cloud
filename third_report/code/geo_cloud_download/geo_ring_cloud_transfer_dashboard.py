@@ -57,6 +57,7 @@ from monitor_dashboard import (
     read_manifest_sizes,
     tail_lines,
 )
+from geo_ring_cloud_auto_uploader import main as auto_uploader_main
 
 
 COMPONENT_ROLE = "data_transfer_dashboard"
@@ -75,9 +76,14 @@ APP_ROOT = Path(__file__).resolve().parent
 HTML_PATH = APP_ROOT / "geo_ring_cloud_transfer_dashboard.html"
 GUIDE_PATH = APP_ROOT / "geo_ring_cloud_data_transfer_operation_guide_cn.md"
 AUTO_UPLOADER_PATH = APP_ROOT / "geo_ring_cloud_auto_uploader.py"
+AUTO_UPLOADER_LAUNCHER_PATH = APP_ROOT / "geo_ring_cloud_run_auto_uploader.ps1"
 NOTIFICATION_SERVICE_PATH = APP_ROOT / "geo_ring_cloud_notification_service.py"
 BATCH_SCRIPT_PATH = APP_ROOT / "geo_ring_cloud_transfer_batch.ps1"
 AUTO_UPLOAD_STALE_SECONDS = 15 * 60
+# Email is a safety net for material state changes, not a high-frequency
+# telemetry channel.  Thirty minutes matches the operating policy selected by
+# the user and avoids needless background polling while transfers are healthy.
+NOTIFICATION_MONITOR_INTERVAL_SECONDS = 30 * 60
 CONTROL_ONLY_BATCH_CHILDREN = frozenset({"transfer", "logs", "manifests", "conda_tmp"})
 DOWNLOAD_PLATFORM_NAMES = (
     "GOES-16",
@@ -513,9 +519,16 @@ def dashboard_trends(
                     "download_percent": sample.get("download_percent"),
                     "upload_percent": sample.get("upload_percent"),
                 }
-                with path.open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
-                _TREND_LAST_WRITE[key] = now
+                try:
+                    with path.open("a", encoding="utf-8") as handle:
+                        handle.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
+                except OSError:
+                    # Trend history is observability only.  A transient file
+                    # sharing conflict must never make the transfer dashboard
+                    # unresponsive or affect a download/upload worker.
+                    pass
+                else:
+                    _TREND_LAST_WRITE[key] = now
     samples = _read_recent_jsonl(path, TREND_RETURN_SAMPLE_LIMIT)
     has_speed_sample = any(
         sample.get("download_rate_bps") is not None
@@ -748,6 +761,9 @@ def auto_upload_status(transfer_dir: Path) -> Dict[str, object]:
         payload["error"] = (
             "自动上传进程已停止；最后记录阶段为 {}。可点击“接管当前下载并自动上传”安全续传。"
         ).format(previous_phase)
+        payload["updated_at"] = utc_now_text()
+        # Persist reconciliation so a restart cannot show a dead worker as RUNNING.
+        write_json_atomic(path, payload)
         return payload
     updated_at = str(payload.get("updated_at", ""))
     try:
@@ -765,6 +781,8 @@ def auto_upload_status(transfer_dir: Path) -> Dict[str, object]:
         payload["error"] = (
             "自动上传进程仍存在，但已 {} 分钟没有写入状态；请检查网络或上传日志。"
         ).format(max(1, age_seconds // 60))
+        payload["updated_at"] = utc_now_text()
+        write_json_atomic(path, payload)
     return payload
 
 
@@ -948,6 +966,13 @@ def download_launcher_status(
                 "下载启动进程已经退出，但批次没有生成完成状态。"
                 + (" 上次记录：{}".format(previous_message) if previous_message else "")
             )
+    if payload.get("status") == "FAIL" and not payload.get("finished_at"):
+        payload["process_alive"] = False
+        payload["finished_at"] = utc_now_text()
+        payload["updated_at"] = utc_now_text()
+        # Persist the result of the PID reconciliation so an operator can
+        # restart this batch after a refresh instead of seeing stale RUNNING.
+        write_json_atomic(path, payload)
     return payload
 
 
@@ -1111,6 +1136,8 @@ class DashboardState:
         self.allowed_server_parent = allowed_server_parent
         self.conda_environment = conda_environment
         self._upload_lock = threading.Lock()
+        self._upload_threads: Dict[str, threading.Thread] = {}
+        self._upload_processes: Dict[str, subprocess.Popen] = {}
         self._download_lock = threading.Lock()
         self._queue_lock = threading.RLock()
         self._queue_dispatch_lock = threading.Lock()
@@ -1121,6 +1148,10 @@ class DashboardState:
         self.queue_state_path = (
             self.batch_parent / "_geo_ring_cloud_control" / "batch_queue.json"
         )
+        # Queue estimate refinement can inspect historical manifests and may
+        # take a while on a full external drive.  Keep a public last-known-good
+        # snapshot so the HTTP status endpoint never waits behind it.
+        self._queue_status_snapshot = public_queue_state(read_queue_state(self.queue_state_path))
         self.notification_root = self.batch_parent / "_geo_ring_cloud_control" / "notifications"
         self.notification_state_path = self.notification_root / "notification_state.json"
         self.email_notifier = PersistentEmailNotifier(self.notification_state_path)
@@ -1547,6 +1578,7 @@ class DashboardState:
         state["updated_at"] = utc_now_text()
         state["automatic_delete"] = False
         write_queue_json_atomic(self.queue_state_path, state)
+        self._queue_status_snapshot = public_queue_state(state)
 
     def _queue_target_parent(self, request: Dict[str, object]) -> Path:
         parent = self._resolve_download_parent(request)
@@ -1650,15 +1682,27 @@ class DashboardState:
         raise RuntimeError("找不到队列项：{}".format(identifier))
 
     def batch_queue_status(self) -> Dict[str, object]:
-        with self._queue_lock:
-            result = public_queue_state(read_queue_state(self.queue_state_path))
-            result["scheduler"] = {
-                "running": bool(self._queue_thread and self._queue_thread.is_alive()),
-                "last_check_at": self._queue_last_check_at,
-                "last_error": self._queue_last_error,
-                "interval_seconds": 15,
-            }
-            return result
+        acquired = self._queue_lock.acquire(blocking=False)
+        if acquired:
+            try:
+                result = public_queue_state(read_queue_state(self.queue_state_path))
+                self._queue_status_snapshot = result
+                stale = False
+            finally:
+                self._queue_lock.release()
+        else:
+            # Provide an isolated copy of the latest consistent queue snapshot
+            # while the scheduler is doing a potentially expensive refresh.
+            result = json.loads(json.dumps(self._queue_status_snapshot, ensure_ascii=False))
+            stale = True
+        result["scheduler"] = {
+            "running": bool(self._queue_thread and self._queue_thread.is_alive()),
+            "last_check_at": self._queue_last_check_at,
+            "last_error": self._queue_last_error,
+            "interval_seconds": 15,
+            "snapshot_stale": stale,
+        }
+        return result
 
     def _queue_gate(self, request: Dict[str, object], estimate: Dict[str, object]) -> Dict[str, object]:
         parent = self._queue_target_parent(request)
@@ -1830,7 +1874,9 @@ class DashboardState:
         )
         self._queue_thread.start()
 
-    def start_notification_monitor(self, interval_seconds: int = 15) -> None:
+    def start_notification_monitor(
+        self, interval_seconds: int = NOTIFICATION_MONITOR_INTERVAL_SECONDS
+    ) -> None:
         if not NOTIFICATION_SERVICE_PATH.is_file():
             return
         current = self.email_notifier.public_status().get("monitor", {})
@@ -2390,6 +2436,8 @@ class DashboardState:
                 end_text,
                 "-CondaEnvironment",
                 self.conda_environment,
+                "-PythonExe",
+                sys.executable,
                 "-Platforms",
                 ",".join(platforms),
                 "-InventoryWorkers",
@@ -2524,6 +2572,147 @@ class DashboardState:
         if not self.identity_file.is_file():
             raise RuntimeError("SSH 密钥文件不存在：{}".format(self.identity_file))
 
+    def _run_dashboard_upload_worker(
+        self, worker_args: List[str], status_path: Path, batch_root: Path
+    ) -> None:
+        """Keep the uploader in the durable dashboard process on Windows.
+
+        Detached child uploaders have repeatedly been ended by an external
+        Windows job limit after about 30 minutes, sometimes with exit code 0
+        and no final status.  A managed thread keeps the proven uploader logic
+        in the dashboard process and always records an explicit terminal state
+        if that logic returns unexpectedly.
+        """
+        try:
+            result = auto_uploader_main(worker_args)
+        except BaseException as exc:
+            payload = read_json(status_path)
+            payload.update(
+                {
+                    "status": "FAIL",
+                    "phase": "worker_exception",
+                    "process_alive": False,
+                    "finished_at": utc_now_text(),
+                    "updated_at": utc_now_text(),
+                    "error": "{}: {}".format(type(exc).__name__, exc),
+                    "automatic_delete": False,
+                }
+            )
+            write_json_atomic(status_path, payload)
+            self._upload_threads.pop(str(batch_root.resolve()), None)
+            return
+        payload = read_json(status_path)
+        status = str(payload.get("status", "")).upper()
+        if status not in {"PASS", "FAIL", "FAILED", "STOPPED", "CANCELLED", "CANCELED"}:
+            payload.update(
+                {
+                    "status": "FAIL",
+                    "phase": "worker_returned_without_terminal_status",
+                    "process_alive": False,
+                    "finished_at": utc_now_text(),
+                    "updated_at": utc_now_text(),
+                    "error": "上传工作线程提前返回且未报告终态：exit_code={}".format(result),
+                    "automatic_delete": False,
+                }
+            )
+            write_json_atomic(status_path, payload)
+        self._upload_threads.pop(str(batch_root.resolve()), None)
+
+    def _start_dashboard_upload_worker(
+        self, worker_args: List[str], status_path: Path, batch_root: Path, phase: str
+    ) -> threading.Thread:
+        key = str(batch_root.resolve())
+        existing = self._upload_threads.get(key)
+        if existing is not None and existing.is_alive():
+            raise RuntimeError("该批次的上传工作线程仍在运行。")
+        payload = read_json(status_path)
+        # The uploader will record the dashboard process's actual birth time.
+        # Do not put the launch timestamp here: PID-reuse protection would
+        # otherwise mistake this healthy dashboard worker for a dead process.
+        payload.pop("process_created_epoch", None)
+        payload.update(
+            {
+                "status": "RUNNING",
+                "phase": phase,
+                "pid": os.getpid(),
+                "execution_model": "dashboard_managed_thread",
+                "process_alive": True,
+                "updated_at": utc_now_text(),
+                "automatic_delete": False,
+            }
+        )
+        write_json_atomic(status_path, payload)
+        worker = threading.Thread(
+            target=self._run_dashboard_upload_worker,
+            args=(worker_args, status_path, batch_root),
+            daemon=True,
+            name="geo-cloud-upload-worker-{}".format(batch_root.name),
+        )
+        self._upload_threads[key] = worker
+        worker.start()
+        return worker
+
+    def _start_breakaway_upload_process(
+        self, worker_args: List[str], status_path: Path, batch_root: Path, phase: str
+    ) -> subprocess.Popen:
+        """Launch the uploader outside the dashboard host's Windows job."""
+        key = str(batch_root.resolve())
+        existing = self._upload_processes.get(key)
+        if existing is not None and existing.poll() is None:
+            raise RuntimeError("该批次的自动上传进程仍在运行。")
+        # The breakaway process is an intermediate PowerShell parent.  This
+        # mirrors the durable download launch topology: the uploader Python
+        # process then survives the web-request/job lifetime without showing a
+        # console window.
+        command = [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(AUTO_UPLOADER_LAUNCHER_PATH),
+            "-PythonExe",
+            sys.executable,
+            "-UploaderScript",
+            str(AUTO_UPLOADER_PATH),
+            *worker_args,
+        ]
+        stdout_path = status_path.parent / "auto_upload.stdout.log"
+        stderr_path = status_path.parent / "auto_upload.stderr.log"
+        with stdout_path.open("ab") as stdout_handle, stderr_path.open("ab") as stderr_handle:
+            process = subprocess.Popen(
+                command,
+                cwd=str(APP_ROOT),
+                stdin=subprocess.DEVNULL,
+                stdout=stdout_handle,
+                stderr=stderr_handle,
+                creationflags=background_subprocess_creation_flags(),
+                startupinfo=hidden_startupinfo(),
+                start_new_session=os.name != "nt",
+            )
+        payload = read_json(status_path)
+        payload.pop("process_created_epoch", None)
+        payload.update(
+            {
+                "status": "RUNNING",
+                "phase": phase,
+                "pid": process.pid,
+                "execution_model": "breakaway_subprocess",
+                "process_alive": True,
+                "updated_at": utc_now_text(),
+                "automatic_delete": False,
+            }
+        )
+        write_json_atomic(status_path, payload)
+        self._upload_processes[key] = process
+        threading.Thread(
+            target=self._watch_auto_upload_process,
+            args=(process, status_path),
+            daemon=True,
+            name="geo-cloud-upload-watcher-{}".format(process.pid),
+        ).start()
+        return process
+
     def start_continuous_upload(self, batch_name: str = "") -> Dict[str, object]:
         with self._upload_lock:
             batch_root = self._resolve_existing_batch(batch_name)
@@ -2577,8 +2766,6 @@ class DashboardState:
                 },
             )
             command = [
-                sys.executable,
-                str(AUTO_UPLOADER_PATH),
                 "--watch-batch-root",
                 str(batch_root),
                 "--start-date",
@@ -2604,48 +2791,12 @@ class DashboardState:
             ]
             for platform in platforms:
                 command.extend(["--platform", str(platform)])
-            stdout_path = transfer_dir / "continuous_upload.stdout.log"
-            stderr_path = transfer_dir / "continuous_upload.stderr.log"
-            creationflags = background_subprocess_creation_flags()
-            try:
-                with stdout_path.open("ab") as stdout_handle, stderr_path.open(
-                    "ab"
-                ) as stderr_handle:
-                    process = subprocess.Popen(
-                        command,
-                        cwd=str(APP_ROOT),
-                        stdin=subprocess.DEVNULL,
-                        stdout=stdout_handle,
-                        stderr=stderr_handle,
-                        creationflags=creationflags,
-                        startupinfo=hidden_startupinfo(),
-                        start_new_session=os.name != "nt",
-                    )
-            except Exception as exc:
-                payload = read_json(status_path)
-                payload.update(
-                    {
-                        "status": "FAIL",
-                        "phase": "launch_failed",
-                        "updated_at": utc_now_text(),
-                        "error": "{}: {}".format(type(exc).__name__, exc),
-                    }
-                )
-                write_json_atomic(status_path, payload)
-                raise
-            payload = read_json(status_path)
-            payload.update(
-                {
-                    "status": "RUNNING",
-                    "phase": "watching_download",
-                    "pid": process.pid,
-                    "updated_at": utc_now_text(),
-                }
+            self._start_dashboard_upload_worker(
+                command, status_path, batch_root, "watching_download"
             )
-            write_json_atomic(status_path, payload)
             return {
                 "status": "RUNNING",
-                "pid": process.pid,
+                "pid": os.getpid(),
                 "batch_name": batch_root.name,
                 "batch_root": str(batch_root),
                 "mode": "continuous_download_upload",
@@ -2714,8 +2865,6 @@ class DashboardState:
                 },
             )
             command = [
-                sys.executable,
-                str(AUTO_UPLOADER_PATH),
                 "--manifest",
                 str(transfer["path"]),
                 "--target",
@@ -2733,37 +2882,10 @@ class DashboardState:
                 "--max-upload-workers",
                 "4",
             ]
-            stdout_path = transfer_dir / "auto_upload.stdout.log"
-            stderr_path = transfer_dir / "auto_upload.stderr.log"
-            creationflags = background_subprocess_creation_flags()
-            with stdout_path.open("ab") as stdout_handle, stderr_path.open("ab") as stderr_handle:
-                process = subprocess.Popen(
-                    command,
-                    cwd=str(APP_ROOT),
-                    stdin=subprocess.DEVNULL,
-                    stdout=stdout_handle,
-                    stderr=stderr_handle,
-                    creationflags=creationflags,
-                    startupinfo=hidden_startupinfo(),
-                    start_new_session=os.name != "nt",
-                )
-            payload = read_json(status_path)
-            payload["pid"] = process.pid
-            payload["process_alive"] = process.poll() is None
-            payload["updated_at"] = utc_now_text()
-            write_json_atomic(status_path, payload)
-            if process.poll() is None:
-                threading.Thread(
-                    target=self._watch_auto_upload_process,
-                    args=(process, status_path),
-                    daemon=True,
-                    name="geo-cloud-auto-upload-watcher-{}".format(process.pid),
-                ).start()
-            else:
-                self._watch_auto_upload_process(process, status_path)
+            self._start_dashboard_upload_worker(command, status_path, batch_root, "starting")
             return {
                 "status": "STARTING",
-                "pid": process.pid,
+                "pid": os.getpid(),
                 "batch_name": batch_root.name,
                 "batch_root": str(batch_root),
                 "target": self.ssh_target,
@@ -2895,6 +3017,11 @@ def make_handler(state: DashboardState):
                     self.send_json(state.status(batch_name))
                 except RuntimeError as exc:
                     self.send_json({"ok": False, "error": str(exc)}, 404)
+                except Exception as exc:
+                    # A diagnostic status read must fail explicitly rather
+                    # than drop the connection and look like a browser/network
+                    # failure.  It never changes transfer state.
+                    self.send_json({"ok": False, "error": "状态读取失败：{}".format(type(exc).__name__)}, 500)
                 return
             if path == "/guide":
                 guide = GUIDE_PATH.read_text(encoding="utf-8") if GUIDE_PATH.is_file() else "操作说明不存在。"
@@ -3098,6 +3225,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("ERROR: 批次目录不存在：{}".format(batch_root), file=sys.stderr)
         return 2
     identity_file = Path(args.identity_file).expanduser() if args.identity_file else None
+    print("dashboard: constructing state", flush=True)
     state = DashboardState(
         batch_root,
         ssh_target=args.ssh_target,
@@ -3108,8 +3236,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         notification_setup_sender=args.notification_setup_sender,
         notification_setup_recipient=args.notification_setup_recipient,
     )
+    print("dashboard: starting notification monitor", flush=True)
     state.start_notification_monitor()
+    print("dashboard: starting queue scheduler", flush=True)
     state.start_batch_queue_scheduler()
+    print("dashboard: binding HTTP server", flush=True)
     server = ThreadingHTTPServer((args.host, args.port), make_handler(state))
     print("http://{}:{}".format(args.host, args.port), flush=True)
     server.serve_forever()
