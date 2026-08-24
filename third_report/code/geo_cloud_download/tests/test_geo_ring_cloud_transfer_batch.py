@@ -202,6 +202,171 @@ class TransferBatchTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             list(chunked_items(["a"], 0))
 
+    def test_file_upload_retry_refreshes_remote_part_state(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            local = root / "sample.nc"
+            local.write_bytes(b"payload")
+            remote_path = "/data04/1/dhr/geo_ring_cloud_auto_upload/H09/sample.nc"
+            item = {
+                "local_path": str(local),
+                "remote_path": remote_path,
+                "size_bytes": local.stat().st_size,
+            }
+            success = {
+                "local_path": str(local),
+                "remote_path": remote_path,
+                "size_bytes": local.stat().st_size,
+                "remote_preexisting": False,
+            }
+            with patch.object(
+                auto_uploader,
+                "upload_manifest_item",
+                side_effect=[RuntimeError("Connection reset by peer"), success],
+            ) as upload, patch.object(
+                auto_uploader,
+                "inspect_remote",
+                return_value={remote_path: {"final_size": None, "part_size": 3}},
+            ) as inspect, patch.object(auto_uploader.time, "sleep") as sleeper:
+                result = auto_uploader.upload_manifest_item_with_retry(
+                    item,
+                    {"final_size": None, "part_size": None},
+                    "dhr@example",
+                    root / "key",
+                    PurePosixPath("/data04/1/dhr/geo_ring_cloud_auto_upload"),
+                    PurePosixPath("/data04/1/dhr"),
+                    20,
+                    4,
+                    2.0,
+                    root / "failure_history.jsonl",
+                )
+
+            self.assertEqual(result["attempts"], 2)
+            self.assertEqual(result["retry_events"], 1)
+            self.assertEqual(inspect.call_count, 1)
+            self.assertEqual(upload.call_args_list[1].args[1]["part_size"], 3)
+            sleeper.assert_called_once_with(2.0)
+            history = [
+                json.loads(line)
+                for line in (root / "failure_history.jsonl").read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            ]
+            self.assertEqual(history[0]["event"], "file_upload_attempt_failed")
+            self.assertTrue(history[0]["will_retry"])
+
+    def test_permanent_upload_error_is_not_retried(self):
+        self.assertFalse(
+            auto_uploader.is_retryable_upload_error(
+                RuntimeError("Permission denied (publickey)")
+            )
+        )
+        self.assertFalse(
+            auto_uploader.is_retryable_upload_error(
+                RuntimeError("Remote .part file is larger than source")
+            )
+        )
+        self.assertTrue(
+            auto_uploader.is_retryable_upload_error(
+                RuntimeError("Connection reset by peer")
+            )
+        )
+
+    def test_parallel_batch_finishes_other_files_before_terminal_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            transfer = root / "transfer"
+            transfer.mkdir()
+            files = []
+            for name in ("good_a.nc", "bad.nc", "good_b.nc"):
+                local = root / name
+                local.write_bytes(name.encode("ascii"))
+                files.append(
+                    {
+                        "platform": "Himawari-9",
+                        "local_path": str(local),
+                        "remote_path": "/data04/1/dhr/geo_ring_cloud_auto_upload/H09/{}".format(
+                            name
+                        ),
+                        "size_bytes": local.stat().st_size,
+                        "sha256": hashlib.sha256(local.read_bytes()).hexdigest(),
+                    }
+                )
+            source = transfer / "geo_ring_cloud_transfer_test_manifest.json"
+            source.write_text(
+                json.dumps({"status": "READY_FOR_XFTP_UPLOAD", "files": files}),
+                encoding="utf-8",
+            )
+            automatic = transfer / "geo_ring_cloud_auto_upload_test_manifest.json"
+            automatic.write_text("{}", encoding="utf-8")
+            manifest = {
+                "batch_id": "test",
+                "total_size_bytes": sum(item["size_bytes"] for item in files),
+                "files": files,
+            }
+
+            def upload_result(item, *_args, **_kwargs):
+                if str(item["local_path"]).endswith("bad.nc"):
+                    raise auto_uploader.UploadFileFailure(
+                        str(item["local_path"]), 4, RuntimeError("Connection reset")
+                    )
+                return {
+                    "local_path": str(item["local_path"]),
+                    "remote_path": str(item["remote_path"]),
+                    "size_bytes": int(item["size_bytes"]),
+                    "remote_preexisting": False,
+                    "attempts": 1,
+                    "retry_events": 0,
+                }
+
+            def remote_state(_target, _identity, _root, _allowed, paths, _dirs, _timeout):
+                return {
+                    path: {"final_size": None, "part_size": None} for path in paths
+                }
+
+            with patch.object(auto_uploader, "ensure_tools_and_identity"), patch.object(
+                auto_uploader,
+                "build_auto_upload_manifest",
+                return_value=(automatic, manifest),
+            ), patch.object(
+                auto_uploader,
+                "run_ssh",
+                return_value=subprocess.CompletedProcess(["ssh"], 0, "", ""),
+            ), patch.object(
+                auto_uploader, "inspect_remote", side_effect=remote_state
+            ), patch.object(
+                auto_uploader,
+                "upload_manifest_item_with_retry",
+                side_effect=upload_result,
+            ):
+                result = auto_uploader.upload_batch(
+                    source,
+                    "dhr@example",
+                    root / "key",
+                    PurePosixPath("/data04/1/dhr/geo_ring_cloud_auto_upload"),
+                    PurePosixPath("/data04/1/dhr"),
+                    transfer / "auto_upload_status.json",
+                    transfer / "server_verification.json",
+                    max_upload_workers=2,
+                    upload_retry_base_seconds=0,
+                )
+
+            self.assertEqual(result, 2)
+            ledger = auto_uploader.load_stream_ledger(
+                transfer / "continuous_upload_ledger.jsonl"
+            )
+            self.assertEqual(set(ledger), {str(root / "good_a.nc"), str(root / "good_b.nc")})
+            status = json.loads(
+                (transfer / "auto_upload_status.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(status["status"], "FAIL")
+            self.assertEqual(status["failed_files"], 1)
+            self.assertEqual(status["failure_origin_phase"], "upload_incomplete_after_retries")
+            snapshots = list(
+                (transfer / auto_uploader.FAILURE_SNAPSHOT_DIR_NAME).glob("*.json")
+            )
+            self.assertEqual(len(snapshots), 1)
+
     def test_download_adaptive_parallelism_probes_and_backs_off(self):
         probe, reason = geo_cloud_downloader.choose_adaptive_worker_count(
             4, 2, 12, 10_000_000, 9_000_000, 8, 0

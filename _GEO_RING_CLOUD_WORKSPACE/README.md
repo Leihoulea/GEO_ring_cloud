@@ -1,6 +1,6 @@
 # GEO-ring Cloud Workspace
 
-Generated: `2026-08-24T08:26:32Z`
+Generated: `2026-08-24T11:45:57Z`
 
 This folder is a lightweight control surface for the GEO-ring Cloud project. It intentionally does not copy large data products.
 
@@ -10,7 +10,7 @@ This folder is a lightweight control surface for the GEO-ring Cloud project. It 
 - Stage1 products: `D:\AAAresearch_paper\geo_ring_cloud_stage1`
 - Time-run products: `D:\AAAresearch_paper\geo_ring_cloud_stage1_time_runs`
 - Evidence pack: `D:\AAAresearch_paper\geo_ring_cloud_stage1_evidence_pack`
-- Index database: `D:\AAAresearch_paper\_GEO_RING_CLOUD_INDEX\geo_ring_cloud_index_refreshed.sqlite`
+- Index database: `D:\AAAresearch_paper\_GEO_RING_CLOUD_INDEX\geo_ring_cloud_index.sqlite`
 
 ## Files Here
 
