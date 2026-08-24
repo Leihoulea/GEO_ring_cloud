@@ -2349,7 +2349,12 @@ class DashboardState:
                 "target": self.ssh_target,
                 "identity_file": str(self.identity_file) if self.identity_file else "",
                 "server_root": self.auto_upload_root,
-                "credential_mode": "ssh-agent",
+                "credential_mode": (
+                    "restricted_unattended_key"
+                    if self.identity_file
+                    and self.identity_file.name.endswith("_automation")
+                    else "ssh-agent"
+                ),
                 "passphrase_stored": False,
             },
             "download_config": {

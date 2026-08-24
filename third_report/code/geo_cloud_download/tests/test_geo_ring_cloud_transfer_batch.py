@@ -450,6 +450,21 @@ class TransferBatchTests(unittest.TestCase):
                 opener.assert_called_once()
                 self.assertEqual(raw.read_bytes(), b"keep")
 
+    def test_dashboard_reports_restricted_unattended_key_mode(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "batch"
+            (root / "transfer").mkdir(parents=True)
+            identity = root / "id_ed25519_node05_automation"
+            identity.write_text("test", encoding="utf-8")
+            dashboard = DashboardState(
+                root, ssh_target="dhr@node05", identity_file=identity
+            )
+            status = dashboard.status()
+        self.assertEqual(
+            status["auto_upload_config"]["credential_mode"],
+            "restricted_unattended_key",
+        )
+
     def test_fy4b_cleanup_folder_opens_external_official_source(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "GEO_Cloud_2024_batches" / "fy4b_20240601_20240601"
