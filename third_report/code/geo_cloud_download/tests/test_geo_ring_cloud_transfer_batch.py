@@ -21,10 +21,12 @@ from geo_ring_cloud_transfer_dashboard import (  # noqa: E402
     HTML_PATH,
     ORDER_SOURCE_CONFIG,
     auto_upload_status,
+    background_subprocess_creation_flag_attempts,
     background_subprocess_creation_flags,
     dashboard_trends,
     download_launcher_status,
     parse_disk_gate,
+    is_windows_job_breakaway_denied,
     process_matches_status,
     process_is_running,
     server_verification_status,
@@ -269,6 +271,18 @@ class TransferBatchTests(unittest.TestCase):
         self.assertTrue(flags & getattr(subprocess, "CREATE_NO_WINDOW", 0))
         self.assertTrue(flags & getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         self.assertTrue(flags & getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0))
+
+    def test_dashboard_background_workers_fall_back_inside_restrictive_windows_job(self):
+        with patch.object(transfer_dashboard.os, "name", "nt"):
+            attempts = background_subprocess_creation_flag_attempts()
+            self.assertEqual(
+                [mode for _flags, mode in attempts],
+                ["breakaway_from_job", "inherit_dashboard_job"],
+            )
+            breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+            self.assertTrue(attempts[0][0] & breakaway)
+            self.assertFalse(attempts[1][0] & breakaway)
+            self.assertTrue(is_windows_job_breakaway_denied(PermissionError(13, "denied")))
 
     def test_continuous_ledger_progress_requires_matching_local_size(self):
         files = [
@@ -1135,6 +1149,42 @@ class TransferBatchTests(unittest.TestCase):
             self.assertEqual(item["status"], "RUNNING")
             self.assertEqual(popen.call_count, 1)
             self.assertTrue((root / item["target_batch_name"] / "transfer").is_dir())
+
+    def test_download_launch_retries_without_breakaway_after_windows_access_denied(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            current = root / "current_batch"
+            current.mkdir()
+            dashboard = DashboardState(current)
+            fake_process = unittest.mock.Mock(pid=24683)
+            fake_process.poll.return_value = None
+            denied = PermissionError(13, "Windows job denies breakaway")
+            with patch.object(
+                transfer_dashboard.os, "name", "nt"
+            ), patch(
+                "geo_ring_cloud_transfer_dashboard.subprocess.Popen",
+                side_effect=[denied, fake_process],
+            ) as popen, patch.object(DashboardState, "_watch_download_process"):
+                result = dashboard.start_download(
+                    {
+                        "start_date": "2024-12-01",
+                        "end_date": "2024-12-01",
+                        "platforms": ["Meteosat-0deg"],
+                        "continuous_upload": False,
+                    }
+                )
+            self.assertEqual(popen.call_count, 2)
+            self.assertEqual(result["pid"], fake_process.pid)
+            status = json.loads(
+                (
+                    root
+                    / "20241201_20241201_m0"
+                    / "transfer"
+                    / "download_launcher_status.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(status["status"], "RUNNING")
+            self.assertEqual(status["process_launch_mode"], "inherit_dashboard_job")
 
     def test_continuous_discovery_excludes_part_and_control_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:

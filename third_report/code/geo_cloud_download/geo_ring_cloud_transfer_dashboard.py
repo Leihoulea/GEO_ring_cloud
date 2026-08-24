@@ -859,6 +859,35 @@ def background_subprocess_creation_flags() -> int:
     )
 
 
+def background_subprocess_creation_flag_attempts() -> Tuple[Tuple[int, str], ...]:
+    """Return the safe Windows launch modes in their preferred order.
+
+    ``CREATE_BREAKAWAY_FROM_JOB`` fails with WinError 5 when the dashboard is
+    itself hosted by a Windows job that does not grant breakaway permission.
+    In that environment the dashboard supervisor remains the durable owner, so
+    retrying inside the existing job is both valid and preferable to making all
+    downloads impossible.  Non-Windows hosts retain the single existing mode.
+    """
+    preferred = background_subprocess_creation_flags()
+    if os.name != "nt":
+        return ((preferred, "new_session"),)
+    breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+    fallback = preferred & ~breakaway
+    if breakaway and fallback != preferred:
+        return (
+            (preferred, "breakaway_from_job"),
+            (fallback, "inherit_dashboard_job"),
+        )
+    return ((preferred, "windows_background"),)
+
+
+def is_windows_job_breakaway_denied(exc: OSError) -> bool:
+    """Identify only the access-denied error caused by a Windows launch gate."""
+    if os.name != "nt":
+        return False
+    return getattr(exc, "winerror", None) == 5 or getattr(exc, "errno", None) in {5, 13}
+
+
 def inspect_batch_lock(lock_path: Path) -> Dict[str, object]:
     """Read-only probe for a batch lock left behind after an abnormal exit.
 
@@ -2510,7 +2539,6 @@ class DashboardState:
             environment["no_proxy"] = "*"
             stdout_path = batch_root / "transfer" / "launcher.stdout.log"
             stderr_path = batch_root / "transfer" / "launcher.stderr.log"
-            creationflags = background_subprocess_creation_flags()
             launcher_payload = {
                 "project_id": "geo_ring_cloud",
                 "canonical_stage_id": "",
@@ -2532,6 +2560,7 @@ class DashboardState:
                 "download_max_workers": download_workers,
                 "automatic_delete": False,
                 "stale_lock_recovered": bool(stale_lock_recovery),
+                "process_launch_mode": "pending",
                 "message": "正在创建后台下载进程。",
             }
             write_json_atomic(launcher_status_path, launcher_payload)
@@ -2539,17 +2568,30 @@ class DashboardState:
                 with stdout_path.open("ab") as stdout_handle, stderr_path.open(
                     "ab"
                 ) as stderr_handle:
-                    process = subprocess.Popen(
-                        command,
-                        cwd=str(APP_ROOT),
-                        env=environment,
-                        stdin=subprocess.DEVNULL,
-                        stdout=stdout_handle,
-                        stderr=stderr_handle,
-                        creationflags=creationflags,
-                        startupinfo=hidden_startupinfo(),
-                        start_new_session=os.name != "nt",
-                    )
+                    launch_attempts = background_subprocess_creation_flag_attempts()
+                    process = None
+                    launch_mode = ""
+                    for attempt_index, (creationflags, mode) in enumerate(launch_attempts):
+                        try:
+                            process = subprocess.Popen(
+                                command,
+                                cwd=str(APP_ROOT),
+                                env=environment,
+                                stdin=subprocess.DEVNULL,
+                                stdout=stdout_handle,
+                                stderr=stderr_handle,
+                                creationflags=creationflags,
+                                startupinfo=hidden_startupinfo(),
+                                start_new_session=os.name != "nt",
+                            )
+                            launch_mode = mode
+                            break
+                        except OSError as exc:
+                            has_fallback = attempt_index + 1 < len(launch_attempts)
+                            if not has_fallback or not is_windows_job_breakaway_denied(exc):
+                                raise
+                    if process is None:
+                        raise RuntimeError("后台下载进程未能创建，且没有返回系统错误。")
             except Exception as exc:
                 launcher_payload.update(
                     {
@@ -2565,8 +2607,13 @@ class DashboardState:
                     "status": "RUNNING",
                     "pid": process.pid,
                     "process_alive": True,
+                    "process_launch_mode": launch_mode,
                     "updated_at": utc_now_text(),
-                    "message": "后台下载进程已经启动。",
+                    "message": (
+                        "后台下载进程已经启动（兼容当前 Windows Job）。"
+                        if launch_mode == "inherit_dashboard_job"
+                        else "后台下载进程已经启动。"
+                    ),
                 }
             )
             write_json_atomic(launcher_status_path, launcher_payload)
