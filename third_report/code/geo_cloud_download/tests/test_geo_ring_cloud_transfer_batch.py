@@ -1705,6 +1705,53 @@ class TransferBatchTests(unittest.TestCase):
             self.assertEqual(subprocess_creation_flags(), 0)
             self.assertIsNone(subprocess_startupinfo())
 
+    def test_run_ssh_uses_devnull_without_input(self):
+        completed = subprocess.CompletedProcess(["ssh"], 0, stdout="", stderr="")
+        with patch.object(auto_uploader.subprocess, "run", return_value=completed) as runner:
+            auto_uploader.run_ssh(
+                "dhr@example",
+                Path("id_ed25519"),
+                "true",
+                20,
+                command_timeout=30,
+            )
+
+        kwargs = runner.call_args.kwargs
+        self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertNotIn("input", kwargs)
+        self.assertEqual(kwargs["timeout"], 30)
+
+    def test_run_ssh_uses_pipe_for_payload(self):
+        completed = subprocess.CompletedProcess(["ssh"], 0, stdout="{}", stderr="")
+        with patch.object(auto_uploader.subprocess, "run", return_value=completed) as runner:
+            auto_uploader.run_ssh(
+                "dhr@example",
+                Path("id_ed25519"),
+                "python3 -c pass",
+                20,
+                input_text="{}",
+            )
+
+        kwargs = runner.call_args.kwargs
+        self.assertEqual(kwargs["input"], "{}")
+        self.assertNotIn("stdin", kwargs)
+        self.assertNotIn("timeout", kwargs)
+
+    def test_run_ssh_reports_command_timeout(self):
+        with patch.object(
+            auto_uploader.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(["ssh"], 30),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "timed out after 30 seconds"):
+                auto_uploader.run_ssh(
+                    "dhr@example",
+                    Path("id_ed25519"),
+                    "true",
+                    20,
+                    command_timeout=30,
+                )
+
     def test_goes_inventory_platform_filter(self):
         target = datetime(2024, 4, 1, tzinfo=timezone.utc)
         with patch.object(geo_cloud_downloader, "list_s3_objects", return_value=[]):
