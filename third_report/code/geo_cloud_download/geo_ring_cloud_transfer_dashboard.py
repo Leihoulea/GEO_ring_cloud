@@ -9,10 +9,8 @@ from __future__ import annotations
 import argparse
 import ast
 import csv
-import hashlib
 import json
 import os
-import re
 import secrets
 import shutil
 import string
@@ -23,7 +21,7 @@ import time
 from collections import Counter
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
@@ -57,7 +55,6 @@ from monitor_dashboard import (
     read_manifest_sizes,
     tail_lines,
 )
-from geo_ring_cloud_auto_uploader import main as auto_uploader_main
 
 
 COMPONENT_ROLE = "data_transfer_dashboard"
@@ -76,31 +73,15 @@ APP_ROOT = Path(__file__).resolve().parent
 HTML_PATH = APP_ROOT / "geo_ring_cloud_transfer_dashboard.html"
 GUIDE_PATH = APP_ROOT / "geo_ring_cloud_data_transfer_operation_guide_cn.md"
 AUTO_UPLOADER_PATH = APP_ROOT / "geo_ring_cloud_auto_uploader.py"
-AUTO_UPLOADER_LAUNCHER_PATH = APP_ROOT / "geo_ring_cloud_run_auto_uploader.ps1"
 NOTIFICATION_SERVICE_PATH = APP_ROOT / "geo_ring_cloud_notification_service.py"
 BATCH_SCRIPT_PATH = APP_ROOT / "geo_ring_cloud_transfer_batch.ps1"
 AUTO_UPLOAD_STALE_SECONDS = 15 * 60
-# Email is a safety net for material state changes, not a high-frequency
-# telemetry channel.  Thirty minutes matches the operating policy selected by
-# the user and avoids needless background polling while transfers are healthy.
-NOTIFICATION_MONITOR_INTERVAL_SECONDS = 30 * 60
-CONTROL_ONLY_BATCH_CHILDREN = frozenset({"transfer", "logs", "manifests", "conda_tmp"})
 DOWNLOAD_PLATFORM_NAMES = (
     "GOES-16",
     "GOES-18",
     "Himawari-9",
     "Meteosat-0deg",
     "Meteosat-IODC",
-)
-FY4B_EXTERNAL_SOURCE = "FY4B 官方应用本地导入"
-FY4B_OFFICIAL_MAPPING_PROFILE = "fy4b_agri_l2_product_day_hour_v1"
-# Examples from the FY4B official application use a nominal acquisition start
-# time after ``NOM_``.  Do not derive archive paths from a user-supplied folder
-# name: product, day, and hour must be present in the official filename.
-FY4B_OFFICIAL_FILENAME_RE = re.compile(
-    r"^FY4B-_AGRI--_N_DISK_1050E_L2-_"
-    r"(?P<product>[A-Z0-9]+)-_.+?_NOM_(?P<nominal_time>\d{14})_\d{14}_.+\.NC$",
-    re.IGNORECASE,
 )
 ORDER_SOURCE_CONFIG = {
     "CLAAS3-0deg": {
@@ -205,16 +186,6 @@ def available_download_drives() -> List[Dict[str, object]]:
 
 def utc_now_text() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def hidden_startupinfo():
-    """Prevent Windows console children from briefly appearing on screen."""
-    if os.name != "nt":
-        return None
-    startupinfo = subprocess.STARTUPINFO()
-    startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
-    startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
-    return startupinfo
 
 
 def iso_mtime(path: Path) -> str:
@@ -519,16 +490,9 @@ def dashboard_trends(
                     "download_percent": sample.get("download_percent"),
                     "upload_percent": sample.get("upload_percent"),
                 }
-                try:
-                    with path.open("a", encoding="utf-8") as handle:
-                        handle.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
-                except OSError:
-                    # Trend history is observability only.  A transient file
-                    # sharing conflict must never make the transfer dashboard
-                    # unresponsive or affect a download/upload worker.
-                    pass
-                else:
-                    _TREND_LAST_WRITE[key] = now
+                with path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
+                _TREND_LAST_WRITE[key] = now
     samples = _read_recent_jsonl(path, TREND_RETURN_SAMPLE_LIMIT)
     has_speed_sample = any(
         sample.get("download_rate_bps") is not None
@@ -642,65 +606,11 @@ def transfer_manifest_status(transfer_dir: Path) -> Dict[str, object]:
     }
 
 
-def local_payload_presence(batch_root: Path, transfer_dir: Path) -> Dict[str, object]:
-    """Cheaply distinguish retained raw payload from control-only batch folders.
-
-    This deliberately looks only at direct children, rather than recursively
-    scanning data files on every five-second dashboard refresh.  Normal GEO
-    batches keep their platform/raw directories directly under ``batch_root``.
-    FY4B imports retain the official-client source outside the control batch,
-    so that source root is inspected instead.  An unreadable folder remains
-    ``unknown`` and is never auto-archived.
-    """
-    source_root = batch_root
-    ignore_names = CONTROL_ONLY_BATCH_CHILDREN
-    request = read_json(transfer_dir / "fy4b_official_import_request.json")
-    configured_source = str(request.get("source_root", "")).strip()
-    if configured_source:
-        source_root = Path(configured_source)
-        ignore_names = frozenset()
-    try:
-        if not source_root.exists():
-            return {"state": "absent", "root": str(source_root), "reason": "source_root_missing"}
-        with os.scandir(source_root) as entries:
-            for entry in entries:
-                if entry.name not in ignore_names:
-                    return {"state": "present", "root": str(source_root), "reason": "payload_entry_present"}
-    except OSError as exc:
-        return {"state": "unknown", "root": str(source_root), "reason": type(exc).__name__}
-    return {"state": "absent", "root": str(source_root), "reason": "only_control_records_remain"}
-
-
 def server_verification_status(transfer_dir: Path) -> Dict[str, object]:
     exact = transfer_dir / "server_verification.json"
-    progress_path = transfer_dir / "server_verification_progress.json"
-    if exact.is_file():
-        path: Optional[Path] = exact
-    else:
-        reports = [
-            candidate
-            for candidate in transfer_dir.glob("server_verification*.json")
-            if candidate.is_file() and candidate.name != progress_path.name
-        ]
-        path = max(reports, key=lambda candidate: candidate.stat().st_mtime) if reports else None
-    progress = read_json(progress_path) if progress_path.is_file() else {}
+    path = exact if exact.is_file() else latest_file(transfer_dir, "server_verification*.json")
     if path is None:
-        if not progress:
-            return {"exists": False, "status": "PENDING", "path": ""}
-        return {
-            "exists": True,
-            "path": str(progress_path),
-            "status": progress.get("status", "RUNNING"),
-            "verified_file_count": progress.get("completed_file_count", 0),
-            "total_file_count": progress.get("total_file_count", 0),
-            "failed_file_count": progress.get("failed_file_count", 0),
-            "total_size_bytes": progress.get("total_size_bytes", 0),
-            "completed_size_bytes": progress.get("completed_size_bytes", 0),
-            "percent": progress.get("percent", 0),
-            "current_file": progress.get("current_file", ""),
-            "verified_at": progress.get("updated_at", iso_mtime(progress_path)),
-            "failure_examples": [],
-        }
+        return {"exists": False, "status": "PENDING", "path": ""}
     payload = read_json(path)
     failures = [row for row in payload.get("results", []) if row.get("status") != "PASS"]
     return {
@@ -708,12 +618,7 @@ def server_verification_status(transfer_dir: Path) -> Dict[str, object]:
         "path": str(path),
         "status": payload.get("status", "UNKNOWN"),
         "verified_file_count": payload.get("verified_file_count", 0),
-        "total_file_count": payload.get("total_file_count", payload.get("verified_file_count", 0)),
         "failed_file_count": payload.get("failed_file_count", len(failures)),
-        "total_size_bytes": payload.get("total_size_bytes", 0),
-        "completed_size_bytes": payload.get("completed_size_bytes", 0),
-        "percent": payload.get("percent", 100.0 if payload.get("status") == "PASS" else 0),
-        "current_file": "",
         "verified_at": payload.get("verified_at", iso_mtime(path)),
         "failure_examples": failures[:5],
     }
@@ -749,7 +654,7 @@ def auto_upload_status(transfer_dir: Path) -> Dict[str, object]:
     payload.setdefault("percent", 0)
     status = str(payload.get("status", "UNKNOWN")).upper()
     terminal_statuses = {"PASS", "FAIL", "FAILED", "STOPPED", "EXITED", "CANCELLED", "CANCELED"}
-    process_alive = False if status in terminal_statuses else process_matches_status(payload)
+    process_alive = False if status in terminal_statuses else process_is_running(payload.get("pid"))
     payload["process_alive"] = process_alive
     if status not in {"STARTING", "RUNNING"}:
         return payload
@@ -761,9 +666,6 @@ def auto_upload_status(transfer_dir: Path) -> Dict[str, object]:
         payload["error"] = (
             "自动上传进程已停止；最后记录阶段为 {}。可点击“接管当前下载并自动上传”安全续传。"
         ).format(previous_phase)
-        payload["updated_at"] = utc_now_text()
-        # Persist reconciliation so a restart cannot show a dead worker as RUNNING.
-        write_json_atomic(path, payload)
         return payload
     updated_at = str(payload.get("updated_at", ""))
     try:
@@ -781,8 +683,6 @@ def auto_upload_status(transfer_dir: Path) -> Dict[str, object]:
         payload["error"] = (
             "自动上传进程仍存在，但已 {} 分钟没有写入状态；请检查网络或上传日志。"
         ).format(max(1, age_seconds // 60))
-        payload["updated_at"] = utc_now_text()
-        write_json_atomic(path, payload)
     return payload
 
 
@@ -791,101 +691,22 @@ def process_is_running(pid: object) -> bool:
         numeric_pid = int(pid)
         if numeric_pid <= 0:
             return False
-    except (TypeError, ValueError):
-        return False
-    if os.name == "nt":
-        # ``os.kill(pid, 0)`` is a harmless existence probe on POSIX.  CPython's
-        # Windows implementation routes non-console signals through
-        # TerminateProcess, however, so signal 0 can terminate the target with
-        # exit code 0.  This became catastrophic once an upload worker used the
-        # dashboard PID: merely refreshing /api/status killed the dashboard.
-        # psutil.pid_exists only queries the process table and is safe here.
-        try:
-            import psutil  # type: ignore
-
-            return psutil.pid_exists(numeric_pid)
-        except (ImportError, OSError, ValueError):
-            return False
-    try:
         os.kill(numeric_pid, 0)
         return True
     except (OSError, SystemError):
-        return False
+        # Windows may return access denied *or* ERROR_INVALID_PARAMETER for
+        # os.kill(pid, 0) even when the PID is healthy.  psutil's PID table
+        # query remains read-only and avoids falsely marking that task failed.
+        if os.name == "nt":
+            try:
+                import psutil  # type: ignore
 
-
-def process_matches_status(payload: Dict[str, object]) -> bool:
-    """Reject a recycled Windows PID when the worker recorded its birth time."""
-    if not process_is_running(payload.get("pid")):
+                return psutil.pid_exists(numeric_pid)
+            except (ImportError, OSError, ValueError):
+                return False
         return False
-    expected = payload.get("process_created_epoch")
-    try:
-        expected_epoch = float(expected)
     except (TypeError, ValueError):
-        return True
-    if expected_epoch <= 0:
-        return True
-    try:
-        import psutil  # type: ignore
-
-        observed_epoch = float(psutil.Process(int(payload["pid"])).create_time())
-        return abs(observed_epoch - expected_epoch) < 2.0
-    except (ImportError, OSError, ValueError, KeyError, TypeError):
-        # Lack of an identity probe is not evidence of failure; retain the
-        # existing PID-only fallback on systems without psutil permissions.
-        return True
-    except Exception as exc:
-        # ``pid_exists`` and ``Process(pid).create_time`` are necessarily two
-        # separate system calls.  A worker can therefore exit in between; that
-        # normal race must be reported as stopped, not crash the HTTP handler.
-        if type(exc).__name__ in {"NoSuchProcess", "ZombieProcess"}:
-            return False
-        return True
-
-
-def background_subprocess_creation_flags() -> int:
-    """Launch durable Windows workers without opening a console window.
-
-    The dashboard may itself be hosted in a Windows job object.  A background
-    downloader/uploader must explicitly break away when that host permits it;
-    otherwise it can disappear as soon as the request that created it returns.
-    ``CREATE_NO_WINDOW`` preserves the no-black-console user experience.
-    """
-    if os.name != "nt":
-        return 0
-    return (
-        getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        | getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
-    )
-
-
-def background_subprocess_creation_flag_attempts() -> Tuple[Tuple[int, str], ...]:
-    """Return the safe Windows launch modes in their preferred order.
-
-    ``CREATE_BREAKAWAY_FROM_JOB`` fails with WinError 5 when the dashboard is
-    itself hosted by a Windows job that does not grant breakaway permission.
-    In that environment the dashboard supervisor remains the durable owner, so
-    retrying inside the existing job is both valid and preferable to making all
-    downloads impossible.  Non-Windows hosts retain the single existing mode.
-    """
-    preferred = background_subprocess_creation_flags()
-    if os.name != "nt":
-        return ((preferred, "new_session"),)
-    breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
-    fallback = preferred & ~breakaway
-    if breakaway and fallback != preferred:
-        return (
-            (preferred, "breakaway_from_job"),
-            (fallback, "inherit_dashboard_job"),
-        )
-    return ((preferred, "windows_background"),)
-
-
-def is_windows_job_breakaway_denied(exc: OSError) -> bool:
-    """Identify only the access-denied error caused by a Windows launch gate."""
-    if os.name != "nt":
         return False
-    return getattr(exc, "winerror", None) == 5 or getattr(exc, "errno", None) in {5, 13}
 
 
 def inspect_batch_lock(lock_path: Path) -> Dict[str, object]:
@@ -957,39 +778,6 @@ def download_launcher_status(
     payload["path"] = str(path)
     payload.setdefault("status", "UNKNOWN")
     payload.setdefault("message", "")
-    # A launcher can disappear after the downloader has already completed all
-    # locally available targets and written the immutable transfer manifest.
-    # Re-running that batch while its uploader is reading the same manifest is
-    # unnecessary and risks control-file contention.  Reconcile only from the
-    # two independent, terminal artifacts produced by the downloader.
-    summary = read_json(transfer_dir.parent / "manifests" / "download_summary.json")
-    audit = summary.get("completeness_audit", {})
-    transfer = transfer_manifest_status(transfer_dir)
-    locally_complete = (
-        str(audit.get("status", "")).upper() == "PASS"
-        and int(summary.get("expected_local_missing_rows", -1) or 0) == 0
-        and int(summary.get("downloaded_rows", -1) or 0)
-        == int(summary.get("expected_found_rows", -2) or 0)
-        and int(summary.get("downloaded_rows", 0) or 0) > 0
-        and str(transfer.get("status", "")).upper() == "READY_FOR_XFTP_UPLOAD"
-    )
-    if locally_complete:
-        changed = str(payload.get("status", "")).upper() != "COMPLETE"
-        payload.update(
-            {
-                "status": "COMPLETE",
-                "process_alive": False,
-                "finished_at": payload.get("finished_at") or utc_now_text(),
-                "updated_at": utc_now_text(),
-                "message": "本地可获得目标已全部下载，完整性审计和传输清单均已通过。",
-                "reconciliation_source": "download_summary_and_transfer_manifest",
-                "downloaded_rows": int(summary.get("downloaded_rows", 0) or 0),
-                "remote_unavailable_rows": int(summary.get("remote_unavailable_rows", 0) or 0),
-            }
-        )
-        if changed:
-            write_json_atomic(path, payload)
-        return payload
     terminal_statuses = {
         "FAIL",
         "FAILED",
@@ -1032,13 +820,6 @@ def download_launcher_status(
                 "下载启动进程已经退出，但批次没有生成完成状态。"
                 + (" 上次记录：{}".format(previous_message) if previous_message else "")
             )
-    if payload.get("status") == "FAIL" and not payload.get("finished_at"):
-        payload["process_alive"] = False
-        payload["finished_at"] = utc_now_text()
-        payload["updated_at"] = utc_now_text()
-        # Persist the result of the PID reconciliation so an operator can
-        # restart this batch after a refresh instead of seeing stale RUNNING.
-        write_json_atomic(path, payload)
     return payload
 
 
@@ -1094,11 +875,7 @@ def build_pipeline_stages(
         xftp_state = "pending"
         upload_detail = "等待自动 SFTP 或人工 Xftp"
     server_state = "pass" if server.get("status") == "PASS" else (
-        "fail"
-        if server.get("status") == "FAIL"
-        else "running"
-        if server.get("status") == "RUNNING"
-        else "pending"
+        "fail" if server.get("status") == "FAIL" else "pending"
     )
     cleanup_state = (
         "pass"
@@ -1119,24 +896,11 @@ def build_pipeline_stages(
             validation_state,
             "validation",
             "本地校验",
-            "等待完整批次" if not validation else "损坏记录 {}；预期本地缺失 {}（仅审计，不阻断）".format(
-                validation.get("corrupt_rows", 0), validation.get("expected_local_missing_rows", 0)
-            ),
+            "等待完整批次" if not validation else "损坏记录 {}".format(validation.get("corrupt_rows", 0)),
         ),
         stage(transfer_state, "manifest", "传输清单", transfer.get("status", "等待生成")),
         stage(xftp_state, "upload", "上传到服务器", upload_detail),
-        stage(
-            server_state,
-            "server",
-            "服务器复核",
-            "{} / {} 个文件，{}%".format(
-                server.get("verified_file_count", 0),
-                server.get("total_file_count", 0),
-                server.get("percent", 0),
-            )
-            if server_state == "running"
-            else server.get("status", "等待报告"),
-        ),
+        stage(server_state, "server", "服务器复核", server.get("status", "等待报告")),
         stage(
             cleanup_state,
             "cleanup",
@@ -1202,8 +966,6 @@ class DashboardState:
         self.allowed_server_parent = allowed_server_parent
         self.conda_environment = conda_environment
         self._upload_lock = threading.Lock()
-        self._upload_threads: Dict[str, threading.Thread] = {}
-        self._upload_processes: Dict[str, subprocess.Popen] = {}
         self._download_lock = threading.Lock()
         self._queue_lock = threading.RLock()
         self._queue_dispatch_lock = threading.Lock()
@@ -1214,10 +976,6 @@ class DashboardState:
         self.queue_state_path = (
             self.batch_parent / "_geo_ring_cloud_control" / "batch_queue.json"
         )
-        # Queue estimate refinement can inspect historical manifests and may
-        # take a while on a full external drive.  Keep a public last-known-good
-        # snapshot so the HTTP status endpoint never waits behind it.
-        self._queue_status_snapshot = public_queue_state(read_queue_state(self.queue_state_path))
         self.notification_root = self.batch_parent / "_geo_ring_cloud_control" / "notifications"
         self.notification_state_path = self.notification_root / "notification_state.json"
         self.email_notifier = PersistentEmailNotifier(self.notification_state_path)
@@ -1227,11 +985,6 @@ class DashboardState:
             "recipient": str(notification_setup_recipient or os.environ.get("GEO_RING_NOTIFY_SETUP_RECIPIENT", "")).strip(),
         }
         self._notification_process: Optional[subprocess.Popen] = None
-        self.startup_recovery_path = (
-            self.batch_parent
-            / "_geo_ring_cloud_control"
-            / "dashboard_startup_upload_recovery.json"
-        )
 
     def _known_batch_parents(self) -> List[Path]:
         parents = {self.batch_parent.resolve()}
@@ -1270,285 +1023,6 @@ class DashboardState:
         return Path(str(drives[requested]["batch_parent"])).resolve()
 
     @staticmethod
-    def _fy4b_source_files(source_root: Path) -> List[Dict[str, object]]:
-        """Validate and map official FY4B L2 files without modifying them.
-
-        The source folders created by the official application can be flat.
-        Its filename is the authoritative archive key for this importer:
-        ``FY4B/<product>/<YYYYMMDD>/<HH>/<original filename>``.
-        """
-        ignored_names = {"thumbs.db", "desktop.ini"}
-        records: List[Dict[str, object]] = []
-        rejected: List[str] = []
-        mapped_paths: Dict[str, Path] = {}
-        for candidate in source_root.rglob("*"):
-            try:
-                if candidate.is_symlink() or not candidate.is_file():
-                    continue
-                relative = candidate.relative_to(source_root)
-                if (
-                    "transfer" in relative.parts
-                    or candidate.name.lower() in ignored_names
-                    or candidate.suffix.lower() == ".part"
-                ):
-                    continue
-                if candidate.suffix.lower() != ".nc":
-                    continue
-                match = FY4B_OFFICIAL_FILENAME_RE.fullmatch(candidate.name)
-                if not match:
-                    rejected.append(relative.as_posix())
-                    continue
-                nominal_time = match.group("nominal_time")
-                try:
-                    datetime.strptime(nominal_time, "%Y%m%d%H%M%S")
-                except ValueError:
-                    rejected.append(relative.as_posix())
-                    continue
-                product = match.group("product").upper()
-                remote_relative_path = PurePosixPath(
-                    "FY4B",
-                    product,
-                    nominal_time[:8],
-                    nominal_time[8:10],
-                    candidate.name,
-                )
-                remote_key = remote_relative_path.as_posix()
-                prior = mapped_paths.get(remote_key)
-                if prior is not None and prior != candidate.resolve():
-                    raise RuntimeError(
-                        "FY4B 来源中有两个文件会映射到同一服务器路径：{}".format(
-                            remote_key
-                        )
-                    )
-                stat = candidate.stat()
-            except (OSError, ValueError):
-                continue
-            mapped_paths[remote_key] = candidate.resolve()
-            records.append(
-                {
-                    "local_path": candidate.resolve(),
-                    "source_relative_path": relative.as_posix(),
-                    "product": product,
-                    "nominal_time": nominal_time,
-                    "remote_relative_path": remote_key,
-                    "size_bytes": int(stat.st_size),
-                }
-            )
-        if rejected:
-            examples = "；".join(rejected[:5])
-            suffix = "（仅显示前 5 个）" if len(rejected) > 5 else ""
-            raise RuntimeError(
-                "发现 {} 个 .NC 文件不符合 FY4B AGRI L2 官方命名规则，无法安全判断变量、日期和小时：{}{}".format(
-                    len(rejected), examples, suffix
-                )
-            )
-        return sorted(records, key=lambda row: str(row["remote_relative_path"]).lower())
-
-    def _fy4b_batch_label(self, source_root: Path, records: List[Dict[str, object]]) -> str:
-        """Derive a stable, product-scoped, resume-safe FY4B control label."""
-        first_day = min(str(row["nominal_time"])[:8] for row in records)
-        last_day = max(str(row["nominal_time"])[:8] for row in records)
-        products = sorted({str(row["product"]).lower() for row in records})
-        product_scope = "-".join(products)
-        base_label = "{}_{}_{}".format(first_day, last_day, product_scope)
-        base_root = (self.batch_parent / "fy4b_{}".format(base_label)).resolve()
-        if not base_root.exists():
-            # Do not silently create a second control batch for an already
-            # completed legacy date-only batch sourced from the same folder.
-            # Historical records remain immutable; new imports use the
-            # product-scoped format above.
-            legacy_label = "{}_{}".format(first_day, last_day)
-            legacy_root = (self.batch_parent / "fy4b_{}".format(legacy_label)).resolve()
-            legacy_request = read_json(
-                legacy_root / "transfer" / "fy4b_official_import_request.json"
-            )
-            if str(legacy_request.get("source_root", "")) == str(source_root):
-                return legacy_label
-            return base_label
-        existing = read_json(base_root / "transfer" / "fy4b_official_import_request.json")
-        if str(existing.get("source_root", "")) == str(source_root):
-            return base_label
-        # A different official-client folder may legitimately cover the same
-        # dates.  Add a deterministic source fingerprint instead of asking the
-        # user to invent a label; the raw server archive path is unaffected.
-        source_tag = hashlib.sha256(str(source_root).casefold().encode("utf-8")).hexdigest()[:8]
-        return "{}_{}".format(base_label, source_tag)
-
-    def preview_fy4b_official_upload(self, request: Dict[str, object]) -> Dict[str, object]:
-        """Return a read-only mapping preview for official FY4B files."""
-        source_text = str(request.get("source_path", "")).strip()
-        if not source_text:
-            raise RuntimeError("请填写 FY4B 官方应用的本地下载目录。")
-        source_root = Path(source_text).expanduser().resolve()
-        if not source_root.is_dir() or source_root == Path(source_root.anchor):
-            raise RuntimeError("FY4B 来源必须是存在的非根目录。")
-        if any(source_root == parent for parent in self._known_batch_parents()):
-            raise RuntimeError("FY4B 来源不能是整个 GEO_Cloud_2024_batches 父目录。")
-        records = self._fy4b_source_files(source_root)
-        if not records:
-            raise RuntimeError("FY4B 来源目录中未发现符合命名规则的已完成 .NC 文件。")
-        products = []
-        for product in sorted({str(row["product"]) for row in records}):
-            product_rows = [row for row in records if row["product"] == product]
-            products.append(
-                {
-                    "product": product,
-                    "file_count": len(product_rows),
-                    "size_bytes": sum(int(row["size_bytes"]) for row in product_rows),
-                    "first_nominal_time": min(str(row["nominal_time"]) for row in product_rows),
-                    "last_nominal_time": max(str(row["nominal_time"]) for row in product_rows),
-                }
-            )
-        return {
-            "source_root": str(source_root),
-            "suggested_batch_label": self._fy4b_batch_label(source_root, records),
-            "mapping_profile": FY4B_OFFICIAL_MAPPING_PROFILE,
-            "remote_root": str(PurePosixPath(self.auto_upload_root) / "FY4B"),
-            "file_count": len(records),
-            "total_size_bytes": sum(int(row["size_bytes"]) for row in records),
-            "products": products,
-            "sample_mappings": [
-                {
-                    "source_relative_path": str(row["source_relative_path"]),
-                    "remote_path": str(PurePosixPath(self.auto_upload_root) / str(row["remote_relative_path"])),
-                }
-                for row in records[:10]
-            ],
-        }
-
-    def start_fy4b_official_upload(self, request: Dict[str, object]) -> Dict[str, object]:
-        """Create a control-only FY4B import batch, then reuse the safe uploader."""
-        self._require_upload_configuration()
-        source_text = str(request.get("source_path", "")).strip()
-        if not source_text:
-            raise RuntimeError("请填写 FY4B 官方应用的本地下载目录。")
-        source_root = Path(source_text).expanduser().resolve()
-        if not source_root.is_dir() or source_root == Path(source_root.anchor):
-            raise RuntimeError("FY4B 来源必须是存在的非根目录。")
-        if any(source_root == parent for parent in self._known_batch_parents()):
-            raise RuntimeError("FY4B 来源不能是整个 GEO_Cloud_2024_batches 父目录。")
-
-        records = self._fy4b_source_files(source_root)
-        if not records:
-            raise RuntimeError("FY4B 来源目录中未发现可上传的已完成文件。")
-        label = self._fy4b_batch_label(source_root, records)
-
-        batch_name = "fy4b_{}".format(label)
-        batch_root = (self.batch_parent / batch_name).resolve()
-        if batch_root.parent != self.batch_parent:
-            raise RuntimeError("FY4B 控制批次目录无效。")
-        transfer_dir = batch_root / "transfer"
-        request_path = transfer_dir / "fy4b_official_import_request.json"
-        manifest_path = transfer_dir / "geo_ring_cloud_transfer_{}_manifest.json".format(
-            batch_name
-        )
-        if batch_root.exists():
-            existing = read_json(request_path)
-            if str(existing.get("source_root", "")) != str(source_root):
-                raise RuntimeError("同名 FY4B 批次已对应另一来源目录；请使用新的批次标识。")
-            if manifest_path.is_file():
-                result = self.start_auto_upload(batch_name)
-                result.update({"source_root": str(source_root), "resumed": True})
-                return result
-            raise RuntimeError("同名 FY4B 批次的控制记录不完整；请使用新的批次标识。")
-
-        batch_root.mkdir(parents=True, exist_ok=False)
-        transfer_dir.mkdir(parents=True, exist_ok=True)
-        files = [
-            {
-                "platform": "FY4B",
-                "product": str(record["product"]),
-                "local_path": str(record["local_path"]),
-                "source_relative_path": str(record["source_relative_path"]),
-                "nominal_time": str(record["nominal_time"]),
-                "remote_path": str(
-                    PurePosixPath(self.auto_upload_root)
-                    / PurePosixPath(str(record["remote_relative_path"]))
-                ),
-                "size_bytes": int(record["size_bytes"]),
-            }
-            for record in records
-        ]
-        now = utc_now_text()
-        common = {
-            "project_id": "geo_ring_cloud",
-            "canonical_stage_id": "",
-            "related_stage_ids": RELATED_STAGE_IDS,
-            "batch_id": batch_name,
-            "platforms": ["FY4B"],
-            "source_mode": FY4B_EXTERNAL_SOURCE,
-            "mapping_profile": FY4B_OFFICIAL_MAPPING_PROFILE,
-            "source_root": str(source_root),
-            "batch_product_scope": sorted({str(item["product"]).lower() for item in files}),
-            "automatic_delete": False,
-        }
-        write_json_atomic(
-            request_path,
-            {
-                **common,
-                "component_role": "external_source_upload_request",
-                "created_at": now,
-                "source_file_count": len(files),
-                "source_size_bytes": sum(item["size_bytes"] for item in files),
-                "mapping_profile": FY4B_OFFICIAL_MAPPING_PROFILE,
-                "mapped_products": sorted({str(item["product"]) for item in files}),
-                "note": "仅记录来源；不会复制、移动或删除 FY4B 原始文件。",
-            },
-        )
-        write_json_atomic(
-            transfer_dir / "batch_status.json",
-            {
-                **common,
-                "component_role": "external_source_upload_orchestrator",
-                "status": "complete",
-                "phase": "ready_for_xftp",
-                "message": "FY4B 官方应用本地文件已登记，等待自动上传。",
-                "updated_at": now,
-            },
-        )
-        write_json_atomic(
-            transfer_dir / "download_launcher_status.json",
-            {
-                **common,
-                "component_role": "external_source_upload_orchestrator",
-                "status": "COMPLETE",
-                "process_alive": False,
-                "message": "FY4B 数据由官方应用下载；本系统不执行远端下载。",
-                "updated_at": now,
-            },
-        )
-        write_json_atomic(
-            manifest_path,
-            {
-                **common,
-                "component_role": "external_source_transfer_manifest",
-                "created_at": now,
-                "status": "READY_FOR_XFTP_UPLOAD",
-                "server_root": self.auto_upload_root,
-                "files": files,
-                "file_count": len(files),
-                "total_size_bytes": sum(item["size_bytes"] for item in files),
-                "deletion_policy": {
-                    "automatic_delete": False,
-                    "delete_allowed_only_after": "server SHA-256 verification PASS and explicit user confirmation",
-                },
-            },
-        )
-        self._set_batch_root(batch_root)
-        result = self.start_auto_upload(batch_name)
-        result.update(
-            {
-                "source_root": str(source_root),
-                "source_file_count": len(files),
-                "source_size_bytes": sum(item["size_bytes"] for item in files),
-                "mapping_profile": FY4B_OFFICIAL_MAPPING_PROFILE,
-                "mapped_products": sorted({str(item["product"]) for item in files}),
-                "resumed": False,
-            }
-        )
-        return result
-
-    @staticmethod
     def _task_summary(batch_root: Path) -> Dict[str, object]:
         transfer_dir = batch_root / "transfer"
         raw = read_json(transfer_dir / "batch_status.json")
@@ -1556,49 +1030,23 @@ class DashboardState:
         upload = auto_upload_status(transfer_dir)
         transfer = transfer_manifest_status(transfer_dir)
         server = server_verification_status(transfer_dir)
-        payload = local_payload_presence(batch_root, transfer_dir)
         xftp = marker_status(transfer_dir / "xftp_upload_complete.json")
-        cleanup = marker_status(transfer_dir / "local_cleanup_approval.json")
+        error = str(launcher.get("message") or raw.get("message") or upload.get("error") or "")
+        disk_gate = enrich_disk_gate(parse_disk_gate(error), batch_root)
         download_status = str(launcher.get("status", "UNKNOWN"))
         if raw.get("status") == "complete":
             download_status = "COMPLETE"
-        elif raw.get("status") == "finalizing":
-            # The PowerShell batch is still building the final immutable
-            # manifest, but it no longer writes raw payload files.  It must
-            # not monopolize the single-download scheduler slot.
-            download_status = "FINALIZING"
         elif raw.get("status") == "failed":
             download_status = "FAIL"
         upload_status = str(upload.get("status", "PENDING"))
         if xftp.get("payload", {}).get("status") == "AUTOMATED_SFTP_COMPLETE":
             upload_status = "PASS"
-        upload_error = str(upload.get("error") or "")
-        # A completed FY4B import intentionally reports that it did not run a
-        # remote downloader.  That informational message must not conceal a
-        # real later upload failure in the task centre.
-        if upload_status in {"FAIL", "STOPPED", "STALLED"} and upload_error:
-            error = upload_error
-        else:
-            error = str(launcher.get("message") or raw.get("message") or upload_error)
-        disk_gate = enrich_disk_gate(parse_disk_gate(error), batch_root)
-        archive_ready = (
-            download_status == "COMPLETE"
-            and upload_status == "PASS"
-            and str(server.get("status", "")) == "PASS"
-        )
-        # Archiving is a display classification only.  It never moves or
-        # deletes the transfer records, and a non-readable source remains in
-        # the main task list for safety.
-        archived = archive_ready and payload.get("state") == "absent"
         updated_candidates = [
             str(raw.get("updated_at", "")),
             str(launcher.get("updated_at", "")),
             str(upload.get("updated_at", "")),
             str(server.get("verified_at", "")),
         ]
-        download_phase = raw.get("phase", "waiting")
-        if launcher.get("reconciliation_source") == "download_summary_and_transfer_manifest":
-            download_phase = "ready_for_xftp"
         return {
             "batch_name": batch_root.name,
             "batch_root": str(batch_root),
@@ -1606,7 +1054,7 @@ class DashboardState:
             "end_date": raw.get("end_date", launcher.get("end_date", "")),
             "platforms": raw.get("platforms", launcher.get("platforms", [])),
             "download_status": download_status,
-            "download_phase": download_phase,
+            "download_phase": raw.get("phase", "waiting"),
             "download_process_alive": bool(launcher.get("process_alive")),
             "upload_status": upload_status,
             "upload_phase": upload.get("phase", "waiting"),
@@ -1615,10 +1063,6 @@ class DashboardState:
             "upload_percent": float(upload.get("percent", 0) or 0),
             "server_status": str(server.get("status", "PENDING")),
             "transfer_status": str(transfer.get("status", "PENDING")),
-            "cleanup_approved": bool(cleanup.get("exists")),
-            "local_payload": payload,
-            "archive_ready": archive_ready,
-            "archived": archived,
             "error": error,
             "disk_gate": disk_gate,
             "updated_at": max(updated_candidates),
@@ -1640,90 +1084,6 @@ class DashboardState:
         tasks.sort(key=lambda row: str(row.get("updated_at", "")), reverse=True)
         return tasks[:limit] if limit else tasks
 
-    def recover_interrupted_uploads(self) -> Dict[str, object]:
-        """Resume interrupted upload work inside the durable dashboard host.
-
-        A periodic observer must not own a long-running uploader: child jobs
-        created by one observation turn can be reclaimed when that turn ends.
-        The dashboard is a boot-persistent Scheduled Task, so interrupted work
-        is resumed here as managed threads and keeps the existing transfer
-        manifest/ledger. Terminal failures and never-started batches remain a
-        user decision rather than entering an automatic retry loop.
-        """
-        audit: Dict[str, object] = {
-            "project_id": "geo_ring_cloud",
-            "canonical_stage_id": "",
-            "component_role": COMPONENT_ROLE,
-            "related_stage_ids": RELATED_STAGE_IDS,
-            "started_at": utc_now_text(),
-            "dashboard_pid": os.getpid(),
-            "execution_model": "dashboard_managed_thread",
-            "recovered": [],
-            "skipped": [],
-            "automatic_delete": False,
-        }
-        recoverable_statuses = {"STARTING", "RUNNING", "STALLED", "STOPPED"}
-        for task in self.task_summaries(limit=None):
-            batch_name = str(task.get("batch_name", ""))
-            upload_status = str(task.get("upload_status", "")).upper()
-            server_status = str(task.get("server_status", "")).upper()
-            payload_state = str((task.get("local_payload") or {}).get("state", ""))
-            transfer_ready = str(task.get("transfer_status", "")).upper() == "READY_FOR_XFTP_UPLOAD"
-            download_status = str(task.get("download_status", "")).upper()
-            download_alive = bool(task.get("download_process_alive"))
-            reason = ""
-            mode = ""
-            if server_status == "PASS" or upload_status == "PASS":
-                reason = "already_complete"
-            elif payload_state != "present":
-                reason = "local_payload_not_present"
-            elif upload_status not in recoverable_statuses:
-                reason = "upload_not_previously_active"
-            elif transfer_ready and download_status == "COMPLETE":
-                mode = "batch_upload"
-            elif download_alive or download_status in {"STARTING", "RUNNING"}:
-                mode = "continuous_upload"
-            else:
-                reason = "download_or_manifest_not_ready"
-            if reason:
-                audit["skipped"].append({"batch_name": batch_name, "reason": reason})
-                continue
-            try:
-                if mode == "batch_upload":
-                    result = self.start_auto_upload(batch_name)
-                else:
-                    result = self.start_continuous_upload(batch_name)
-                audit["recovered"].append(
-                    {
-                        "batch_name": batch_name,
-                        "mode": mode,
-                        "status": result.get("status", "RUNNING"),
-                    }
-                )
-            except Exception as exc:
-                audit["skipped"].append(
-                    {
-                        "batch_name": batch_name,
-                        "reason": "recovery_error",
-                        "error": "{}: {}".format(type(exc).__name__, exc),
-                    }
-                )
-        audit["finished_at"] = utc_now_text()
-        audit["recovered_count"] = len(audit["recovered"])
-        audit["skipped_count"] = len(audit["skipped"])
-        write_json_atomic(self.startup_recovery_path, audit)
-        return audit
-
-    def start_startup_upload_recovery(self) -> threading.Thread:
-        """Run startup recovery asynchronously so HTTP binding stays prompt."""
-        worker = threading.Thread(
-            target=self.recover_interrupted_uploads,
-            daemon=True,
-            name="geo-cloud-startup-upload-recovery",
-        )
-        worker.start()
-        return worker
-
     def _active_download_task(self, exclude_batch_name: str = "") -> Optional[Dict[str, object]]:
         for task in self.task_summaries(limit=None):
             if exclude_batch_name and task.get("batch_name") == exclude_batch_name:
@@ -1736,7 +1096,6 @@ class DashboardState:
         state["updated_at"] = utc_now_text()
         state["automatic_delete"] = False
         write_queue_json_atomic(self.queue_state_path, state)
-        self._queue_status_snapshot = public_queue_state(state)
 
     def _queue_target_parent(self, request: Dict[str, object]) -> Path:
         parent = self._resolve_download_parent(request)
@@ -1840,27 +1199,15 @@ class DashboardState:
         raise RuntimeError("找不到队列项：{}".format(identifier))
 
     def batch_queue_status(self) -> Dict[str, object]:
-        acquired = self._queue_lock.acquire(blocking=False)
-        if acquired:
-            try:
-                result = public_queue_state(read_queue_state(self.queue_state_path))
-                self._queue_status_snapshot = result
-                stale = False
-            finally:
-                self._queue_lock.release()
-        else:
-            # Provide an isolated copy of the latest consistent queue snapshot
-            # while the scheduler is doing a potentially expensive refresh.
-            result = json.loads(json.dumps(self._queue_status_snapshot, ensure_ascii=False))
-            stale = True
-        result["scheduler"] = {
-            "running": bool(self._queue_thread and self._queue_thread.is_alive()),
-            "last_check_at": self._queue_last_check_at,
-            "last_error": self._queue_last_error,
-            "interval_seconds": 15,
-            "snapshot_stale": stale,
-        }
-        return result
+        with self._queue_lock:
+            result = public_queue_state(read_queue_state(self.queue_state_path))
+            result["scheduler"] = {
+                "running": bool(self._queue_thread and self._queue_thread.is_alive()),
+                "last_check_at": self._queue_last_check_at,
+                "last_error": self._queue_last_error,
+                "interval_seconds": 15,
+            }
+            return result
 
     def _queue_gate(self, request: Dict[str, object], estimate: Dict[str, object]) -> Dict[str, object]:
         parent = self._queue_target_parent(request)
@@ -1901,15 +1248,6 @@ class DashboardState:
                 item.update(
                     status="COMPLETE",
                     status_message="下载批次已完成。",
-                    updated_at=utc_now_text(),
-                )
-            elif download_status == "FINALIZING":
-                item.update(
-                    # Keep this queue item semantically active so a duplicate
-                    # request is not accepted, while _active_download_task()
-                    # releases the slot for the next batch.
-                    status="RUNNING",
-                    status_message="原始下载已完成，正在生成最终 SHA-256 清单；不占用下一批下载槽位。",
                     updated_at=utc_now_text(),
                 )
             elif download_status in {"FAIL", "failed"}:
@@ -2032,9 +1370,7 @@ class DashboardState:
         )
         self._queue_thread.start()
 
-    def start_notification_monitor(
-        self, interval_seconds: int = NOTIFICATION_MONITOR_INTERVAL_SECONDS
-    ) -> None:
+    def start_notification_monitor(self, interval_seconds: int = 15) -> None:
         if not NOTIFICATION_SERVICE_PATH.is_file():
             return
         current = self.email_notifier.public_status().get("monitor", {})
@@ -2068,7 +1404,6 @@ class DashboardState:
                 stdout=stdout_handle,
                 stderr=stderr_handle,
                 creationflags=creationflags,
-                startupinfo=hidden_startupinfo(),
                 start_new_session=os.name != "nt",
             )
 
@@ -2143,41 +1478,6 @@ class DashboardState:
         )
         write_json_atomic(launcher_status_path, payload)
 
-    @staticmethod
-    def _watch_auto_upload_process(
-        process: subprocess.Popen,
-        status_path: Path,
-    ) -> None:
-        """Persist a terminal reason when an uploader exits without reporting one."""
-        exit_code = process.wait()
-        payload = read_json(status_path)
-        try:
-            recorded_pid = int(payload.get("pid", 0) or 0)
-        except (TypeError, ValueError):
-            recorded_pid = 0
-        # A launcher may hand off to a child process which has already written
-        # its own PID.  Do not overwrite that newer worker's status.
-        if recorded_pid and recorded_pid != process.pid and process_matches_status(payload):
-            return
-        status = str(payload.get("status", "")).upper()
-        if status in {"PASS", "FAIL", "FAILED", "STOPPED", "CANCELLED", "CANCELED"}:
-            return
-        payload.update(
-            {
-                "status": "PASS" if exit_code == 0 and status == "PASS" else "FAIL",
-                "phase": "process_exited",
-                "process_alive": False,
-                "exit_code": exit_code,
-                "finished_at": utc_now_text(),
-                "updated_at": utc_now_text(),
-                "error": (
-                    "自动上传进程退出但没有完成状态：exit_code={}，最后阶段为 {}。"
-                ).format(exit_code, payload.get("phase", "unknown")),
-                "automatic_delete": False,
-            }
-        )
-        write_json_atomic(status_path, payload)
-
     def status(self, batch_name: str = "") -> Dict[str, object]:
         batch_root = self._resolve_existing_batch(batch_name)
         manifest_dir = batch_root / "manifests"
@@ -2226,11 +1526,6 @@ class DashboardState:
                 + int(met_validation.get("corrupt_rows", 0)),
                 "downloaded_rows": int(s3_validation.get("downloaded_rows", 0))
                 + int(met_validation.get("downloaded_rows", 0)),
-                "expected_local_missing_rows": int(
-                    s3_validation.get("expected_local_missing_rows", 0)
-                ),
-                "expected_found_rows": int(s3_validation.get("expected_found_rows", 0)),
-                "completeness_audit": s3_validation.get("completeness_audit", {}),
             }
         inventory_total = int(s3_inventory.get("found", 0)) + int(
             met_inventory.get("found", 0)
@@ -2438,12 +1733,7 @@ class DashboardState:
                 "target": self.ssh_target,
                 "identity_file": str(self.identity_file) if self.identity_file else "",
                 "server_root": self.auto_upload_root,
-                "credential_mode": (
-                    "restricted_unattended_key"
-                    if self.identity_file
-                    and self.identity_file.name.endswith("_automation")
-                    else "ssh-agent"
-                ),
+                "credential_mode": "ssh-agent",
                 "passphrase_stored": False,
             },
             "download_config": {
@@ -2599,8 +1889,6 @@ class DashboardState:
                 end_text,
                 "-CondaEnvironment",
                 self.conda_environment,
-                "-PythonExe",
-                sys.executable,
                 "-Platforms",
                 ",".join(platforms),
                 "-InventoryWorkers",
@@ -2633,6 +1921,12 @@ class DashboardState:
             environment["no_proxy"] = "*"
             stdout_path = batch_root / "transfer" / "launcher.stdout.log"
             stderr_path = batch_root / "transfer" / "launcher.stderr.log"
+            creationflags = 0
+            if os.name == "nt":
+                creationflags = (
+                    getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                    | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                )
             launcher_payload = {
                 "project_id": "geo_ring_cloud",
                 "canonical_stage_id": "",
@@ -2654,7 +1948,6 @@ class DashboardState:
                 "download_max_workers": download_workers,
                 "automatic_delete": False,
                 "stale_lock_recovered": bool(stale_lock_recovery),
-                "process_launch_mode": "pending",
                 "message": "正在创建后台下载进程。",
             }
             write_json_atomic(launcher_status_path, launcher_payload)
@@ -2662,30 +1955,16 @@ class DashboardState:
                 with stdout_path.open("ab") as stdout_handle, stderr_path.open(
                     "ab"
                 ) as stderr_handle:
-                    launch_attempts = background_subprocess_creation_flag_attempts()
-                    process = None
-                    launch_mode = ""
-                    for attempt_index, (creationflags, mode) in enumerate(launch_attempts):
-                        try:
-                            process = subprocess.Popen(
-                                command,
-                                cwd=str(APP_ROOT),
-                                env=environment,
-                                stdin=subprocess.DEVNULL,
-                                stdout=stdout_handle,
-                                stderr=stderr_handle,
-                                creationflags=creationflags,
-                                startupinfo=hidden_startupinfo(),
-                                start_new_session=os.name != "nt",
-                            )
-                            launch_mode = mode
-                            break
-                        except OSError as exc:
-                            has_fallback = attempt_index + 1 < len(launch_attempts)
-                            if not has_fallback or not is_windows_job_breakaway_denied(exc):
-                                raise
-                    if process is None:
-                        raise RuntimeError("后台下载进程未能创建，且没有返回系统错误。")
+                    process = subprocess.Popen(
+                        command,
+                        cwd=str(APP_ROOT),
+                        env=environment,
+                        stdin=subprocess.DEVNULL,
+                        stdout=stdout_handle,
+                        stderr=stderr_handle,
+                        creationflags=creationflags,
+                        start_new_session=os.name != "nt",
+                    )
             except Exception as exc:
                 launcher_payload.update(
                     {
@@ -2701,13 +1980,8 @@ class DashboardState:
                     "status": "RUNNING",
                     "pid": process.pid,
                     "process_alive": True,
-                    "process_launch_mode": launch_mode,
                     "updated_at": utc_now_text(),
-                    "message": (
-                        "后台下载进程已经启动（兼容当前 Windows Job）。"
-                        if launch_mode == "inherit_dashboard_job"
-                        else "后台下载进程已经启动。"
-                    ),
+                    "message": "后台下载进程已经启动。",
                 }
             )
             write_json_atomic(launcher_status_path, launcher_payload)
@@ -2752,147 +2026,6 @@ class DashboardState:
             raise RuntimeError("全自动流水线需要先配置 SSH 目标和密钥文件。")
         if not self.identity_file.is_file():
             raise RuntimeError("SSH 密钥文件不存在：{}".format(self.identity_file))
-
-    def _run_dashboard_upload_worker(
-        self, worker_args: List[str], status_path: Path, batch_root: Path
-    ) -> None:
-        """Keep the uploader in the durable dashboard process on Windows.
-
-        Detached child uploaders have repeatedly been ended by an external
-        Windows job limit after about 30 minutes, sometimes with exit code 0
-        and no final status.  A managed thread keeps the proven uploader logic
-        in the dashboard process and always records an explicit terminal state
-        if that logic returns unexpectedly.
-        """
-        try:
-            result = auto_uploader_main(worker_args)
-        except BaseException as exc:
-            payload = read_json(status_path)
-            payload.update(
-                {
-                    "status": "FAIL",
-                    "phase": "worker_exception",
-                    "process_alive": False,
-                    "finished_at": utc_now_text(),
-                    "updated_at": utc_now_text(),
-                    "error": "{}: {}".format(type(exc).__name__, exc),
-                    "automatic_delete": False,
-                }
-            )
-            write_json_atomic(status_path, payload)
-            self._upload_threads.pop(str(batch_root.resolve()), None)
-            return
-        payload = read_json(status_path)
-        status = str(payload.get("status", "")).upper()
-        if status not in {"PASS", "FAIL", "FAILED", "STOPPED", "CANCELLED", "CANCELED"}:
-            payload.update(
-                {
-                    "status": "FAIL",
-                    "phase": "worker_returned_without_terminal_status",
-                    "process_alive": False,
-                    "finished_at": utc_now_text(),
-                    "updated_at": utc_now_text(),
-                    "error": "上传工作线程提前返回且未报告终态：exit_code={}".format(result),
-                    "automatic_delete": False,
-                }
-            )
-            write_json_atomic(status_path, payload)
-        self._upload_threads.pop(str(batch_root.resolve()), None)
-
-    def _start_dashboard_upload_worker(
-        self, worker_args: List[str], status_path: Path, batch_root: Path, phase: str
-    ) -> threading.Thread:
-        key = str(batch_root.resolve())
-        existing = self._upload_threads.get(key)
-        if existing is not None and existing.is_alive():
-            raise RuntimeError("该批次的上传工作线程仍在运行。")
-        payload = read_json(status_path)
-        # The uploader will record the dashboard process's actual birth time.
-        # Do not put the launch timestamp here: PID-reuse protection would
-        # otherwise mistake this healthy dashboard worker for a dead process.
-        payload.pop("process_created_epoch", None)
-        payload.update(
-            {
-                "status": "RUNNING",
-                "phase": phase,
-                "pid": os.getpid(),
-                "execution_model": "dashboard_managed_thread",
-                "process_alive": True,
-                "updated_at": utc_now_text(),
-                "automatic_delete": False,
-            }
-        )
-        write_json_atomic(status_path, payload)
-        worker = threading.Thread(
-            target=self._run_dashboard_upload_worker,
-            args=(worker_args, status_path, batch_root),
-            daemon=True,
-            name="geo-cloud-upload-worker-{}".format(batch_root.name),
-        )
-        self._upload_threads[key] = worker
-        worker.start()
-        return worker
-
-    def _start_breakaway_upload_process(
-        self, worker_args: List[str], status_path: Path, batch_root: Path, phase: str
-    ) -> subprocess.Popen:
-        """Launch the uploader outside the dashboard host's Windows job."""
-        key = str(batch_root.resolve())
-        existing = self._upload_processes.get(key)
-        if existing is not None and existing.poll() is None:
-            raise RuntimeError("该批次的自动上传进程仍在运行。")
-        # The breakaway process is an intermediate PowerShell parent.  This
-        # mirrors the durable download launch topology: the uploader Python
-        # process then survives the web-request/job lifetime without showing a
-        # console window.
-        command = [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(AUTO_UPLOADER_LAUNCHER_PATH),
-            "-PythonExe",
-            sys.executable,
-            "-UploaderScript",
-            str(AUTO_UPLOADER_PATH),
-            *worker_args,
-        ]
-        stdout_path = status_path.parent / "auto_upload.stdout.log"
-        stderr_path = status_path.parent / "auto_upload.stderr.log"
-        with stdout_path.open("ab") as stdout_handle, stderr_path.open("ab") as stderr_handle:
-            process = subprocess.Popen(
-                command,
-                cwd=str(APP_ROOT),
-                stdin=subprocess.DEVNULL,
-                stdout=stdout_handle,
-                stderr=stderr_handle,
-                creationflags=background_subprocess_creation_flags(),
-                startupinfo=hidden_startupinfo(),
-                start_new_session=os.name != "nt",
-            )
-        payload = read_json(status_path)
-        payload.pop("process_created_epoch", None)
-        payload.update(
-            {
-                "status": "RUNNING",
-                "phase": phase,
-                "pid": process.pid,
-                "execution_model": "breakaway_subprocess",
-                "process_alive": True,
-                "updated_at": utc_now_text(),
-                "automatic_delete": False,
-            }
-        )
-        write_json_atomic(status_path, payload)
-        self._upload_processes[key] = process
-        threading.Thread(
-            target=self._watch_auto_upload_process,
-            args=(process, status_path),
-            daemon=True,
-            name="geo-cloud-upload-watcher-{}".format(process.pid),
-        ).start()
-        return process
 
     def start_continuous_upload(self, batch_name: str = "") -> Dict[str, object]:
         with self._upload_lock:
@@ -2947,6 +2080,8 @@ class DashboardState:
                 },
             )
             command = [
+                sys.executable,
+                str(AUTO_UPLOADER_PATH),
                 "--watch-batch-root",
                 str(batch_root),
                 "--start-date",
@@ -2972,12 +2107,51 @@ class DashboardState:
             ]
             for platform in platforms:
                 command.extend(["--platform", str(platform)])
-            self._start_dashboard_upload_worker(
-                command, status_path, batch_root, "watching_download"
+            stdout_path = transfer_dir / "continuous_upload.stdout.log"
+            stderr_path = transfer_dir / "continuous_upload.stderr.log"
+            creationflags = 0
+            if os.name == "nt":
+                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
+                    subprocess, "DETACHED_PROCESS", 0
+                )
+            try:
+                with stdout_path.open("ab") as stdout_handle, stderr_path.open(
+                    "ab"
+                ) as stderr_handle:
+                    process = subprocess.Popen(
+                        command,
+                        cwd=str(APP_ROOT),
+                        stdin=subprocess.DEVNULL,
+                        stdout=stdout_handle,
+                        stderr=stderr_handle,
+                        creationflags=creationflags,
+                        start_new_session=os.name != "nt",
+                    )
+            except Exception as exc:
+                payload = read_json(status_path)
+                payload.update(
+                    {
+                        "status": "FAIL",
+                        "phase": "launch_failed",
+                        "updated_at": utc_now_text(),
+                        "error": "{}: {}".format(type(exc).__name__, exc),
+                    }
+                )
+                write_json_atomic(status_path, payload)
+                raise
+            payload = read_json(status_path)
+            payload.update(
+                {
+                    "status": "RUNNING",
+                    "phase": "watching_download",
+                    "pid": process.pid,
+                    "updated_at": utc_now_text(),
+                }
             )
+            write_json_atomic(status_path, payload)
             return {
                 "status": "RUNNING",
-                "pid": os.getpid(),
+                "pid": process.pid,
                 "batch_name": batch_root.name,
                 "batch_root": str(batch_root),
                 "mode": "continuous_download_upload",
@@ -3001,14 +2175,6 @@ class DashboardState:
                 raise RuntimeError("自动上传进程已经在运行。")
 
             status_path = transfer_dir / "auto_upload_status.json"
-            previous_files = max(0, int(current.get("completed_files", 0) or 0))
-            previous_bytes = max(0, int(current.get("completed_size_bytes", 0) or 0))
-            previous_total = max(0, int(current.get("total_size_bytes", 0) or 0))
-            previous_source = str(current.get("progress_source", ""))
-            preserve_remote_progress = previous_source in {
-                "remote_preflight",
-                "previous_remote_preflight_pending_recheck",
-            }
             write_json_atomic(
                 status_path,
                 {
@@ -3028,24 +2194,12 @@ class DashboardState:
                     "active_workers": 0,
                     "max_workers": 4,
                     "parallelism_reason": "starting",
-                    "file_count": int(transfer.get("file_count", 0) or 0),
-                    "total_size_bytes": int(transfer.get("total_size_bytes", 0) or 0),
-                    "completed_files": previous_files if preserve_remote_progress else 0,
-                    "completed_size_bytes": previous_bytes if preserve_remote_progress else 0,
-                    "percent": (
-                        round(previous_bytes / previous_total * 100, 2)
-                        if preserve_remote_progress and previous_total
-                        else 0.0
-                    ),
-                    "progress_source": (
-                        "previous_remote_preflight_pending_recheck"
-                        if preserve_remote_progress
-                        else "starting_pending_remote_preflight"
-                    ),
                     "automatic_delete": False,
                 },
             )
             command = [
+                sys.executable,
+                str(AUTO_UPLOADER_PATH),
                 "--manifest",
                 str(transfer["path"]),
                 "--target",
@@ -3063,10 +2217,30 @@ class DashboardState:
                 "--max-upload-workers",
                 "4",
             ]
-            self._start_dashboard_upload_worker(command, status_path, batch_root, "starting")
+            stdout_path = transfer_dir / "auto_upload.stdout.log"
+            stderr_path = transfer_dir / "auto_upload.stderr.log"
+            creationflags = 0
+            if os.name == "nt":
+                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
+                    subprocess, "DETACHED_PROCESS", 0
+                )
+            with stdout_path.open("ab") as stdout_handle, stderr_path.open("ab") as stderr_handle:
+                process = subprocess.Popen(
+                    command,
+                    cwd=str(APP_ROOT),
+                    stdin=subprocess.DEVNULL,
+                    stdout=stdout_handle,
+                    stderr=stderr_handle,
+                    creationflags=creationflags,
+                    start_new_session=os.name != "nt",
+                )
+            payload = read_json(status_path)
+            payload["pid"] = process.pid
+            payload["updated_at"] = utc_now_text()
+            write_json_atomic(status_path, payload)
             return {
                 "status": "STARTING",
-                "pid": os.getpid(),
+                "pid": process.pid,
                 "batch_name": batch_root.name,
                 "batch_root": str(batch_root),
                 "target": self.ssh_target,
@@ -3122,37 +2296,18 @@ class DashboardState:
     def open_cleanup_folder(self, batch_name: str = "") -> Dict[str, object]:
         """Open Explorer only after the user has recorded cleanup approval."""
         batch_root = self._resolve_existing_batch(batch_name)
-        transfer_dir = batch_root / "transfer"
-        approval = marker_status(transfer_dir / "local_cleanup_approval.json")
+        approval = marker_status(batch_root / "transfer" / "local_cleanup_approval.json")
         if not approval.get("exists"):
             raise RuntimeError("请先确认允许清理；此操作不会删除任何文件。")
         if os.name != "nt":
             raise RuntimeError("当前系统不支持打开 Windows 资源管理器。")
-        # FY4B files remain in the official application's external source
-        # folder; the dashboard batch only holds control manifests.  Open the
-        # actual approved raw-data location so the user can make the explicit
-        # deletion decision after server verification, while other platforms
-        # keep opening their batch root.
-        folder = batch_root
-        source_kind = "batch_root"
-        fy4b_request = read_json(transfer_dir / "fy4b_official_import_request.json")
-        source_text = str(fy4b_request.get("source_root", "")).strip()
-        if source_text:
-            source_root = Path(source_text).expanduser()
-            if source_root.is_dir() and source_root != Path(source_root.anchor):
-                folder = source_root.resolve()
-                source_kind = "fy4b_official_source"
         try:
-            subprocess.Popen(
-                ["explorer.exe", str(folder)],
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
+            subprocess.Popen(["explorer.exe", str(batch_root)])
         except OSError as exc:
-            raise RuntimeError("无法打开本地数据文件夹：{}".format(exc)) from exc
+            raise RuntimeError("无法打开本地批次文件夹：{}".format(exc)) from exc
         return {
             "batch_name": batch_root.name,
-            "folder": str(folder),
-            "folder_kind": source_kind,
+            "folder": str(batch_root),
             "opened": True,
             "delete_executed": False,
         }
@@ -3198,11 +2353,6 @@ def make_handler(state: DashboardState):
                     self.send_json(state.status(batch_name))
                 except RuntimeError as exc:
                     self.send_json({"ok": False, "error": str(exc)}, 404)
-                except Exception as exc:
-                    # A diagnostic status read must fail explicitly rather
-                    # than drop the connection and look like a browser/network
-                    # failure.  It never changes transfer state.
-                    self.send_json({"ok": False, "error": "状态读取失败：{}".format(type(exc).__name__)}, 500)
                 return
             if path == "/guide":
                 guide = GUIDE_PATH.read_text(encoding="utf-8") if GUIDE_PATH.is_file() else "操作说明不存在。"
@@ -3257,24 +2407,6 @@ def make_handler(state: DashboardState):
                             "upload": state.start_auto_upload(
                                 str(payload.get("batch_name", ""))
                             ),
-                        }
-                    )
-                    return
-                if path == "/api/actions/preview-fy4b-official-upload":
-                    payload = self.read_json_body(required=True)
-                    self.send_json(
-                        {
-                            "ok": True,
-                            "preview": state.preview_fy4b_official_upload(payload),
-                        }
-                    )
-                    return
-                if path == "/api/actions/start-fy4b-official-upload":
-                    payload = self.read_json_body(required=True)
-                    self.send_json(
-                        {
-                            "ok": True,
-                            "fy4b": state.start_fy4b_official_upload(payload),
                         }
                     )
                     return
@@ -3406,7 +2538,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("ERROR: 批次目录不存在：{}".format(batch_root), file=sys.stderr)
         return 2
     identity_file = Path(args.identity_file).expanduser() if args.identity_file else None
-    print("dashboard: constructing state", flush=True)
     state = DashboardState(
         batch_root,
         ssh_target=args.ssh_target,
@@ -3417,15 +2548,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         notification_setup_sender=args.notification_setup_sender,
         notification_setup_recipient=args.notification_setup_recipient,
     )
-    print("dashboard: starting notification monitor", flush=True)
     state.start_notification_monitor()
-    print("dashboard: starting queue scheduler", flush=True)
     state.start_batch_queue_scheduler()
-    print("dashboard: binding HTTP server", flush=True)
     server = ThreadingHTTPServer((args.host, args.port), make_handler(state))
     print("http://{}:{}".format(args.host, args.port), flush=True)
-    print("dashboard: recovering interrupted uploads", flush=True)
-    state.start_startup_upload_recovery()
     server.serve_forever()
     return 0
 

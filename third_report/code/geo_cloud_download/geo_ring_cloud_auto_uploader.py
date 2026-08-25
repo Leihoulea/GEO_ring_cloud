@@ -12,17 +12,15 @@ import csv
 import hashlib
 import json
 import os
-import re
 import shlex
 import shutil
 import subprocess
 import sys
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 CORE_CODE_ROOT = Path(__file__).resolve().parents[1] / "geo_ring_cloud_stage1"
 if str(CORE_CODE_ROOT) not in sys.path:
@@ -43,44 +41,10 @@ RELATED_STAGE_IDS = ["stage_00"]
 DEFAULT_SERVER_ROOT = PurePosixPath("/data04/1/dhr/geo_ring_cloud_auto_upload")
 DEFAULT_ALLOWED_PARENT = PurePosixPath("/data04/1/dhr")
 MAX_UPLOAD_WORKERS = 4
-DEFAULT_SERVER_VERIFY_WORKERS = 2
-REMOTE_PREFLIGHT_CHUNK_SIZE = 128
-MAX_SERVER_VERIFY_WORKERS = 4
-DEFAULT_UPLOAD_MAX_ATTEMPTS = 4
-DEFAULT_UPLOAD_RETRY_BASE_SECONDS = 5.0
-MAX_UPLOAD_ATTEMPTS = 10
-FAILURE_HISTORY_NAME = "auto_upload_failure_history.jsonl"
-FAILURE_SNAPSHOT_DIR_NAME = "auto_upload_failure_snapshots"
-FAILURE_LOG_LOCK = threading.Lock()
-
-
-class UploadFileFailure(RuntimeError):
-    """One manifest item exhausted its bounded upload attempts."""
-
-    def __init__(self, local_path: str, attempts: int, error: Exception) -> None:
-        super().__init__(
-            "{} failed after {} attempt(s): {}: {}".format(
-                local_path, attempts, type(error).__name__, error
-            )
-        )
-        self.local_path = local_path
-        self.attempts = attempts
-        self.retry_events = max(0, attempts - 1)
-        self.original_error = error
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def current_process_created_epoch() -> Optional[float]:
-    """Return a PID-reuse guard when psutil is available."""
-    try:
-        import psutil  # type: ignore
-
-        return float(psutil.Process(os.getpid()).create_time())
-    except (ImportError, OSError, ValueError):
-        return None
 
 
 def runtime_lineage() -> Dict[str, object]:
@@ -104,22 +68,6 @@ def subprocess_creation_flags() -> int:
     if os.name != "nt":
         return 0
     return getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-
-def subprocess_startupinfo():
-    """Hide transient Windows console windows created by OpenSSH children.
-
-    ``CREATE_NO_WINDOW`` is necessary but is not sufficient on every Windows
-    OpenSSH build: a short-lived ``conhost.exe`` can still be created while an
-    ``ssh.exe`` or ``sftp.exe`` child starts.  Explicitly requesting
-    ``SW_HIDE`` prevents that console from being shown to the desktop user.
-    """
-    if os.name != "nt":
-        return None
-    startupinfo = subprocess.STARTUPINFO()
-    startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
-    startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
-    return startupinfo
 
 
 def write_json_atomic(
@@ -157,35 +105,6 @@ def write_json_atomic(
     raise last_error
 
 
-def append_jsonl_durable(path: Path, row: Dict[str, object]) -> None:
-    """Append one small audit row and force it to stable storage."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    serialized = json.dumps(row, ensure_ascii=False) + "\n"
-    with FAILURE_LOG_LOCK:
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(serialized)
-            handle.flush()
-            os.fsync(handle.fileno())
-
-
-def archive_failure_snapshot(
-    status_path: Path, status: Dict[str, object]
-) -> Optional[Path]:
-    """Write a unique, non-overwriting terminal status snapshot."""
-    snapshot_dir = status_path.parent / FAILURE_SNAPSHOT_DIR_NAME
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
-    snapshot_path = snapshot_dir / "auto_upload_failure_{}_pid{}.json".format(
-        stamp, status.get("pid", os.getpid())
-    )
-    payload = dict(status)
-    payload["snapshot_written_at"] = utc_now()
-    try:
-        write_json_atomic(snapshot_path, payload)
-    except OSError:
-        return None
-    return snapshot_path
-
-
 def short_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -215,7 +134,6 @@ def build_auto_upload_manifest(
     source_manifest_path: Path,
     server_root: PurePosixPath,
     output_path: Optional[Path] = None,
-    progress_callback: Optional[Callable[[Dict[str, object]], None]] = None,
 ) -> Tuple[Path, Dict[str, object]]:
     source_manifest_path = source_manifest_path.resolve()
     source = json.loads(source_manifest_path.read_text(encoding="utf-8"))
@@ -225,84 +143,13 @@ def build_auto_upload_manifest(
     if not source_server_root.is_absolute():
         raise RuntimeError("Transfer manifest has no absolute server_root")
 
-    source_files = list(source.get("files", []))
-    if not source_files:
-        raise RuntimeError("Transfer manifest contains no files")
-    total_source_bytes = sum(int(item.get("size_bytes", 0) or 0) for item in source_files)
-    batch_id = str(source.get("batch_id") or source_manifest_path.stem)
-    target = output_path or source_manifest_path.parent / (
-        "geo_ring_cloud_auto_upload_{}_manifest.json".format(batch_id)
-    )
-
-    # A completed automatic manifest already contains immutable per-file
-    # SHA-256 values.  Rebuilding it on every resume used to read every FY4B
-    # file again before SFTP could start.  Reuse it only after a cheap local
-    # identity check (path, size, mapped remote path, and checksum shape).
-    # Any mismatch falls through to a full rehash, preserving integrity.
-    existing = read_json_file(target) if target.is_file() else {}
-    existing_files = list(existing.get("files", [])) if isinstance(existing, dict) else []
-    source_by_path = {str(item.get("local_path", "")): item for item in source_files}
-    reusable = (
-        isinstance(existing, dict)
-        and existing.get("status") == "READY_FOR_AUTOMATED_SFTP_UPLOAD"
-        and str(existing.get("source_transfer_manifest", "")) == str(source_manifest_path)
-        and str(existing.get("source_server_root", "")) == str(source_server_root)
-        and str(existing.get("server_root", "")) == str(server_root)
-        and len(existing_files) == len(source_files)
-        and len(source_by_path) == len(source_files)
-    )
-    if reusable:
-        for cached in existing_files:
-            local_key = str(cached.get("local_path", ""))
-            source_item = source_by_path.get(local_key)
-            digest = str(cached.get("sha256", "")).strip().lower()
-            if source_item is None or not re.fullmatch(r"[0-9a-f]{64}", digest):
-                reusable = False
-                break
-            try:
-                expected_size = int(source_item.get("size_bytes", -1))
-                if int(cached.get("size_bytes", -2)) != expected_size:
-                    reusable = False
-                    break
-                local_path = Path(local_key)
-                if not local_path.is_file() or local_path.stat().st_size != expected_size:
-                    reusable = False
-                    break
-                old_remote = PurePosixPath(str(source_item.get("remote_path", "")))
-                expected_remote = str(server_root / old_remote.relative_to(source_server_root))
-                if str(cached.get("remote_path", "")) != expected_remote:
-                    reusable = False
-                    break
-            except (OSError, TypeError, ValueError):
-                reusable = False
-                break
-    if reusable:
-        if progress_callback is not None:
-            progress_callback(
-                {
-                    "phase": "preparing_manifest",
-                    "preflight_completed_files": len(existing_files),
-                    "preflight_file_count": len(source_files),
-                    "preflight_completed_size_bytes": total_source_bytes,
-                    "preflight_total_size_bytes": total_source_bytes,
-                    "preflight_percent": 100.0,
-                    "current_file": "",
-                    "current_files": [],
-                    "preflight_reused_existing_sha256": True,
-                }
-            )
-        return target, existing
-
     remapped_files: List[Dict[str, object]] = []
-    prepared_files = 0
-    prepared_bytes = 0
-    for item in source_files:
+    for item in source.get("files", []):
         local_path = Path(str(item.get("local_path", "")))
         if not local_path.is_file():
             raise FileNotFoundError("Local source file is missing: {}".format(local_path))
         expected_size = int(item.get("size_bytes", -1))
-        before = local_path.stat()
-        if before.st_size != expected_size:
+        if local_path.stat().st_size != expected_size:
             raise RuntimeError("Local source size changed: {}".format(local_path))
         old_remote = PurePosixPath(str(item.get("remote_path", "")))
         try:
@@ -312,39 +159,16 @@ def build_auto_upload_manifest(
                 "Remote path is outside manifest server_root: {}".format(old_remote)
             ) from exc
         new_item = dict(item)
-        # Official-client imports first write a fast path/size manifest.  Compute
-        # their checksum inside this detached uploader process so the dashboard
-        # remains responsive, but reject a source that changes while hashing.
-        if not str(new_item.get("sha256", "")).strip():
-            new_item["sha256"] = sha256_file(local_path)
-        after = local_path.stat()
-        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
-            raise RuntimeError("Local source changed while hashing: {}".format(local_path))
         new_item["remote_path"] = str(server_root / relative)
         remapped_files.append(new_item)
-        prepared_files += 1
-        prepared_bytes += expected_size
-        if progress_callback is not None:
-            progress_callback(
-                {
-                    "phase": "preparing_manifest",
-                    "preflight_completed_files": prepared_files,
-                    "preflight_file_count": len(source_files),
-                    "preflight_completed_size_bytes": prepared_bytes,
-                    "preflight_total_size_bytes": total_source_bytes,
-                    "preflight_percent": (
-                        round(prepared_bytes / total_source_bytes * 100, 2)
-                        if total_source_bytes
-                        else 100.0
-                    ),
-                    "current_file": str(local_path),
-                    "current_files": [str(local_path)],
-                }
-            )
 
     if not remapped_files:
         raise RuntimeError("Transfer manifest contains no files")
 
+    batch_id = str(source.get("batch_id") or source_manifest_path.stem)
+    target = output_path or source_manifest_path.parent / (
+        "geo_ring_cloud_auto_upload_{}_manifest.json".format(batch_id)
+    )
     payload = dict(source)
     payload.update(
         {
@@ -411,34 +235,15 @@ def run_ssh(
     connect_timeout: int,
     input_text: Optional[str] = None,
     check: bool = True,
-    command_timeout: Optional[int] = None,
 ) -> subprocess.CompletedProcess:
-    run_kwargs = {
-        "text": True,
-        "capture_output": True,
-        "check": False,
-        "creationflags": subprocess_creation_flags(),
-        "startupinfo": subprocess_startupinfo(),
-    }
-    if input_text is None:
-        # A Scheduled Task running with S4U has no interactive console.  Do not
-        # let OpenSSH inherit an unusable Session-0 stdin handle and wait on it.
-        run_kwargs["stdin"] = subprocess.DEVNULL
-    else:
-        run_kwargs["input"] = input_text
-    if command_timeout is not None:
-        run_kwargs["timeout"] = command_timeout
-    try:
-        result = subprocess.run(
-            ssh_base(target, identity_file, connect_timeout) + [command],
-            **run_kwargs,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(
-            "SSH command timed out after {} seconds: {}".format(
-                command_timeout, command
-            )
-        ) from exc
+    result = subprocess.run(
+        ssh_base(target, identity_file, connect_timeout) + [command],
+        input=input_text,
+        text=True,
+        capture_output=True,
+        check=False,
+        creationflags=subprocess_creation_flags(),
+    )
     if check and result.returncode != 0:
         message = (result.stderr or result.stdout or "SSH command failed").strip()
         raise RuntimeError(message)
@@ -465,7 +270,6 @@ def run_sftp_batch(
         capture_output=True,
         check=False,
         creationflags=subprocess_creation_flags(),
-        startupinfo=subprocess_startupinfo(),
     )
     if result.returncode != 0:
         message = (result.stderr or result.stdout or "SFTP command failed").strip()
@@ -567,14 +371,6 @@ def progressive_upload_worker_counts(total_files: int, max_workers: int) -> List
     return waves
 
 
-def chunked_items(items: Sequence[str], chunk_size: int) -> Iterable[Sequence[str]]:
-    """Yield bounded remote-preflight requests without materializing copies."""
-    if chunk_size < 1:
-        raise ValueError("chunk_size must be positive")
-    for offset in range(0, len(items), chunk_size):
-        yield items[offset : offset + chunk_size]
-
-
 def upload_manifest_item(
     item: Dict[str, object],
     remote_state: Dict[str, Optional[int]],
@@ -624,96 +420,6 @@ def upload_manifest_item(
     }
 
 
-def is_retryable_upload_error(exc: Exception) -> bool:
-    """Separate transient transport/storage failures from unsafe permanent states."""
-    if isinstance(exc, (FileNotFoundError, ValueError)):
-        return False
-    message = "{}: {}".format(type(exc).__name__, exc).lower()
-    permanent_markers = (
-        "permission denied",
-        "authentication failed",
-        "host key verification failed",
-        "no such identity",
-        "identity file is missing",
-        "local source size changed",
-        "local source changed during upload",
-        "remote final file exists with unexpected size",
-        "remote .part file is larger than source",
-        "unsafe automatic upload root",
-        "unsafe directory",
-        "unsafe payload path",
-    )
-    return not any(marker in message for marker in permanent_markers)
-
-
-def upload_manifest_item_with_retry(
-    item: Dict[str, object],
-    remote_state: Dict[str, Optional[int]],
-    target: str,
-    identity_file: Path,
-    server_root: PurePosixPath,
-    allowed_parent: PurePosixPath,
-    connect_timeout: int,
-    max_attempts: int,
-    retry_base_seconds: float,
-    failure_history_path: Path,
-) -> Dict[str, object]:
-    """Upload one item with bounded retry and refreshed ``.part`` discovery."""
-    local_path = str(item["local_path"])
-    remote_path = str(item["remote_path"])
-    state = dict(remote_state)
-    last_error: Optional[Exception] = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            if attempt > 1:
-                state = inspect_remote(
-                    target,
-                    identity_file,
-                    server_root,
-                    allowed_parent,
-                    [remote_path],
-                    [str(PurePosixPath(remote_path).parent)],
-                    connect_timeout,
-                ).get(remote_path, {})
-            result = upload_manifest_item(
-                item,
-                state,
-                target,
-                identity_file,
-                connect_timeout,
-            )
-            result["attempts"] = attempt
-            result["retry_events"] = max(0, attempt - 1)
-            return result
-        except Exception as exc:
-            last_error = exc
-            retryable = is_retryable_upload_error(exc)
-            will_retry = retryable and attempt < max_attempts
-            delay = retry_base_seconds * (2 ** (attempt - 1)) if will_retry else 0.0
-            append_jsonl_durable(
-                failure_history_path,
-                {
-                    "recorded_at": utc_now(),
-                    "event": "file_upload_attempt_failed",
-                    "pid": os.getpid(),
-                    "local_path": local_path,
-                    "remote_path": remote_path,
-                    "attempt": attempt,
-                    "max_attempts": max_attempts,
-                    "retryable": retryable,
-                    "will_retry": will_retry,
-                    "retry_delay_seconds": delay,
-                    "error": "{}: {}".format(type(exc).__name__, exc),
-                    "automatic_delete": False,
-                },
-            )
-            if not will_retry:
-                break
-            time.sleep(delay)
-    assert last_error is not None
-    raise UploadFileFailure(local_path, attempt, last_error) from last_error
-
-
 def download_one(
     target: str,
     identity_file: Path,
@@ -761,32 +467,6 @@ def load_stream_ledger(path: Path) -> Dict[str, Dict[str, object]]:
         if isinstance(row, dict) and row.get("local_path"):
             completed[str(row["local_path"])] = row
     return completed
-
-
-def ledger_progress_for_files(
-    files: Sequence[Dict[str, object]], ledger: Dict[str, Dict[str, object]]
-) -> Tuple[int, int]:
-    """Return conservatively matched continuous-upload progress.
-
-    A continuous ledger entry is only a progress observation until the remote
-    preflight checks it again.  Matching both local path and expected size
-    keeps that observation useful without allowing an old or changed file to
-    inflate the displayed count.
-    """
-    completed_files = 0
-    completed_bytes = 0
-    for item in files:
-        local_path = str(item.get("local_path", ""))
-        expected_size = int(item.get("size_bytes", 0) or 0)
-        entry = ledger.get(local_path, {})
-        try:
-            recorded_size = int(entry.get("size_bytes", -1) or -1)
-        except (TypeError, ValueError):
-            recorded_size = -1
-        if local_path and recorded_size == expected_size:
-            completed_files += 1
-            completed_bytes += expected_size
-    return completed_files, completed_bytes
 
 
 def append_stream_ledger(path: Path, row: Dict[str, object]) -> None:
@@ -870,15 +550,11 @@ def watch_and_upload(
     poll_seconds: int = 10,
     connect_timeout: int = 20,
     max_upload_workers: int = MAX_UPLOAD_WORKERS,
-    server_verify_workers: int = DEFAULT_SERVER_VERIFY_WORKERS,
-    upload_max_attempts: int = DEFAULT_UPLOAD_MAX_ATTEMPTS,
-    upload_retry_base_seconds: float = DEFAULT_UPLOAD_RETRY_BASE_SECONDS,
 ) -> int:
     """Upload finalized files while the downloader continues, then reconcile fully."""
     batch_root = batch_root.resolve()
     transfer_dir = batch_root / "transfer"
     ledger_path = transfer_dir / "continuous_upload_ledger.jsonl"
-    failure_history_path = transfer_dir / FAILURE_HISTORY_NAME
     validate_server_root(server_root, allowed_parent)
     ensure_tools_and_identity(identity_file)
     if not 1 <= max_upload_workers <= MAX_UPLOAD_WORKERS:
@@ -903,7 +579,6 @@ def watch_and_upload(
         "started_at": started_at,
         "updated_at": started_at,
         "pid": os.getpid(),
-        "process_created_epoch": current_process_created_epoch(),
         "batch_root": str(batch_root),
         "target": target,
         "server_root": str(server_root),
@@ -958,9 +633,6 @@ def watch_and_upload(
                 verification_report,
                 connect_timeout,
                 max_upload_workers,
-                server_verify_workers,
-                upload_max_attempts,
-                upload_retry_base_seconds,
             )
 
         raw_batch = read_json_file(transfer_dir / "batch_status.json")
@@ -974,19 +646,6 @@ def watch_and_upload(
                 error=str(raw_batch.get("message") or "下载失败，持续上传已停止。"),
                 current_file="",
             )
-            append_jsonl_durable(
-                failure_history_path,
-                {
-                    "recorded_at": utc_now(),
-                    "event": "continuous_upload_stopped_for_download_failure",
-                    "pid": os.getpid(),
-                    "error": str(status.get("error", "")),
-                    "automatic_delete": False,
-                },
-            )
-            snapshot = archive_failure_snapshot(status_path, status)
-            if snapshot is not None:
-                update(failure_snapshot=str(snapshot))
             return 2
 
         discovered = discover_completed_files(batch_root, start_date, end_date, platforms)
@@ -1070,10 +729,6 @@ def watch_and_upload(
                         "local_path": str(local_path),
                         "remote_path": remote_path,
                         "size_bytes": expected_size,
-                        "local_signature": {
-                            "size_bytes": int(after.st_size),
-                            "mtime_ns": int(after.st_mtime_ns),
-                        },
                         "sha256": digest,
                         "remote_preexisting": final_size is not None,
                     }
@@ -1094,26 +749,13 @@ def watch_and_upload(
                     )
             except Exception as exc:
                 retry_count += 1
-                retry_delay = min(300, poll_seconds * (2 ** min(retry_count, 5)))
-                append_jsonl_durable(
-                    failure_history_path,
-                    {
-                        "recorded_at": utc_now(),
-                        "event": "continuous_upload_retry",
-                        "pid": os.getpid(),
-                        "retry_count": retry_count,
-                        "retry_delay_seconds": retry_delay,
-                        "error": "{}: {}".format(type(exc).__name__, exc),
-                        "automatic_delete": False,
-                    },
-                )
                 update(
                     phase="retry_wait",
                     retry_count=retry_count,
                     last_error="{}: {}".format(type(exc).__name__, exc),
                     current_file="",
                 )
-                time.sleep(retry_delay)
+                time.sleep(min(300, poll_seconds * (2 ** min(retry_count, 5))))
                 continue
         else:
             update(
@@ -1143,9 +785,6 @@ def upload_batch(
     verification_report: Path,
     connect_timeout: int = 20,
     max_upload_workers: int = MAX_UPLOAD_WORKERS,
-    server_verify_workers: int = DEFAULT_SERVER_VERIFY_WORKERS,
-    upload_max_attempts: int = DEFAULT_UPLOAD_MAX_ATTEMPTS,
-    upload_retry_base_seconds: float = DEFAULT_UPLOAD_RETRY_BASE_SECONDS,
 ) -> int:
     validate_server_root(server_root, allowed_parent)
     ensure_tools_and_identity(identity_file)
@@ -1153,137 +792,7 @@ def upload_batch(
         raise ValueError(
             "max_upload_workers must be between 1 and {}".format(MAX_UPLOAD_WORKERS)
         )
-    if not 1 <= server_verify_workers <= MAX_SERVER_VERIFY_WORKERS:
-        raise ValueError(
-            "server_verify_workers must be between 1 and {}".format(MAX_SERVER_VERIFY_WORKERS)
-        )
-    if not 1 <= upload_max_attempts <= MAX_UPLOAD_ATTEMPTS:
-        raise ValueError(
-            "upload_max_attempts must be between 1 and {}".format(MAX_UPLOAD_ATTEMPTS)
-        )
-    if upload_retry_base_seconds < 0:
-        raise ValueError("upload_retry_base_seconds must be non-negative")
-    failure_history_path = status_path.parent / FAILURE_HISTORY_NAME
-    source = json.loads(manifest_path.resolve().read_text(encoding="utf-8"))
-    source_files = list(source.get("files", []))
-    source_total_bytes = sum(int(item.get("size_bytes", 0) or 0) for item in source_files)
-    continuous_ledger = load_stream_ledger(status_path.parent / "continuous_upload_ledger.jsonl")
-    ledger_completed_files, ledger_completed_bytes = ledger_progress_for_files(
-        source_files, continuous_ledger
-    )
-    # A restarted uploader always performs remote preflight again before it
-    # skips any payload.  Preserve a bounded, previously confirmed remote
-    # observation merely as a UI baseline so an interrupted preflight does not
-    # appear to erase hundreds of completed uploads.
-    previous_status = read_json_file(status_path)
-    prior_completed_files = max(
-        0,
-        min(len(source_files), int(previous_status.get("completed_files", 0) or 0)),
-    )
-    prior_completed_bytes = max(
-        0,
-        min(source_total_bytes, int(previous_status.get("completed_size_bytes", 0) or 0)),
-    )
-    prior_is_remote_observation = str(previous_status.get("progress_source", "")) in {
-        "remote_preflight",
-        "previous_remote_preflight_pending_recheck",
-    }
-    if prior_is_remote_observation:
-        ledger_completed_files = max(ledger_completed_files, prior_completed_files)
-        ledger_completed_bytes = max(ledger_completed_bytes, prior_completed_bytes)
-    ledger_percent = (
-        round(ledger_completed_bytes / source_total_bytes * 100, 2)
-        if source_total_bytes
-        else 100.0
-    )
-    preflight_status: Dict[str, object] = {
-        "project_id": "geo_ring_cloud",
-        "canonical_stage_id": "",
-        "component_role": COMPONENT_ROLE,
-        "related_stage_ids": RELATED_STAGE_IDS,
-        "batch_id": str(source.get("batch_id") or "batch"),
-        "target": target,
-        "server_root": str(server_root),
-        "manifest": str(manifest_path),
-        "status": "RUNNING",
-        "phase": "preparing_manifest",
-        "mode": "adaptive_upload",
-        "started_at": utc_now(),
-        "updated_at": utc_now(),
-        "pid": os.getpid(),
-        "process_created_epoch": current_process_created_epoch(),
-        "file_count": len(source_files),
-        "completed_files": ledger_completed_files,
-        "total_size_bytes": source_total_bytes,
-        "completed_size_bytes": ledger_completed_bytes,
-        "percent": ledger_percent,
-        "progress_source": (
-            "previous_remote_preflight_pending_recheck"
-            if prior_is_remote_observation
-            else "continuous_upload_ledger_pending_remote_preflight"
-        ),
-        "preflight_file_count": len(source_files),
-        "preflight_completed_files": 0,
-        "preflight_total_size_bytes": source_total_bytes,
-        "preflight_completed_size_bytes": 0,
-        "preflight_percent": 0.0,
-        "current_file": "",
-        "current_files": [],
-        "parallelism_mode": "adaptive",
-        "active_workers": 0,
-        "max_workers": max_upload_workers,
-        "parallelism_reason": "preserving_continuous_upload_progress_while_preparing_manifest",
-        "automatic_delete": False,
-    }
-    write_json_atomic(status_path, preflight_status)
-    last_preflight_write = 0.0
-
-    def report_manifest_progress(progress: Dict[str, object]) -> None:
-        nonlocal last_preflight_write
-        now = time.monotonic()
-        completed = int(progress.get("preflight_completed_files", 0) or 0)
-        total = int(progress.get("preflight_file_count", 0) or 0)
-        if completed < total and now - last_preflight_write < 0.5:
-            return
-        preflight_status.update(progress)
-        preflight_status["updated_at"] = utc_now()
-        write_json_atomic(status_path, preflight_status)
-        last_preflight_write = now
-
-    try:
-        auto_manifest_path, manifest = build_auto_upload_manifest(
-            manifest_path,
-            server_root,
-            progress_callback=report_manifest_progress,
-        )
-    except Exception as exc:
-        preflight_status.update(
-            {
-                "status": "FAIL",
-                "phase": "failed",
-                "failed_at": utc_now(),
-                "updated_at": utc_now(),
-                "error": "{}: {}".format(type(exc).__name__, exc),
-            }
-        )
-        write_json_atomic(status_path, preflight_status)
-        append_jsonl_durable(
-            failure_history_path,
-            {
-                "recorded_at": utc_now(),
-                "event": "upload_run_failed",
-                "pid": os.getpid(),
-                "phase": str(preflight_status.get("phase", "failed")),
-                "error": str(preflight_status["error"]),
-                "automatic_delete": False,
-            },
-        )
-        snapshot = archive_failure_snapshot(status_path, preflight_status)
-        if snapshot is not None:
-            preflight_status["failure_snapshot"] = str(snapshot)
-            write_json_atomic(status_path, preflight_status)
-        print(preflight_status["error"], file=sys.stderr)
-        return 2
+    auto_manifest_path, manifest = build_auto_upload_manifest(manifest_path, server_root)
     files = list(manifest["files"])
     total_bytes = int(manifest["total_size_bytes"])
     batch_id = str(manifest.get("batch_id") or "batch")
@@ -1296,8 +805,6 @@ def upload_batch(
         verifier_local.stem, short_sha256(verifier_local)
     )
     remote_report = control_root / "server_verification.json"
-    remote_progress = control_root / "server_verification_progress.json"
-    local_progress = status_path.parent / "server_verification_progress.json"
 
     base_status: Dict[str, object] = {
         "project_id": "geo_ring_cloud",
@@ -1314,24 +821,15 @@ def upload_batch(
         "started_at": utc_now(),
         "updated_at": utc_now(),
         "pid": os.getpid(),
-        "process_created_epoch": current_process_created_epoch(),
         "file_count": len(files),
-        "completed_files": ledger_completed_files,
+        "completed_files": 0,
         "total_size_bytes": total_bytes,
-        "completed_size_bytes": ledger_completed_bytes,
-        "percent": ledger_percent,
-        "progress_source": "continuous_upload_ledger_pending_remote_preflight",
+        "completed_size_bytes": 0,
         "current_file": "",
         "current_files": [],
         "parallelism_mode": "adaptive",
         "active_workers": 0,
         "max_workers": max_upload_workers,
-        "upload_max_attempts": upload_max_attempts,
-        "upload_retry_base_seconds": upload_retry_base_seconds,
-        "failure_history": str(failure_history_path),
-        "failure_snapshot_directory": str(status_path.parent / FAILURE_SNAPSHOT_DIR_NAME),
-        "retry_events": 0,
-        "failed_files": 0,
         "parallelism_reason": "preflight",
         "automatic_delete": False,
     }
@@ -1356,62 +854,23 @@ def upload_batch(
 
     update()
     try:
-        update(
-            phase="connectivity_check",
-            current_file="",
-            current_files=[],
-            active_workers=1,
-            parallelism_reason="checking_ssh_connection",
+        run_ssh(target, identity_file, "true", connect_timeout)
+        remote_paths = [str(item["remote_path"]) for item in files]
+        directories = sorted(
+            {str(PurePosixPath(path).parent) for path in remote_paths}
+            | {str(control_root)}
         )
-        run_ssh(
+        remote = inspect_remote(
             target,
             identity_file,
-            "true",
+            server_root,
+            allowed_parent,
+            remote_paths,
+            directories,
             connect_timeout,
-            command_timeout=max(30, connect_timeout + 10),
         )
-        remote_paths = [str(item["remote_path"]) for item in files]
-        update(
-            phase="remote_preflight",
-            active_workers=1,
-            preflight_file_count=len(remote_paths),
-            preflight_completed_files=0,
-            preflight_percent=0.0,
-            parallelism_reason="checking_remote_completed_files_in_bounded_batches",
-        )
-        remote: Dict[str, Dict[str, Optional[int]]] = {}
-        completed_preflight = 0
-        for remote_chunk in chunked_items(remote_paths, REMOTE_PREFLIGHT_CHUNK_SIZE):
-            directories = sorted(
-                {str(PurePosixPath(path).parent) for path in remote_chunk}
-                | {str(control_root)}
-            )
-            remote.update(
-                inspect_remote(
-                    target,
-                    identity_file,
-                    server_root,
-                    allowed_parent,
-                    remote_chunk,
-                    directories,
-                    connect_timeout,
-                )
-            )
-            completed_preflight += len(remote_chunk)
-            update(
-                phase="remote_preflight",
-                preflight_completed_files=completed_preflight,
-                preflight_file_count=len(remote_paths),
-                preflight_percent=round(completed_preflight / len(remote_paths) * 100, 2),
-                current_file="",
-                current_files=[],
-            )
         completed_files = 0
         completed_bytes = 0
-        retry_events = 0
-        failed_items: List[Dict[str, object]] = []
-        batch_ledger_path = status_path.parent / "continuous_upload_ledger.jsonl"
-        batch_ledger = load_stream_ledger(batch_ledger_path)
         pending_items: List[Dict[str, object]] = []
         for item in files:
             remote_path = str(item["remote_path"])
@@ -1435,7 +894,6 @@ def upload_batch(
             completed_files=completed_files,
             completed_size_bytes=completed_bytes,
             percent=round(completed_bytes / total_bytes * 100, 2) if total_bytes else 100.0,
-            progress_source="remote_preflight",
             parallelism_reason="download_complete_ramping",
         )
         cursor = 0
@@ -1455,62 +913,20 @@ def upload_batch(
             with ThreadPoolExecutor(max_workers=worker_count) as executor:
                 futures = {
                     executor.submit(
-                        upload_manifest_item_with_retry,
+                        upload_manifest_item,
                         item,
                         remote.get(str(item["remote_path"]), {}),
                         target,
                         identity_file,
-                        server_root,
-                        allowed_parent,
                         connect_timeout,
-                        upload_max_attempts,
-                        upload_retry_base_seconds,
-                        failure_history_path,
                     ): item
                     for item in wave
                 }
                 for future in as_completed(futures):
-                    item = futures[future]
-                    try:
-                        result = future.result()
-                    except Exception as exc:
-                        failed_items.append(
-                            {
-                                "local_path": str(item["local_path"]),
-                                "remote_path": str(item["remote_path"]),
-                                "error": "{}: {}".format(type(exc).__name__, exc),
-                            }
-                        )
-                        retry_events += int(getattr(exc, "retry_events", 0))
-                        failed_path = str(item["local_path"])
-                        current_files = [
-                            path for path in current_files if path != failed_path
-                        ]
-                        update(
-                            failed_files=len(failed_items),
-                            retry_events=retry_events,
-                            last_error="{}: {}".format(type(exc).__name__, exc),
-                            current_files=current_files,
-                            current_file=current_files[0] if current_files else "",
-                        )
-                        continue
+                    result = future.result()
                     completed_files += 1
                     completed_bytes += int(result["size_bytes"])
-                    retry_events += int(result.get("retry_events", 0) or 0)
                     finished_path = str(result["local_path"])
-                    if finished_path not in batch_ledger:
-                        ledger_row = {
-                            "uploaded_at": utc_now(),
-                            "platform": str(item.get("platform", "")),
-                            "local_path": finished_path,
-                            "remote_path": str(result["remote_path"]),
-                            "size_bytes": int(result["size_bytes"]),
-                            "sha256": str(item.get("sha256", "")),
-                            "remote_preexisting": bool(result["remote_preexisting"]),
-                            "attempts": int(result.get("attempts", 1) or 1),
-                        }
-                        append_stream_ledger(batch_ledger_path, ledger_row)
-                        batch_ledger[finished_path] = ledger_row
                     current_files = [path for path in current_files if path != finished_path]
                     update(
                         completed_files=completed_files,
@@ -1522,25 +938,7 @@ def upload_batch(
                         ),
                         current_files=current_files,
                         current_file=current_files[0] if current_files else "",
-                        retry_events=retry_events,
-                        failed_files=len(failed_items),
                     )
-
-        if failed_items:
-            update(
-                phase="upload_incomplete_after_retries",
-                active_workers=0,
-                current_file="",
-                current_files=[],
-                failed_files=len(failed_items),
-                failed_file_details=failed_items[:20],
-                parallelism_reason="other_upload_lanes_completed_before_terminal_failure",
-            )
-            raise RuntimeError(
-                "{} file(s) exhausted bounded upload retries; see {}".format(
-                    len(failed_items), failure_history_path
-                )
-            )
 
         update(
             phase="uploading_control_files",
@@ -1577,91 +975,19 @@ def upload_batch(
                 resume=control_state.get("part_size") is not None,
             )
 
-        update(
-            phase="server_sha256_verification",
-            current_file="",
-            current_files=[],
-            active_workers=server_verify_workers,
-            parallelism_reason="server_sha256_verification_{}way".format(server_verify_workers),
-            verification_status="RUNNING",
-            verification_file_count=len(files),
-            verification_completed_files=0,
-            verification_failed_files=0,
-            verification_total_size_bytes=total_bytes,
-            verification_completed_size_bytes=0,
-            verification_percent=0.0,
-            verification_current_file="",
-        )
-        verify_command = "python3 {} verify --manifest {} --report {} --progress {} --location server --workers {}".format(
+        update(phase="server_sha256_verification", current_file="")
+        verify_command = "python3 {} verify --manifest {} --report {} --location server".format(
             shlex.quote(str(remote_verifier)),
             shlex.quote(str(remote_manifest)),
             shlex.quote(str(remote_report)),
-            shlex.quote(str(remote_progress)),
-            server_verify_workers,
         )
-
-        def sync_verification_progress() -> None:
-            try:
-                download_one(
-                    target,
-                    identity_file,
-                    str(remote_progress),
-                    local_progress,
-                    connect_timeout,
-                )
-            except (OSError, RuntimeError):
-                # The first poll can occur before the server-side verifier has
-                # written its initial control record.  Verification remains
-                # authoritative even if this observational refresh is missed.
-                return
-            progress = read_json_file(local_progress)
-            if not progress:
-                return
-            total_progress_files = max(
-                0, min(len(files), int(progress.get("total_file_count", len(files)) or 0))
-            )
-            completed_progress_files = max(
-                0,
-                min(total_progress_files, int(progress.get("completed_file_count", 0) or 0)),
-            )
-            total_progress_bytes = max(
-                0, int(progress.get("total_size_bytes", total_bytes) or 0)
-            )
-            completed_progress_bytes = max(
-                0,
-                min(
-                    total_progress_bytes,
-                    int(progress.get("completed_size_bytes", 0) or 0),
-                ),
-            )
-            update(
-                verification_status=str(progress.get("status", "RUNNING")),
-                verification_file_count=total_progress_files,
-                verification_completed_files=completed_progress_files,
-                verification_failed_files=max(
-                    0, int(progress.get("failed_file_count", 0) or 0)
-                ),
-                verification_total_size_bytes=total_progress_bytes,
-                verification_completed_size_bytes=completed_progress_bytes,
-                verification_percent=float(progress.get("percent", 0) or 0),
-                verification_current_file=str(progress.get("current_file", "")),
-            )
-
-        with ThreadPoolExecutor(max_workers=1) as verification_executor:
-            verification_future = verification_executor.submit(
-                run_ssh,
-                target,
-                identity_file,
-                verify_command,
-                connect_timeout,
-                None,
-                False,
-            )
-            while not verification_future.done():
-                time.sleep(5)
-                sync_verification_progress()
-            verification = verification_future.result()
-        sync_verification_progress()
+        verification = run_ssh(
+            target,
+            identity_file,
+            verify_command,
+            connect_timeout,
+            check=False,
+        )
         download_one(
             target,
             identity_file,
@@ -1704,31 +1030,13 @@ def upload_batch(
         )
         return 0
     except Exception as exc:
-        failure_origin_phase = str(base_status.get("phase", "failed"))
         update(
             status="FAIL",
             phase="failed",
-            failure_origin_phase=failure_origin_phase,
             failed_at=utc_now(),
             error="{}: {}".format(type(exc).__name__, exc),
             automatic_delete=False,
         )
-        append_jsonl_durable(
-            failure_history_path,
-            {
-                "recorded_at": utc_now(),
-                "event": "upload_run_failed",
-                "pid": os.getpid(),
-                "phase": failure_origin_phase,
-                "completed_files": int(base_status.get("completed_files", 0) or 0),
-                "file_count": int(base_status.get("file_count", 0) or 0),
-                "error": str(base_status["error"]),
-                "automatic_delete": False,
-            },
-        )
-        snapshot = archive_failure_snapshot(status_path, base_status)
-        if snapshot is not None:
-            update(failure_snapshot=str(snapshot))
         print(base_status["error"], file=sys.stderr)
         return 2
 
@@ -1758,26 +1066,6 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=MAX_UPLOAD_WORKERS,
         choices=range(1, MAX_UPLOAD_WORKERS + 1),
         help="After download completion, ramp SFTP streams up to this value (1-4).",
-    )
-    parser.add_argument(
-        "--server-verify-workers",
-        type=int,
-        default=DEFAULT_SERVER_VERIFY_WORKERS,
-        choices=range(1, MAX_SERVER_VERIFY_WORKERS + 1),
-        help="Bounded concurrent SHA-256 reads on the lab server (default: 2).",
-    )
-    parser.add_argument(
-        "--upload-max-attempts",
-        type=int,
-        default=DEFAULT_UPLOAD_MAX_ATTEMPTS,
-        choices=range(1, MAX_UPLOAD_ATTEMPTS + 1),
-        help="Maximum attempts for each payload before marking only that file failed.",
-    )
-    parser.add_argument(
-        "--upload-retry-base-seconds",
-        type=float,
-        default=DEFAULT_UPLOAD_RETRY_BASE_SECONDS,
-        help="Base delay for per-file exponential retry backoff.",
     )
     return parser.parse_args(argv)
 
@@ -1815,9 +1103,6 @@ def main(argv: Optional[List[str]] = None) -> int:
             args.poll_seconds,
             args.connect_timeout,
             args.max_upload_workers,
-            args.server_verify_workers,
-            args.upload_max_attempts,
-            args.upload_retry_base_seconds,
         )
     return upload_batch(
         manifest_path,
@@ -1829,9 +1114,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         report_path,
         args.connect_timeout,
         args.max_upload_workers,
-        args.server_verify_workers,
-        args.upload_max_attempts,
-        args.upload_retry_base_seconds,
     )
 
 

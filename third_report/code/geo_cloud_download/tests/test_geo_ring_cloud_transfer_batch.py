@@ -1,8 +1,6 @@
-import hashlib
 import json
 import io
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -21,27 +19,19 @@ from geo_ring_cloud_transfer_dashboard import (  # noqa: E402
     HTML_PATH,
     ORDER_SOURCE_CONFIG,
     auto_upload_status,
-    background_subprocess_creation_flag_attempts,
-    background_subprocess_creation_flags,
     dashboard_trends,
     download_launcher_status,
     parse_disk_gate,
-    is_windows_job_breakaway_denied,
-    process_matches_status,
     process_is_running,
-    server_verification_status,
     upload_throughput,
     write_json_atomic as dashboard_write_json_atomic,
 )
 from geo_ring_cloud_auto_uploader import (  # noqa: E402
     build_auto_upload_manifest,
-    chunked_items,
     discover_completed_files,
-    ledger_progress_for_files,
     progressive_upload_worker_counts,
     sftp_quote,
     subprocess_creation_flags,
-    subprocess_startupinfo,
     validate_server_root,
     write_json_atomic as uploader_write_json_atomic,
 )
@@ -53,9 +43,7 @@ from geo_ring_cloud.batch_queue import (  # noqa: E402
     refine_estimate_from_inventory,
 )
 import geo_cloud_downloader  # noqa: E402
-import geo_ring_cloud_auto_uploader as auto_uploader  # noqa: E402
 import geo_ring_cloud_transfer_dashboard as transfer_dashboard  # noqa: E402
-import geo_ring_cloud_resume_uploader_task as resume_uploader_task  # noqa: E402
 from geo_ring_cloud.notifications import (  # noqa: E402
     PersistentEmailNotifier,
     read_state as read_notification_state,
@@ -194,179 +182,6 @@ class TransferBatchTests(unittest.TestCase):
         self.assertEqual(progressive_upload_worker_counts(5, 3), [2, 3])
         self.assertEqual(progressive_upload_worker_counts(3, 1), [1, 1, 1])
 
-    def test_remote_preflight_is_bounded_into_small_batches(self):
-        self.assertEqual(
-            [list(chunk) for chunk in chunked_items(["a", "b", "c", "d", "e"], 2)],
-            [["a", "b"], ["c", "d"], ["e"]],
-        )
-        with self.assertRaises(ValueError):
-            list(chunked_items(["a"], 0))
-
-    def test_file_upload_retry_refreshes_remote_part_state(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            local = root / "sample.nc"
-            local.write_bytes(b"payload")
-            remote_path = "/data04/1/dhr/geo_ring_cloud_auto_upload/H09/sample.nc"
-            item = {
-                "local_path": str(local),
-                "remote_path": remote_path,
-                "size_bytes": local.stat().st_size,
-            }
-            success = {
-                "local_path": str(local),
-                "remote_path": remote_path,
-                "size_bytes": local.stat().st_size,
-                "remote_preexisting": False,
-            }
-            with patch.object(
-                auto_uploader,
-                "upload_manifest_item",
-                side_effect=[RuntimeError("Connection reset by peer"), success],
-            ) as upload, patch.object(
-                auto_uploader,
-                "inspect_remote",
-                return_value={remote_path: {"final_size": None, "part_size": 3}},
-            ) as inspect, patch.object(auto_uploader.time, "sleep") as sleeper:
-                result = auto_uploader.upload_manifest_item_with_retry(
-                    item,
-                    {"final_size": None, "part_size": None},
-                    "dhr@example",
-                    root / "key",
-                    PurePosixPath("/data04/1/dhr/geo_ring_cloud_auto_upload"),
-                    PurePosixPath("/data04/1/dhr"),
-                    20,
-                    4,
-                    2.0,
-                    root / "failure_history.jsonl",
-                )
-
-            self.assertEqual(result["attempts"], 2)
-            self.assertEqual(result["retry_events"], 1)
-            self.assertEqual(inspect.call_count, 1)
-            self.assertEqual(upload.call_args_list[1].args[1]["part_size"], 3)
-            sleeper.assert_called_once_with(2.0)
-            history = [
-                json.loads(line)
-                for line in (root / "failure_history.jsonl").read_text(
-                    encoding="utf-8"
-                ).splitlines()
-            ]
-            self.assertEqual(history[0]["event"], "file_upload_attempt_failed")
-            self.assertTrue(history[0]["will_retry"])
-
-    def test_permanent_upload_error_is_not_retried(self):
-        self.assertFalse(
-            auto_uploader.is_retryable_upload_error(
-                RuntimeError("Permission denied (publickey)")
-            )
-        )
-        self.assertFalse(
-            auto_uploader.is_retryable_upload_error(
-                RuntimeError("Remote .part file is larger than source")
-            )
-        )
-        self.assertTrue(
-            auto_uploader.is_retryable_upload_error(
-                RuntimeError("Connection reset by peer")
-            )
-        )
-
-    def test_parallel_batch_finishes_other_files_before_terminal_failure(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            transfer = root / "transfer"
-            transfer.mkdir()
-            files = []
-            for name in ("good_a.nc", "bad.nc", "good_b.nc"):
-                local = root / name
-                local.write_bytes(name.encode("ascii"))
-                files.append(
-                    {
-                        "platform": "Himawari-9",
-                        "local_path": str(local),
-                        "remote_path": "/data04/1/dhr/geo_ring_cloud_auto_upload/H09/{}".format(
-                            name
-                        ),
-                        "size_bytes": local.stat().st_size,
-                        "sha256": hashlib.sha256(local.read_bytes()).hexdigest(),
-                    }
-                )
-            source = transfer / "geo_ring_cloud_transfer_test_manifest.json"
-            source.write_text(
-                json.dumps({"status": "READY_FOR_XFTP_UPLOAD", "files": files}),
-                encoding="utf-8",
-            )
-            automatic = transfer / "geo_ring_cloud_auto_upload_test_manifest.json"
-            automatic.write_text("{}", encoding="utf-8")
-            manifest = {
-                "batch_id": "test",
-                "total_size_bytes": sum(item["size_bytes"] for item in files),
-                "files": files,
-            }
-
-            def upload_result(item, *_args, **_kwargs):
-                if str(item["local_path"]).endswith("bad.nc"):
-                    raise auto_uploader.UploadFileFailure(
-                        str(item["local_path"]), 4, RuntimeError("Connection reset")
-                    )
-                return {
-                    "local_path": str(item["local_path"]),
-                    "remote_path": str(item["remote_path"]),
-                    "size_bytes": int(item["size_bytes"]),
-                    "remote_preexisting": False,
-                    "attempts": 1,
-                    "retry_events": 0,
-                }
-
-            def remote_state(_target, _identity, _root, _allowed, paths, _dirs, _timeout):
-                return {
-                    path: {"final_size": None, "part_size": None} for path in paths
-                }
-
-            with patch.object(auto_uploader, "ensure_tools_and_identity"), patch.object(
-                auto_uploader,
-                "build_auto_upload_manifest",
-                return_value=(automatic, manifest),
-            ), patch.object(
-                auto_uploader,
-                "run_ssh",
-                return_value=subprocess.CompletedProcess(["ssh"], 0, "", ""),
-            ), patch.object(
-                auto_uploader, "inspect_remote", side_effect=remote_state
-            ), patch.object(
-                auto_uploader,
-                "upload_manifest_item_with_retry",
-                side_effect=upload_result,
-            ):
-                result = auto_uploader.upload_batch(
-                    source,
-                    "dhr@example",
-                    root / "key",
-                    PurePosixPath("/data04/1/dhr/geo_ring_cloud_auto_upload"),
-                    PurePosixPath("/data04/1/dhr"),
-                    transfer / "auto_upload_status.json",
-                    transfer / "server_verification.json",
-                    max_upload_workers=2,
-                    upload_retry_base_seconds=0,
-                )
-
-            self.assertEqual(result, 2)
-            ledger = auto_uploader.load_stream_ledger(
-                transfer / "continuous_upload_ledger.jsonl"
-            )
-            self.assertEqual(set(ledger), {str(root / "good_a.nc"), str(root / "good_b.nc")})
-            status = json.loads(
-                (transfer / "auto_upload_status.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual(status["status"], "FAIL")
-            self.assertEqual(status["failed_files"], 1)
-            self.assertEqual(status["failure_origin_phase"], "upload_incomplete_after_retries")
-            snapshots = list(
-                (transfer / auto_uploader.FAILURE_SNAPSHOT_DIR_NAME).glob("*.json")
-            )
-            self.assertEqual(len(snapshots), 1)
-
     def test_download_adaptive_parallelism_probes_and_backs_off(self):
         probe, reason = geo_cloud_downloader.choose_adaptive_worker_count(
             4, 2, 12, 10_000_000, 9_000_000, 8, 0
@@ -376,116 +191,6 @@ class TransferBatchTests(unittest.TestCase):
             5, 2, 12, 8_000_000, 10_000_000, 6, 2
         )
         self.assertEqual((backoff, reason), (4, "errors_backoff"))
-
-    def test_s3_range_controller_increases_then_backs_off_within_bounds(self):
-        controller = geo_cloud_downloader.AdaptiveS3RangeController(4)
-        for _ in range(8):
-            controller.record(6.0, success=True)
-        self.assertEqual(controller.snapshot()["range_mib"], 8)
-
-        controller.record(17.0, success=True)
-        self.assertEqual(controller.snapshot()["range_mib"], 4)
-        controller.record(1.0, success=False)
-        self.assertEqual(controller.snapshot()["range_mib"], 2)
-
-    def test_auto_uploader_uses_conservative_two_way_server_verification(self):
-        args = auto_uploader.parse_args(
-            ["--manifest", "manifest.json", "--target", "dhr@node05", "--identity-file", "key"]
-        )
-        self.assertEqual(args.server_verify_workers, 2)
-
-    def test_resume_task_requires_one_existing_transfer_manifest(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            batch = Path(temp_dir) / "batch"
-            transfer = batch / "transfer"
-            transfer.mkdir(parents=True)
-            manifest = transfer / "geo_ring_cloud_transfer_sample_manifest.json"
-            manifest.write_text("{}", encoding="utf-8")
-            self.assertEqual(
-                resume_uploader_task.transfer_manifest_for_batch(batch), manifest.resolve()
-            )
-            (transfer / "geo_ring_cloud_transfer_second_manifest.json").write_text(
-                "{}", encoding="utf-8"
-            )
-            with self.assertRaisesRegex(RuntimeError, "exactly one"):
-                resume_uploader_task.transfer_manifest_for_batch(batch)
-
-    def test_resume_task_delegates_to_auto_uploader_without_data_mutation(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            batch = Path(temp_dir) / "batch"
-            transfer = batch / "transfer"
-            transfer.mkdir(parents=True)
-            manifest = transfer / "geo_ring_cloud_transfer_sample_manifest.json"
-            manifest.write_text("{}", encoding="utf-8")
-            with patch.object(resume_uploader_task, "auto_uploader_main", return_value=0) as upload:
-                self.assertEqual(resume_uploader_task.main(["--batch-root", str(batch)]), 0)
-            upload.assert_called_once()
-            audit = json.loads((transfer / "auto_upload_resume_task_audit.json").read_text(encoding="utf-8"))
-            self.assertEqual(audit["status"], "RETURNED")
-            self.assertFalse(audit["automatic_delete"])
-
-    def test_dashboard_exposes_safe_restart_upload_action_after_failure(self):
-        html = HTML_PATH.read_text(encoding="utf-8")
-        self.assertIn("重启上传（安全续传）", html)
-        self.assertIn("dataset.restart", html)
-        self.assertIn("大小一致的正式文件不会覆盖", html)
-
-    def test_dashboard_background_workers_break_away_without_console_window(self):
-        with patch.object(transfer_dashboard.os, "name", "nt"):
-            flags = background_subprocess_creation_flags()
-        self.assertTrue(flags & getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        self.assertTrue(flags & getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
-        self.assertTrue(flags & getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0))
-
-    def test_dashboard_background_workers_fall_back_inside_restrictive_windows_job(self):
-        with patch.object(transfer_dashboard.os, "name", "nt"):
-            attempts = background_subprocess_creation_flag_attempts()
-            self.assertEqual(
-                [mode for _flags, mode in attempts],
-                ["breakaway_from_job", "inherit_dashboard_job"],
-            )
-            breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
-            self.assertTrue(attempts[0][0] & breakaway)
-            self.assertFalse(attempts[1][0] & breakaway)
-            self.assertTrue(is_windows_job_breakaway_denied(PermissionError(13, "denied")))
-
-    def test_continuous_ledger_progress_requires_matching_local_size(self):
-        files = [
-            {"local_path": "batch/one.nc", "size_bytes": 10},
-            {"local_path": "batch/two.nc", "size_bytes": 20},
-        ]
-        ledger = {
-            "batch/one.nc": {"size_bytes": 10},
-            "batch/two.nc": {"size_bytes": 19},
-        }
-        self.assertEqual(ledger_progress_for_files(files, ledger), (1, 10))
-
-    def test_task_summary_prioritizes_real_upload_failure_over_fy4b_import_note(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "fy4b_batch"
-            transfer = root / "transfer"
-            transfer.mkdir(parents=True)
-            (transfer / "batch_status.json").write_text(
-                json.dumps(
-                    {
-                        "status": "complete",
-                        "message": "FY4B 数据由官方应用下载；本系统不执行远端下载。",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            (transfer / "auto_upload_status.json").write_text(
-                json.dumps(
-                    {
-                        "status": "FAIL",
-                        "phase": "process_exited",
-                        "error": "自动上传进程退出但没有完成状态：exit_code=0。",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            summary = DashboardState._task_summary(root)
-            self.assertIn("自动上传进程退出", summary["error"])
 
     def test_active_parts_keeps_sampling_separate_per_batch(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -597,11 +302,7 @@ class TransferBatchTests(unittest.TestCase):
             transfer.mkdir(parents=True)
             raw = root / "raw.nc"
             raw.write_bytes(b"keep")
-            identity = root / "id_ed25519"
-            identity.write_text("test", encoding="utf-8")
-            dashboard = DashboardState(
-                root, ssh_target="dhr@node05", identity_file=identity
-            )
+            dashboard = DashboardState(root)
             with self.assertRaisesRegex(RuntimeError, "先确认允许清理"):
                 dashboard.open_cleanup_folder()
             (transfer / "local_cleanup_approval.json").write_text("{}", encoding="utf-8")
@@ -611,81 +312,8 @@ class TransferBatchTests(unittest.TestCase):
                 result = dashboard.open_cleanup_folder()
                 self.assertTrue(result["opened"])
                 self.assertFalse(result["delete_executed"])
-                self.assertEqual(result["folder_kind"], "batch_root")
                 opener.assert_called_once()
                 self.assertEqual(raw.read_bytes(), b"keep")
-
-    def test_dashboard_reports_restricted_unattended_key_mode(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "batch"
-            (root / "transfer").mkdir(parents=True)
-            identity = root / "id_ed25519_node05_automation"
-            identity.write_text("test", encoding="utf-8")
-            dashboard = DashboardState(
-                root, ssh_target="dhr@node05", identity_file=identity
-            )
-            status = dashboard.status()
-        self.assertEqual(
-            status["auto_upload_config"]["credential_mode"],
-            "restricted_unattended_key",
-        )
-
-    def test_fy4b_cleanup_folder_opens_external_official_source(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "GEO_Cloud_2024_batches" / "fy4b_20240601_20240601"
-            transfer = root / "transfer"
-            source = Path(temp_dir) / "official_fy4b"
-            transfer.mkdir(parents=True)
-            source.mkdir()
-            raw = source / "FY4B-_AGRI--_N_DISK_1050E_L2-_CLM-_MULT_NOM_20240601000000_20240601001459_4000M_V0001.NC"
-            raw.write_bytes(b"keep")
-            (transfer / "local_cleanup_approval.json").write_text("{}", encoding="utf-8")
-            (transfer / "fy4b_official_import_request.json").write_text(
-                json.dumps({"source_root": str(source)}), encoding="utf-8"
-            )
-            dashboard = DashboardState(root)
-            with patch.object(transfer_dashboard.os, "name", "nt"), patch(
-                "geo_ring_cloud_transfer_dashboard.subprocess.Popen"
-            ) as opener:
-                result = dashboard.open_cleanup_folder()
-            self.assertEqual(result["folder"], str(source.resolve()))
-            self.assertEqual(result["folder_kind"], "fy4b_official_source")
-            self.assertFalse(result["delete_executed"])
-            self.assertEqual(raw.read_bytes(), b"keep")
-            opener.assert_called_once()
-
-    def test_task_summary_archives_only_verified_control_only_batch(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "batch"
-            transfer = root / "transfer"
-            transfer.mkdir(parents=True)
-            (transfer / "batch_status.json").write_text(
-                json.dumps({"status": "complete", "phase": "ready_for_xftp"}),
-                encoding="utf-8",
-            )
-            (transfer / "download_launcher_status.json").write_text(
-                json.dumps({"status": "COMPLETE", "process_alive": False}),
-                encoding="utf-8",
-            )
-            (transfer / "auto_upload_status.json").write_text(
-                json.dumps({"status": "PASS", "completed_files": 1, "file_count": 1}),
-                encoding="utf-8",
-            )
-            (transfer / "server_verification.json").write_text(
-                json.dumps({"status": "PASS", "verified_file_count": 1}),
-                encoding="utf-8",
-            )
-            dashboard = DashboardState(root)
-            task = dashboard.task_summaries(limit=None)[0]
-            self.assertTrue(task["archive_ready"])
-            self.assertTrue(task["archived"])
-            self.assertEqual(task["local_payload"]["state"], "absent")
-
-            (root / "raw.nc").write_bytes(b"keep")
-            retained_task = dashboard.task_summaries(limit=None)[0]
-            self.assertTrue(retained_task["archive_ready"])
-            self.assertFalse(retained_task["archived"])
-            self.assertEqual(retained_task["local_payload"]["state"], "present")
 
     def test_dashboard_html_includes_safe_selection_fallback_and_full_part_view(self):
         html = HTML_PATH.read_text(encoding="utf-8")
@@ -693,20 +321,6 @@ class TransferBatchTests(unittest.TestCase):
         self.assertIn("parts.items.slice(0,15)", html)
         self.assertIn("已结束记录", html)
         self.assertIn("open-cleanup-folder", html)
-        self.assertIn("start-fy4b-official-upload", html)
-        self.assertIn("preview-fy4b-official-upload", html)
-        self.assertIn("fy4bPreviewPanel", html)
-        self.assertIn("fy4bPreviewMappings", html)
-        self.assertIn("FY4B 自动批次标识", html)
-        self.assertIn("preparing_manifest", html)
-        self.assertIn("复制路径", html)
-        self.assertIn('id="taskArchive"', html)
-        self.assertIn("function taskRowMarkup(task)", html)
-        self.assertIn(
-            "if(!archived.length){\n        $('taskArchiveList').innerHTML='';\n        // Active tasks still need their click handlers",
-            html,
-        )
-        self.assertIn("bindTaskSelection();\n        return;", html)
 
     def test_dashboard_gates_never_delete_raw_data(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -869,11 +483,6 @@ class TransferBatchTests(unittest.TestCase):
             function_body.index("$commandExitCode = $LASTEXITCODE"),
         )
         self.assertIn("if ($commandExitCode -ne 0)", function_body)
-        self.assertIn('$CondaTempRoot = Join-Path $TransferRoot "conda_tmp"', script)
-        self.assertIn('$env:TEMP = $CondaTempRoot', function_body)
-        self.assertIn('$env:TMP = $CondaTempRoot', function_body)
-        self.assertIn("if ($ResolvedPythonExe)", function_body)
-        self.assertIn("& $ResolvedPythonExe @Arguments", function_body)
 
     def test_start_download_recovers_unowned_stale_control_lock(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1049,8 +658,6 @@ class TransferBatchTests(unittest.TestCase):
             self.assertIn("12", command)
             self.assertIn("-DownloadWorkers", command)
             self.assertIn("-AdaptiveDownload", command)
-            self.assertIn("-PythonExe", command)
-            self.assertIn(sys.executable, command)
             self.assertTrue(result["adaptive_download"])
             environment = popen.call_args.kwargs["env"]
             self.assertEqual(environment["NO_PROXY"], "*")
@@ -1170,44 +777,6 @@ class TransferBatchTests(unittest.TestCase):
                 else "empirical",
                 "empirical",
             )
-
-    def test_validation_audits_expected_found_files_without_blocking(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            manifests = root / "manifests"
-            manifests.mkdir()
-            present = root / "present.bin"
-            present.write_bytes(b"present")
-            absent = root / "absent.bin"
-            (manifests / "manifest_inventory.csv").write_text(
-                "platform,status,local_path\n"
-                f"GOES-16,found,{present}\n"
-                f"GOES-16,found,{absent}\n"
-                f"GOES-16,not_found,{root / 'remote-missing.bin'}\n",
-                encoding="utf-8",
-            )
-            (manifests / "manifest_downloaded.csv").write_text(
-                "platform,status,local_path\n"
-                f"GOES-16,downloaded,{present}\n",
-                encoding="utf-8",
-            )
-
-            with patch.object(
-                geo_cloud_downloader,
-                "validate_file",
-                side_effect=lambda path, row=None: (
-                    Path(path).exists(), "ok" if Path(path).exists() else "missing_local_file"
-                ),
-            ):
-                geo_cloud_downloader.run_validate(root)
-
-            summary = json.loads((manifests / "download_summary.json").read_text(encoding="utf-8"))
-            self.assertEqual(summary["remote_unavailable_rows"], 1)
-            self.assertEqual(summary["expected_found_rows"], 2)
-            self.assertEqual(summary["expected_local_missing_rows"], 1)
-            self.assertFalse(summary["completeness_audit"]["is_upload_gate"])
-            report = (manifests / "expected_local_missing.csv").read_text(encoding="utf-8")
-            self.assertIn(str(absent), report)
 
     def test_waiting_queue_refreshes_persisted_v1_estimate(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1330,42 +899,6 @@ class TransferBatchTests(unittest.TestCase):
             self.assertEqual(popen.call_count, 1)
             self.assertTrue((root / item["target_batch_name"] / "transfer").is_dir())
 
-    def test_download_launch_retries_without_breakaway_after_windows_access_denied(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            current = root / "current_batch"
-            current.mkdir()
-            dashboard = DashboardState(current)
-            fake_process = unittest.mock.Mock(pid=24683)
-            fake_process.poll.return_value = None
-            denied = PermissionError(13, "Windows job denies breakaway")
-            with patch.object(
-                transfer_dashboard.os, "name", "nt"
-            ), patch(
-                "geo_ring_cloud_transfer_dashboard.subprocess.Popen",
-                side_effect=[denied, fake_process],
-            ) as popen, patch.object(DashboardState, "_watch_download_process"):
-                result = dashboard.start_download(
-                    {
-                        "start_date": "2024-12-01",
-                        "end_date": "2024-12-01",
-                        "platforms": ["Meteosat-0deg"],
-                        "continuous_upload": False,
-                    }
-                )
-            self.assertEqual(popen.call_count, 2)
-            self.assertEqual(result["pid"], fake_process.pid)
-            status = json.loads(
-                (
-                    root
-                    / "20241201_20241201_m0"
-                    / "transfer"
-                    / "download_launcher_status.json"
-                ).read_text(encoding="utf-8")
-            )
-            self.assertEqual(status["status"], "RUNNING")
-            self.assertEqual(status["process_launch_mode"], "inherit_dashboard_job")
-
     def test_continuous_discovery_excludes_part_and_control_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1386,57 +919,12 @@ class TransferBatchTests(unittest.TestCase):
 
             self.assertEqual([row[1] for row in discovered], [final_file.resolve()])
 
-    def test_windows_pid_probe_never_calls_os_kill(self):
+    def test_windows_permission_error_uses_read_only_pid_fallback(self):
         with patch(
-            "geo_ring_cloud_transfer_dashboard.os.name", "nt"
-        ), patch(
-            "geo_ring_cloud_transfer_dashboard.os.kill"
-        ) as destructive_probe, patch("psutil.pid_exists", return_value=True):
+            "geo_ring_cloud_transfer_dashboard.os.kill",
+            side_effect=PermissionError,
+        ), patch("psutil.pid_exists", return_value=True):
             self.assertTrue(process_is_running(34056))
-            destructive_probe.assert_not_called()
-
-    def test_download_status_reconciles_from_terminal_artifacts(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "batch"
-            transfer = root / "transfer"
-            manifests = root / "manifests"
-            transfer.mkdir(parents=True)
-            manifests.mkdir(parents=True)
-            (transfer / "download_launcher_status.json").write_text(
-                json.dumps({"status": "FAIL", "pid": 1234}), encoding="utf-8"
-            )
-            (manifests / "download_summary.json").write_text(
-                json.dumps(
-                    {
-                        "downloaded_rows": 1436,
-                        "expected_found_rows": 1436,
-                        "expected_local_missing_rows": 0,
-                        "remote_unavailable_rows": 4,
-                        "completeness_audit": {"status": "PASS"},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            (transfer / "geo_ring_cloud_transfer_test_manifest.json").write_text(
-                json.dumps(
-                    {
-                        "status": "READY_FOR_XFTP_UPLOAD",
-                        "file_count": 1436,
-                        "total_size_bytes": 100,
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            status = download_launcher_status(transfer, {"status": "running"})
-
-            self.assertEqual(status["status"], "COMPLETE")
-            self.assertFalse(status["process_alive"])
-            self.assertEqual(
-                status["reconciliation_source"],
-                "download_summary_and_transfer_manifest",
-            )
-            self.assertEqual(status["remote_unavailable_rows"], 4)
 
     def test_status_record_retries_transient_windows_lock(self):
         import os
@@ -1534,54 +1022,6 @@ class TransferBatchTests(unittest.TestCase):
         self.assertEqual(status["launcher_status"]["status"], "FAIL")
         self.assertEqual(status["pipeline_stages"][0]["status"], "fail")
 
-    def test_dashboard_startup_recovery_uses_managed_batch_upload(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "batch"
-            (root / "transfer").mkdir(parents=True)
-            dashboard = DashboardState(root)
-            interrupted = {
-                "batch_name": "batch",
-                "upload_status": "STOPPED",
-                "server_status": "RUNNING",
-                "local_payload": {"state": "present"},
-                "transfer_status": "READY_FOR_XFTP_UPLOAD",
-                "download_status": "COMPLETE",
-                "download_process_alive": False,
-            }
-            with patch.object(dashboard, "task_summaries", return_value=[interrupted]), patch.object(
-                dashboard,
-                "start_auto_upload",
-                return_value={"status": "STARTING"},
-            ) as start_upload:
-                result = dashboard.recover_interrupted_uploads()
-            audit = json.loads(dashboard.startup_recovery_path.read_text(encoding="utf-8"))
-        start_upload.assert_called_once_with("batch")
-        self.assertEqual(result["recovered_count"], 1)
-        self.assertEqual(audit["execution_model"], "dashboard_managed_thread")
-        self.assertFalse(audit["automatic_delete"])
-
-    def test_dashboard_startup_recovery_does_not_retry_terminal_failure(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "batch"
-            (root / "transfer").mkdir(parents=True)
-            dashboard = DashboardState(root)
-            failed = {
-                "batch_name": "batch",
-                "upload_status": "FAIL",
-                "server_status": "PENDING",
-                "local_payload": {"state": "present"},
-                "transfer_status": "READY_FOR_XFTP_UPLOAD",
-                "download_status": "COMPLETE",
-                "download_process_alive": False,
-            }
-            with patch.object(dashboard, "task_summaries", return_value=[failed]), patch.object(
-                dashboard, "start_auto_upload"
-            ) as start_upload:
-                result = dashboard.recover_interrupted_uploads()
-        start_upload.assert_not_called()
-        self.assertEqual(result["recovered_count"], 0)
-        self.assertEqual(result["skipped"][0]["reason"], "upload_not_previously_active")
-
     def test_recent_part_keeps_orphaned_child_download_reported_running(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "batch"
@@ -1646,18 +1086,16 @@ class TransferBatchTests(unittest.TestCase):
                                 "local_path": str(local),
                                 "remote_path": "/data04/1/dhr/GOES16/Cloud/GOES-16/ACMF/20240401/00/sample.nc",
                                 "size_bytes": local.stat().st_size,
-                                "sha256": "",
+                                "sha256": "placeholder",
                             }
                         ],
                     }
                 ),
                 encoding="utf-8",
             )
-            progress = []
             output, payload = build_auto_upload_manifest(
                 source,
                 PurePosixPath("/data04/1/dhr/geo_ring_cloud_auto_upload"),
-                progress_callback=progress.append,
             )
             self.assertTrue(output.is_file())
             self.assertEqual(payload["status"], "READY_FOR_AUTOMATED_SFTP_UPLOAD")
@@ -1665,229 +1103,7 @@ class TransferBatchTests(unittest.TestCase):
                 payload["files"][0]["remote_path"],
                 "/data04/1/dhr/geo_ring_cloud_auto_upload/GOES16/Cloud/GOES-16/ACMF/20240401/00/sample.nc",
             )
-            self.assertEqual(
-                payload["files"][0]["sha256"], hashlib.sha256(b"immutable").hexdigest()
-            )
-            self.assertEqual(progress[-1]["preflight_completed_files"], 1)
-            self.assertEqual(progress[-1]["preflight_file_count"], 1)
-            self.assertEqual(progress[-1]["preflight_percent"], 100.0)
             self.assertFalse(payload["deletion_policy"]["automatic_delete"])
-
-    def test_auto_upload_manifest_reuses_verified_sha256_when_sources_unchanged(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            local = root / "FY4B" / "sample.nc"
-            local.parent.mkdir(parents=True)
-            local.write_bytes(b"immutable")
-            source = root / "transfer" / "source_manifest.json"
-            source.parent.mkdir()
-            source.write_text(
-                json.dumps(
-                    {
-                        "status": "READY_FOR_XFTP_UPLOAD",
-                        "batch_id": "fy4b_20240401_20240401_clm",
-                        "server_root": "/data04/1/dhr/geo_ring_cloud_auto_upload",
-                        "files": [
-                            {
-                                "local_path": str(local),
-                                "remote_path": "/data04/1/dhr/geo_ring_cloud_auto_upload/FY4B/CLM/20240401/00/sample.nc",
-                                "size_bytes": local.stat().st_size,
-                                "sha256": "",
-                            }
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            root_path = PurePosixPath("/data04/1/dhr/geo_ring_cloud_auto_upload")
-            output, first = build_auto_upload_manifest(source, root_path)
-            self.assertTrue(first["files"][0]["sha256"])
-            progress = []
-            with patch(
-                "geo_ring_cloud_auto_uploader.sha256_file",
-                side_effect=AssertionError("unchanged file must not be rehashed"),
-            ):
-                reused_output, reused = build_auto_upload_manifest(
-                    source, root_path, progress_callback=progress.append
-                )
-            self.assertEqual(reused_output, output)
-            self.assertEqual(reused["files"][0]["sha256"], first["files"][0]["sha256"])
-            self.assertTrue(progress[-1]["preflight_reused_existing_sha256"])
-
-    def test_auto_upload_watcher_records_unreported_process_exit(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            status_path = Path(temp_dir) / "auto_upload_status.json"
-            status_path.write_text(
-                json.dumps({"status": "RUNNING", "phase": "preparing_manifest", "pid": 4001}),
-                encoding="utf-8",
-            )
-            process = unittest.mock.Mock(pid=4001)
-            process.wait.return_value = 7
-            DashboardState._watch_auto_upload_process(process, status_path)
-            status = json.loads(status_path.read_text(encoding="utf-8"))
-            self.assertEqual(status["status"], "FAIL")
-            self.assertEqual(status["phase"], "process_exited")
-            self.assertEqual(status["exit_code"], 7)
-            self.assertIn("退出但没有完成状态", status["error"])
-
-    def test_restart_upload_keeps_prior_remote_preflight_as_display_baseline(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "batch"
-            transfer = root / "transfer"
-            transfer.mkdir(parents=True)
-            (transfer / "geo_ring_cloud_transfer_sample_manifest.json").write_text(
-                json.dumps(
-                    {
-                        "status": "READY_FOR_XFTP_UPLOAD",
-                        "file_count": 10,
-                        "total_size_bytes": 1000,
-                    }
-                ),
-                encoding="utf-8",
-            )
-            (transfer / "auto_upload_status.json").write_text(
-                json.dumps(
-                    {
-                        "status": "STOPPED",
-                        "progress_source": "remote_preflight",
-                        "completed_files": 7,
-                        "completed_size_bytes": 700,
-                        "total_size_bytes": 1000,
-                    }
-                ),
-                encoding="utf-8",
-            )
-            identity = root / "id_ed25519"
-            identity.write_text("test", encoding="utf-8")
-            dashboard = DashboardState(
-                root, ssh_target="dhr@node05", identity_file=identity
-            )
-            with patch.object(DashboardState, "_start_dashboard_upload_worker"):
-                dashboard.start_auto_upload()
-            status = json.loads((transfer / "auto_upload_status.json").read_text(encoding="utf-8"))
-            self.assertEqual(status["completed_files"], 7)
-            self.assertEqual(status["completed_size_bytes"], 700)
-            self.assertEqual(status["progress_source"], "previous_remote_preflight_pending_recheck")
-
-    def test_dashboard_upload_worker_marks_unreported_clean_return_as_failure(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "batch"
-            transfer = root / "transfer"
-            transfer.mkdir(parents=True)
-            status_path = transfer / "auto_upload_status.json"
-            status_path.write_text(json.dumps({"status": "RUNNING"}), encoding="utf-8")
-            dashboard = DashboardState(root)
-            with patch("geo_ring_cloud_transfer_dashboard.auto_uploader_main", return_value=0):
-                dashboard._run_dashboard_upload_worker([], status_path, root)
-            status = json.loads(status_path.read_text(encoding="utf-8"))
-            self.assertEqual(status["status"], "FAIL")
-            self.assertEqual(status["phase"], "worker_returned_without_terminal_status")
-
-    def test_process_identity_rejects_recycled_pid(self):
-        fake_process = unittest.mock.Mock()
-        fake_process.create_time.return_value = 200.0
-        with patch(
-            "geo_ring_cloud_transfer_dashboard.process_is_running", return_value=True
-        ), patch.dict(sys.modules, {"psutil": unittest.mock.Mock(Process=lambda _pid: fake_process)}):
-            self.assertFalse(
-                process_matches_status({"pid": 4001, "process_created_epoch": 100.0})
-            )
-
-    def test_process_identity_treats_vanished_pid_as_stopped(self):
-        no_such_process = type("NoSuchProcess", (Exception,), {})
-        fake_process = unittest.mock.Mock()
-        fake_process.create_time.side_effect = no_such_process()
-        with patch(
-            "geo_ring_cloud_transfer_dashboard.process_is_running", return_value=True
-        ), patch.dict(sys.modules, {"psutil": unittest.mock.Mock(Process=lambda _pid: fake_process)}):
-            self.assertFalse(
-                process_matches_status({"pid": 4001, "process_created_epoch": 100.0})
-            )
-
-    def test_fy4b_official_import_creates_control_batch_without_copying_source(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "GEO_Cloud_2024_batches" / "current_batch"
-            root.mkdir(parents=True)
-            source = Path(temp_dir) / "FY4B_official"
-            raw = (
-                source
-                / "FY4B-_AGRI--_N_DISK_1050E_L2-_CLM-_MULT_"
-                "NOM_20240401080000_20240401081459_4000M_V0001.NC"
-            )
-            raw.parent.mkdir(parents=True)
-            raw.write_bytes(b"official-client-data")
-            (source / "partial.part").write_bytes(b"incomplete")
-            identity = Path(temp_dir) / "id_ed25519"
-            identity.write_text("key", encoding="utf-8")
-            dashboard = DashboardState(
-                root,
-                ssh_target="dhr@example",
-                identity_file=identity,
-                auto_upload_root="/data04/1/dhr/geo_ring_cloud_auto_upload",
-                allowed_server_parent="/data04/1/dhr",
-            )
-            with patch.object(DashboardState, "_start_dashboard_upload_worker"):
-                result = dashboard.start_fy4b_official_upload(
-                    {"source_path": str(source)}
-                )
-            batch = root.parent / "fy4b_20240401_20240401_clm"
-            manifest = json.loads(
-                (batch / "transfer" / "geo_ring_cloud_transfer_fy4b_20240401_20240401_clm_manifest.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            self.assertEqual(result["batch_name"], "fy4b_20240401_20240401_clm")
-            self.assertFalse(result["resumed"])
-            self.assertEqual(manifest["file_count"], 1)
-            self.assertEqual(manifest["files"][0]["local_path"], str(raw.resolve()))
-            self.assertEqual(manifest["files"][0]["product"], "CLM")
-            self.assertEqual(manifest["files"][0]["nominal_time"], "20240401080000")
-            self.assertEqual(
-                manifest["files"][0]["remote_path"],
-                "/data04/1/dhr/geo_ring_cloud_auto_upload/FY4B/CLM/20240401/08/"
-                "FY4B-_AGRI--_N_DISK_1050E_L2-_CLM-_MULT_"
-                "NOM_20240401080000_20240401081459_4000M_V0001.NC",
-            )
-            self.assertFalse((batch / "CLM").exists())
-            self.assertEqual(raw.read_bytes(), b"official-client-data")
-            self.assertFalse(manifest["deletion_policy"]["automatic_delete"])
-
-    def test_fy4b_batch_label_includes_sorted_product_scope(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "GEO_Cloud_2024_batches" / "current_batch"
-            source = Path(temp_dir) / "FY4B_official"
-            root.mkdir(parents=True)
-            source.mkdir()
-            dashboard = DashboardState(root)
-            label = dashboard._fy4b_batch_label(
-                source,
-                [
-                    {"product": "CTH", "nominal_time": "20240402000000"},
-                    {"product": "CLM", "nominal_time": "20240401000000"},
-                    {"product": "CTT", "nominal_time": "20240401010000"},
-                    {"product": "CLM", "nominal_time": "20240402000000"},
-                ],
-            )
-            self.assertEqual(label, "20240401_20240402_clm-cth-ctt")
-
-    def test_fy4b_official_preview_rejects_ambiguous_nc_filename(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "GEO_Cloud_2024_batches" / "current_batch"
-            root.mkdir(parents=True)
-            source = Path(temp_dir) / "FY4B_official"
-            source.mkdir()
-            (source / "not_an_official_fy4b_file.NC").write_bytes(b"unsafe")
-            identity = Path(temp_dir) / "id_ed25519"
-            identity.write_text("key", encoding="utf-8")
-            dashboard = DashboardState(
-                root,
-                ssh_target="dhr@example",
-                identity_file=identity,
-                auto_upload_root="/data04/1/dhr/geo_ring_cloud_auto_upload",
-                allowed_server_parent="/data04/1/dhr",
-            )
-            with self.assertRaisesRegex(RuntimeError, "无法安全判断变量、日期和小时"):
-                dashboard.preview_fy4b_official_upload({"source_path": str(source)})
 
     def test_auto_upload_root_must_be_a_dedicated_child(self):
         validate_server_root(
@@ -1911,59 +1127,8 @@ class TransferBatchTests(unittest.TestCase):
     def test_windows_ssh_children_use_no_window_flag(self):
         if sys.platform == "win32":
             self.assertNotEqual(subprocess_creation_flags(), 0)
-            startupinfo = subprocess_startupinfo()
-            self.assertIsNotNone(startupinfo)
-            self.assertEqual(startupinfo.wShowWindow, subprocess.SW_HIDE)
         else:
             self.assertEqual(subprocess_creation_flags(), 0)
-            self.assertIsNone(subprocess_startupinfo())
-
-    def test_run_ssh_uses_devnull_without_input(self):
-        completed = subprocess.CompletedProcess(["ssh"], 0, stdout="", stderr="")
-        with patch.object(auto_uploader.subprocess, "run", return_value=completed) as runner:
-            auto_uploader.run_ssh(
-                "dhr@example",
-                Path("id_ed25519"),
-                "true",
-                20,
-                command_timeout=30,
-            )
-
-        kwargs = runner.call_args.kwargs
-        self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
-        self.assertNotIn("input", kwargs)
-        self.assertEqual(kwargs["timeout"], 30)
-
-    def test_run_ssh_uses_pipe_for_payload(self):
-        completed = subprocess.CompletedProcess(["ssh"], 0, stdout="{}", stderr="")
-        with patch.object(auto_uploader.subprocess, "run", return_value=completed) as runner:
-            auto_uploader.run_ssh(
-                "dhr@example",
-                Path("id_ed25519"),
-                "python3 -c pass",
-                20,
-                input_text="{}",
-            )
-
-        kwargs = runner.call_args.kwargs
-        self.assertEqual(kwargs["input"], "{}")
-        self.assertNotIn("stdin", kwargs)
-        self.assertNotIn("timeout", kwargs)
-
-    def test_run_ssh_reports_command_timeout(self):
-        with patch.object(
-            auto_uploader.subprocess,
-            "run",
-            side_effect=subprocess.TimeoutExpired(["ssh"], 30),
-        ):
-            with self.assertRaisesRegex(RuntimeError, "timed out after 30 seconds"):
-                auto_uploader.run_ssh(
-                    "dhr@example",
-                    Path("id_ed25519"),
-                    "true",
-                    20,
-                    command_timeout=30,
-                )
 
     def test_goes_inventory_platform_filter(self):
         target = datetime(2024, 4, 1, tzinfo=timezone.utc)
@@ -2110,90 +1275,8 @@ class TransferBatchTests(unittest.TestCase):
                 "/server/data/dhr/GOES16/Cloud/GOES-16/ACMF/20240401/00/sample.nc",
             )
             report = output / "local_verification.json"
-            progress = output / "local_verification_progress.json"
-            self.assertEqual(verify_manifest(manifest, report, "local", progress, workers=2), 0)
+            self.assertEqual(verify_manifest(manifest, report, "local"), 0)
             self.assertEqual(json.loads(report.read_text(encoding="utf-8"))["status"], "PASS")
-            progress_payload = json.loads(progress.read_text(encoding="utf-8"))
-            self.assertEqual(progress_payload["status"], "PASS")
-            self.assertEqual(progress_payload["completed_file_count"], 1)
-            self.assertEqual(progress_payload["total_file_count"], 1)
-            self.assertEqual(progress_payload["percent"], 100.0)
-            self.assertEqual(progress_payload["worker_count"], 2)
-
-    def test_dashboard_exposes_running_server_verification_progress(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            transfer = Path(temp_dir) / "transfer"
-            transfer.mkdir()
-            (transfer / "server_verification_progress.json").write_text(
-                json.dumps(
-                    {
-                        "status": "RUNNING",
-                        "total_file_count": 8,
-                        "completed_file_count": 3,
-                        "failed_file_count": 0,
-                        "total_size_bytes": 800,
-                        "completed_size_bytes": 300,
-                        "percent": 37.5,
-                        "current_file": "/server/data/current.nc",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            status = server_verification_status(transfer)
-            self.assertEqual(status["status"], "RUNNING")
-            self.assertEqual(status["verified_file_count"], 3)
-            self.assertEqual(status["total_file_count"], 8)
-            self.assertEqual(status["percent"], 37.5)
-
-    def test_server_verification_does_not_count_as_active_download(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            parent = Path(temp_dir)
-            current = parent / "current_batch"
-            previous_transfer = parent / "previous_batch" / "transfer"
-            current.mkdir()
-            previous_transfer.mkdir(parents=True)
-            (previous_transfer / "batch_status.json").write_text(
-                json.dumps({"status": "complete", "updated_at": "2026-08-20T00:00:00Z"}),
-                encoding="utf-8",
-            )
-            (previous_transfer / "auto_upload_status.json").write_text(
-                json.dumps(
-                    {
-                        "status": "RUNNING",
-                        "phase": "server_sha256_verification",
-                        "pid": 999999,
-                        "updated_at": "2026-08-20T00:00:00Z",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            dashboard = DashboardState(current)
-            self.assertIsNone(dashboard._active_download_task())
-
-    def test_finalizing_manifest_releases_download_scheduler_slot(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            parent = Path(temp_dir)
-            current = parent / "current_batch"
-            previous_transfer = parent / "previous_batch" / "transfer"
-            current.mkdir()
-            previous_transfer.mkdir(parents=True)
-            (previous_transfer / "batch_status.json").write_text(
-                json.dumps(
-                    {
-                        "status": "finalizing",
-                        "phase": "manifest",
-                        "updated_at": "2026-08-20T00:00:00Z",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            (previous_transfer / "download_launcher_status.json").write_text(
-                json.dumps({"status": "RUNNING", "pid": 999999}), encoding="utf-8"
-            )
-            dashboard = DashboardState(current)
-            task = dashboard._task_summary(parent / "previous_batch")
-            self.assertEqual(task["download_status"], "FINALIZING")
-            self.assertIsNone(dashboard._active_download_task())
 
     def test_partial_file_blocks_manifest(self):
         with tempfile.TemporaryDirectory() as temp_dir:

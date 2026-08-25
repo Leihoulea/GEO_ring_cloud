@@ -6,11 +6,6 @@ param(
     [string]$StartDate = "2024-04-01",
     [string]$EndDate = "2024-04-01",
     [string]$CondaEnvironment = "pytorch",
-    # The dashboard already knows the interpreter it is running under.  Passing
-    # it through avoids a second ``conda run`` wrapper for detached workers.
-    # That wrapper can report success after its child finishes while the
-    # PowerShell orchestrator has not yet written its terminal batch status.
-    [string]$PythonExe = "",
     [string]$Platforms = "GOES-16,GOES-18",
     [ValidateRange(1, 16)]
     [int]$InventoryWorkers = 8,
@@ -41,15 +36,7 @@ $TransferRoot = Join-Path $BatchRoot "transfer"
 $StatusPath = Join-Path $TransferRoot "batch_status.json"
 $RunLog = Join-Path $TransferRoot "batch_run.log"
 $LockPath = Join-Path $TransferRoot "batch_run.lock"
-$CondaTempRoot = Join-Path $TransferRoot "conda_tmp"
 $CondaExe = $GeoRingCondaExe
-$ResolvedPythonExe = ""
-if (-not [string]::IsNullOrWhiteSpace($PythonExe)) {
-    $ResolvedPythonExe = [System.IO.Path]::GetFullPath($PythonExe)
-    if (-not (Test-Path -LiteralPath $ResolvedPythonExe -PathType Leaf)) {
-        throw "Python executable does not exist: $ResolvedPythonExe"
-    }
-}
 $AllowedPlatforms = @("GOES-16", "GOES-18", "Himawari-9", "Meteosat-0deg", "Meteosat-IODC")
 $SelectedPlatforms = @(
     $Platforms.Split(",") |
@@ -189,32 +176,13 @@ function Invoke-DownloadPython {
     # be inspected.  Capture the complete diagnostic stream, then decide solely
     # from the native process exit code.
     $previousErrorActionPreference = $ErrorActionPreference
-    $previousTemp = $env:TEMP
-    $previousTmp = $env:TMP
     try {
-        # ``conda run`` creates wrapper files beneath TEMP.  Isolating that
-        # small control directory per transfer batch prevents independent
-        # launches from racing over a shared Windows Conda temporary file.
-        New-Item -ItemType Directory -Force -Path $CondaTempRoot | Out-Null
-        $env:TEMP = $CondaTempRoot
-        $env:TMP = $CondaTempRoot
         $ErrorActionPreference = "Continue"
-        if ($ResolvedPythonExe) {
-            # Invoke the exact interpreter selected by the dashboard.  Besides
-            # avoiding Conda's temporary wrapper process, this keeps the
-            # downloader and dashboard in the same tested environment.
-            $commandOutput = & $ResolvedPythonExe @Arguments 2>&1
-        }
-        else {
-            # Preserve the documented CLI fallback for manual PowerShell use.
-            $commandOutput = & $CondaExe run -n $CondaEnvironment python @Arguments 2>&1
-        }
+        $commandOutput = & $CondaExe run -n $CondaEnvironment python @Arguments 2>&1
         $commandExitCode = $LASTEXITCODE
     }
     finally {
         $ErrorActionPreference = $previousErrorActionPreference
-        if ($null -eq $previousTemp) { Remove-Item Env:\TEMP -ErrorAction SilentlyContinue } else { $env:TEMP = $previousTemp }
-        if ($null -eq $previousTmp) { Remove-Item Env:\TMP -ErrorAction SilentlyContinue } else { $env:TMP = $previousTmp }
     }
     if ($commandOutput) {
         $commandOutput | Add-Content -LiteralPath $RunLog -Encoding UTF8
@@ -348,10 +316,7 @@ try {
     }
 
     Clear-DownloadProxy
-    # The raw files are complete at this point.  Keep the final manifest
-    # preparation auditable, but release the dashboard's download slot so a
-    # space-gated next batch can begin while this read-only SHA-256 pass runs.
-    Write-BatchStatus -Phase "manifest" -Status "finalizing" -Message "Raw download complete; computing final SHA-256 manifest."
+    Write-BatchStatus -Phase "manifest" -Status "running" -Message "Computing SHA-256 checksums."
     Invoke-DownloadPython -Arguments @(
         $TransferTool, "prepare", "--batch-root", $BatchRoot,
         "--output-dir", $TransferRoot, "--server-root", $ServerRoot,
