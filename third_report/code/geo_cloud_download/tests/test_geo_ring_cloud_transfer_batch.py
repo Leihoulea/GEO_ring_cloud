@@ -1,6 +1,7 @@
 import json
 import io
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -662,6 +663,13 @@ class TransferBatchTests(unittest.TestCase):
             environment = popen.call_args.kwargs["env"]
             self.assertEqual(environment["NO_PROXY"], "*")
             self.assertNotIn("HTTP_PROXY", environment)
+            if os.name == "nt":
+                creationflags = popen.call_args.kwargs["creationflags"]
+                self.assertTrue(
+                    creationflags
+                    & getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+                )
+                self.assertIsNotNone(popen.call_args.kwargs["startupinfo"])
             launcher = json.loads(
                 (
                     Path(result["batch_root"])

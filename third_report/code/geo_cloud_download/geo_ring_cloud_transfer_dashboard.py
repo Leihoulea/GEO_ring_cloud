@@ -188,6 +188,27 @@ def utc_now_text() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def background_subprocess_creation_flags() -> int:
+    """Create durable hidden workers outside a restricting Windows job."""
+    if os.name != "nt":
+        return 0
+    return (
+        getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        | getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+    )
+
+
+def hidden_startupinfo():
+    """Prevent Windows background workers from flashing a console window."""
+    if os.name != "nt":
+        return None
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+    return startupinfo
+
+
 def iso_mtime(path: Path) -> str:
     try:
         return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat().replace(
@@ -1921,12 +1942,7 @@ class DashboardState:
             environment["no_proxy"] = "*"
             stdout_path = batch_root / "transfer" / "launcher.stdout.log"
             stderr_path = batch_root / "transfer" / "launcher.stderr.log"
-            creationflags = 0
-            if os.name == "nt":
-                creationflags = (
-                    getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                    | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-                )
+            creationflags = background_subprocess_creation_flags()
             launcher_payload = {
                 "project_id": "geo_ring_cloud",
                 "canonical_stage_id": "",
@@ -1963,6 +1979,7 @@ class DashboardState:
                         stdout=stdout_handle,
                         stderr=stderr_handle,
                         creationflags=creationflags,
+                        startupinfo=hidden_startupinfo(),
                         start_new_session=os.name != "nt",
                     )
             except Exception as exc:
@@ -2109,11 +2126,7 @@ class DashboardState:
                 command.extend(["--platform", str(platform)])
             stdout_path = transfer_dir / "continuous_upload.stdout.log"
             stderr_path = transfer_dir / "continuous_upload.stderr.log"
-            creationflags = 0
-            if os.name == "nt":
-                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
-                    subprocess, "DETACHED_PROCESS", 0
-                )
+            creationflags = background_subprocess_creation_flags()
             try:
                 with stdout_path.open("ab") as stdout_handle, stderr_path.open(
                     "ab"
@@ -2125,6 +2138,7 @@ class DashboardState:
                         stdout=stdout_handle,
                         stderr=stderr_handle,
                         creationflags=creationflags,
+                        startupinfo=hidden_startupinfo(),
                         start_new_session=os.name != "nt",
                     )
             except Exception as exc:
@@ -2219,11 +2233,7 @@ class DashboardState:
             ]
             stdout_path = transfer_dir / "auto_upload.stdout.log"
             stderr_path = transfer_dir / "auto_upload.stderr.log"
-            creationflags = 0
-            if os.name == "nt":
-                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
-                    subprocess, "DETACHED_PROCESS", 0
-                )
+            creationflags = background_subprocess_creation_flags()
             with stdout_path.open("ab") as stdout_handle, stderr_path.open("ab") as stderr_handle:
                 process = subprocess.Popen(
                     command,
@@ -2232,6 +2242,7 @@ class DashboardState:
                     stdout=stdout_handle,
                     stderr=stderr_handle,
                     creationflags=creationflags,
+                    startupinfo=hidden_startupinfo(),
                     start_new_session=os.name != "nt",
                 )
             payload = read_json(status_path)
