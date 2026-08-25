@@ -1534,6 +1534,54 @@ class TransferBatchTests(unittest.TestCase):
         self.assertEqual(status["launcher_status"]["status"], "FAIL")
         self.assertEqual(status["pipeline_stages"][0]["status"], "fail")
 
+    def test_dashboard_startup_recovery_uses_managed_batch_upload(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "batch"
+            (root / "transfer").mkdir(parents=True)
+            dashboard = DashboardState(root)
+            interrupted = {
+                "batch_name": "batch",
+                "upload_status": "STOPPED",
+                "server_status": "RUNNING",
+                "local_payload": {"state": "present"},
+                "transfer_status": "READY_FOR_XFTP_UPLOAD",
+                "download_status": "COMPLETE",
+                "download_process_alive": False,
+            }
+            with patch.object(dashboard, "task_summaries", return_value=[interrupted]), patch.object(
+                dashboard,
+                "start_auto_upload",
+                return_value={"status": "STARTING"},
+            ) as start_upload:
+                result = dashboard.recover_interrupted_uploads()
+            audit = json.loads(dashboard.startup_recovery_path.read_text(encoding="utf-8"))
+        start_upload.assert_called_once_with("batch")
+        self.assertEqual(result["recovered_count"], 1)
+        self.assertEqual(audit["execution_model"], "dashboard_managed_thread")
+        self.assertFalse(audit["automatic_delete"])
+
+    def test_dashboard_startup_recovery_does_not_retry_terminal_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "batch"
+            (root / "transfer").mkdir(parents=True)
+            dashboard = DashboardState(root)
+            failed = {
+                "batch_name": "batch",
+                "upload_status": "FAIL",
+                "server_status": "PENDING",
+                "local_payload": {"state": "present"},
+                "transfer_status": "READY_FOR_XFTP_UPLOAD",
+                "download_status": "COMPLETE",
+                "download_process_alive": False,
+            }
+            with patch.object(dashboard, "task_summaries", return_value=[failed]), patch.object(
+                dashboard, "start_auto_upload"
+            ) as start_upload:
+                result = dashboard.recover_interrupted_uploads()
+        start_upload.assert_not_called()
+        self.assertEqual(result["recovered_count"], 0)
+        self.assertEqual(result["skipped"][0]["reason"], "upload_not_previously_active")
+
     def test_recent_part_keeps_orphaned_child_download_reported_running(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "batch"

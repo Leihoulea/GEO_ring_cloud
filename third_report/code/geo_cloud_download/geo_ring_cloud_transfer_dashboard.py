@@ -1227,6 +1227,11 @@ class DashboardState:
             "recipient": str(notification_setup_recipient or os.environ.get("GEO_RING_NOTIFY_SETUP_RECIPIENT", "")).strip(),
         }
         self._notification_process: Optional[subprocess.Popen] = None
+        self.startup_recovery_path = (
+            self.batch_parent
+            / "_geo_ring_cloud_control"
+            / "dashboard_startup_upload_recovery.json"
+        )
 
     def _known_batch_parents(self) -> List[Path]:
         parents = {self.batch_parent.resolve()}
@@ -1634,6 +1639,90 @@ class DashboardState:
                 tasks.append(self._task_summary(batch_root))
         tasks.sort(key=lambda row: str(row.get("updated_at", "")), reverse=True)
         return tasks[:limit] if limit else tasks
+
+    def recover_interrupted_uploads(self) -> Dict[str, object]:
+        """Resume interrupted upload work inside the durable dashboard host.
+
+        A periodic observer must not own a long-running uploader: child jobs
+        created by one observation turn can be reclaimed when that turn ends.
+        The dashboard is a boot-persistent Scheduled Task, so interrupted work
+        is resumed here as managed threads and keeps the existing transfer
+        manifest/ledger. Terminal failures and never-started batches remain a
+        user decision rather than entering an automatic retry loop.
+        """
+        audit: Dict[str, object] = {
+            "project_id": "geo_ring_cloud",
+            "canonical_stage_id": "",
+            "component_role": COMPONENT_ROLE,
+            "related_stage_ids": RELATED_STAGE_IDS,
+            "started_at": utc_now_text(),
+            "dashboard_pid": os.getpid(),
+            "execution_model": "dashboard_managed_thread",
+            "recovered": [],
+            "skipped": [],
+            "automatic_delete": False,
+        }
+        recoverable_statuses = {"STARTING", "RUNNING", "STALLED", "STOPPED"}
+        for task in self.task_summaries(limit=None):
+            batch_name = str(task.get("batch_name", ""))
+            upload_status = str(task.get("upload_status", "")).upper()
+            server_status = str(task.get("server_status", "")).upper()
+            payload_state = str((task.get("local_payload") or {}).get("state", ""))
+            transfer_ready = str(task.get("transfer_status", "")).upper() == "READY_FOR_XFTP_UPLOAD"
+            download_status = str(task.get("download_status", "")).upper()
+            download_alive = bool(task.get("download_process_alive"))
+            reason = ""
+            mode = ""
+            if server_status == "PASS" or upload_status == "PASS":
+                reason = "already_complete"
+            elif payload_state != "present":
+                reason = "local_payload_not_present"
+            elif upload_status not in recoverable_statuses:
+                reason = "upload_not_previously_active"
+            elif transfer_ready and download_status == "COMPLETE":
+                mode = "batch_upload"
+            elif download_alive or download_status in {"STARTING", "RUNNING"}:
+                mode = "continuous_upload"
+            else:
+                reason = "download_or_manifest_not_ready"
+            if reason:
+                audit["skipped"].append({"batch_name": batch_name, "reason": reason})
+                continue
+            try:
+                if mode == "batch_upload":
+                    result = self.start_auto_upload(batch_name)
+                else:
+                    result = self.start_continuous_upload(batch_name)
+                audit["recovered"].append(
+                    {
+                        "batch_name": batch_name,
+                        "mode": mode,
+                        "status": result.get("status", "RUNNING"),
+                    }
+                )
+            except Exception as exc:
+                audit["skipped"].append(
+                    {
+                        "batch_name": batch_name,
+                        "reason": "recovery_error",
+                        "error": "{}: {}".format(type(exc).__name__, exc),
+                    }
+                )
+        audit["finished_at"] = utc_now_text()
+        audit["recovered_count"] = len(audit["recovered"])
+        audit["skipped_count"] = len(audit["skipped"])
+        write_json_atomic(self.startup_recovery_path, audit)
+        return audit
+
+    def start_startup_upload_recovery(self) -> threading.Thread:
+        """Run startup recovery asynchronously so HTTP binding stays prompt."""
+        worker = threading.Thread(
+            target=self.recover_interrupted_uploads,
+            daemon=True,
+            name="geo-cloud-startup-upload-recovery",
+        )
+        worker.start()
+        return worker
 
     def _active_download_task(self, exclude_batch_name: str = "") -> Optional[Dict[str, object]]:
         for task in self.task_summaries(limit=None):
@@ -3335,6 +3424,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     print("dashboard: binding HTTP server", flush=True)
     server = ThreadingHTTPServer((args.host, args.port), make_handler(state))
     print("http://{}:{}".format(args.host, args.port), flush=True)
+    print("dashboard: recovering interrupted uploads", flush=True)
+    state.start_startup_upload_recovery()
     server.serve_forever()
     return 0
 
