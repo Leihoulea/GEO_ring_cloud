@@ -40,6 +40,7 @@ from geo_ring_cloud.fusion_support import (
     target_grid_from_any,
 )
 from geo_ring_cloud import fusion_support
+from geo_ring_cloud.variable_profiles import active_profile, profile_manifest, requested_variables
 
 
 OUT_DIR = STAGE_ROOT / "fused_best_source"
@@ -458,7 +459,7 @@ def main() -> int:
     parser.add_argument("--exclude-satellite", action="append", default=[])
     parser.add_argument("--exclusion-reason", default="")
     args = parser.parse_args()
-    excluded_satellites = set(args.exclude_satellite)
+    excluded_satellites = set(args.exclude_satellite) | {x.strip() for x in os.environ.get("GEO_RING_EXCLUDED_SATELLITES", "").split(",") if x.strip()}
     if excluded_satellites and not args.exclusion_reason.strip():
         parser.error("--exclusion-reason is required with --exclude-satellite")
     SOURCE_PROFILE = validate_profile(args.source_profile)
@@ -471,6 +472,9 @@ def main() -> int:
         ]
         for variable, rules in variable_rules(SOURCE_PROFILE).items()
     }
+    requested = requested_variables()
+    if requested is not None:
+        VARIABLE_RULES = {variable: rules for variable, rules in VARIABLE_RULES.items() if variable in requested}
     fusion_support.configure_source_set(SOURCE_PROFILE, excluded_satellites)
     ensure_dirs()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -541,6 +545,7 @@ def main() -> int:
         "source_registry_version": REGISTRY_VERSION,
         "excluded_satellites": sorted(excluded_satellites),
         "source_exclusion_reason": args.exclusion_reason,
+        **profile_manifest(set(VARIABLE_RULES)),
     }
     write_bundle(bundle_arrays, bundle_meta)
 
@@ -560,6 +565,8 @@ def main() -> int:
             "neutral_product_weight": 1.0,
             "excluded_satellites": sorted(excluded_satellites),
             "exclusion_reason": args.exclusion_reason,
+            "variable_profile": active_profile(),
+            **profile_manifest(set(VARIABLE_RULES)),
         },
         project_root=path_config.PROJECT_ROOT,
         extra={"registry_version": REGISTRY_VERSION, "product_versions": {"CLAAS3": "405"} if SOURCE_PROFILE == "claas3_candidate" else {}, "status": status},

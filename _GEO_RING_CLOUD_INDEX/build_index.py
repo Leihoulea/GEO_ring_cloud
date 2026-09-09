@@ -461,6 +461,18 @@ MODULE_REGISTRY = (
     },
     {
         "project_id": PROJECT_ID,
+        "canonical_module": "geo_ring_cloud.variable_profiles",
+        "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/variable_profiles.py",
+        "component_role": "variable_profile",
+        "legacy_module": "",
+        "legacy_path": "",
+        "migration_status": "canonical",
+        "public_api": "active_profile, requested_variables, profile_manifest",
+        "test_evidence": "ci_check.py --scientific-tests; profile single-time integration",
+        "notes": "clm_cth_core requires only CLM and CTH and records unavailable extras as optional.",
+    },
+    {
+        "project_id": PROJECT_ID,
         "canonical_module": "geo_ring_cloud.lineage",
         "canonical_path": "third_report/code/geo_ring_cloud_stage1/geo_ring_cloud/lineage.py",
         "component_role": "lineage",

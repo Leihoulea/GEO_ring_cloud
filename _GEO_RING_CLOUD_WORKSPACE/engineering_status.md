@@ -1,23 +1,24 @@
 # GEO-ring Cloud Engineering Status
 
-Generated: `2026-08-25T17:36:41Z`
+Generated: `2026-09-09T11:12:03Z`
 
 ## 当前规模
 
-- 索引脚本：146
-- canonical shared modules：26
+- 索引脚本：148
+- canonical shared modules：27
 - 已登记物理代码迁移：24
 - canonical stages：49
-- SQLite 详细 artifact 记录：3375
-- Markdown 快查 artifact 记录：1934
+- SQLite 详细 artifact 记录：214
+- Markdown 快查 artifact 记录：9
 - data product audits：23
-- time-run 顶层目录：174
-- 已登记历史命名 warning：29
+- time-run 顶层目录：1
+- 已登记历史命名 warning：10
 - 历史绝对路径 warning 文件：0
 - 历史动态阶段加载 warning 文件：0
 
 ## 已建立的工程能力
 
+- `clm_cth_core` 变量配置将 CLM/CTH 作为唯一科学必需变量；单时次运行器在 Stage 05 后接通 Stage 06e，复用经审计的观测几何角层。
 - Git 仓库、远端、`.gitignore`、`.gitattributes` 与本地 pre-commit hook。
 - canonical stage taxonomy、artifact index、data product audit index 和跨项目 collision guard。
 - Python `geo_ring_cloud.paths` 与 PowerShell `geo_ring_cloud_path_configuration.ps1` 共享环境变量契约；统一 lineage manifest helper 与 staged governance check。
