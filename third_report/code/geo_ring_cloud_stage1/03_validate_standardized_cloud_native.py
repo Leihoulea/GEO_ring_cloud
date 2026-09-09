@@ -20,6 +20,7 @@ from geo_ring_cloud.pipeline_layout import (
 )
 from geo_ring_cloud.sources import REGISTRY_VERSION, validate_profile
 from geo_ring_cloud.diagnostics.summary import finite_stats
+from geo_ring_cloud.variable_profiles import active_profile, profile_manifest
 
 
 REQUIRED_BY_GROUP = {
@@ -173,6 +174,7 @@ def validate(
         if group == "CLAAS3-0deg" and source_profile != "claas3_candidate":
             continue
         have = group_available.get(group, set())
+        required = ["cloud_mask", "cloud_top_height_km"] if active_profile() == "clm_cth_core" else required
         missing = [name for name in required if name not in have]
         if missing or semantic_failures.get(group):
             any_fail = True
@@ -196,6 +198,8 @@ def validate(
         "overall_status": overall,
         "group_status": group_status,
         "excluded_satellites": sorted(excluded_satellites),
+        "variable_profile": active_profile(),
+        "profile": profile_manifest(set().union(*group_available.values()) if group_available else set()),
     }
     return pd.DataFrame(rows), pd.DataFrame(stats_rows), summary
 

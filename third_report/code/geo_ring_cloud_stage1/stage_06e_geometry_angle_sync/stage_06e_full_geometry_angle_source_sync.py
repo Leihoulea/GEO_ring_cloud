@@ -40,11 +40,12 @@ REPORT_MD = REPORT_DIR / "06e_full_geometry_angle_source_sync_patch_report.md"
 
 SCRIPT_PATH = Path(__file__).resolve()
 CODE_DIR = CODE_ROOT
-TIME_TAG = "20240305_0000"
-TARGET_TIME = "2024-03-05T00:00:00Z"
+TIME_TAG = os.environ.get("GEO_RING_TIME_TAG", "20240305_0000")
+TARGET_TIME = os.environ.get("GEO_RING_TARGET_TIME", "2024-03-05T00:00:00Z")
 TARGET_TS = pd.Timestamp(TARGET_TIME)
 TARGET_SHAPE = (3600, 7200)
-TIE_ORDER = tie_order(validate_profile(os.environ.get("GEO_RING_SOURCE_PROFILE", "operational_baseline")))
+EXCLUDED_SATELLITES = {x.strip() for x in os.environ.get("GEO_RING_EXCLUDED_SATELLITES", "").split(",") if x.strip()}
+TIE_ORDER = [x for x in tie_order(validate_profile(os.environ.get("GEO_RING_SOURCE_PROFILE", "operational_baseline"))) if x not in EXCLUDED_SATELLITES]
 SAT_SUBPOINT = {source: SOURCE_BY_KEY[source].service_longitude_deg for source in TIE_ORDER}
 ANGLE_NAMES = [
     "sensor_zenith_angle",
@@ -272,8 +273,12 @@ def reproject_fy4b_official_angles(target_lon: np.ndarray, target_lat: np.ndarra
     tree, src_y, src_x, tree_notes = F05.build_tree(lon, lat, source_valid)
     rows: list[dict[str, Any]] = []
     layers: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-    for angle in ["sensor_zenith_angle", "sensor_azimuth_angle", "solar_zenith_angle", "solar_azimuth_angle", "sun_glint_angle"]:
+    # FY4B GEO also carries scalar geometry metadata (for example a sun-glint
+    # summary).  Stage 06e consumes only pixel-resolved angle fields.
+    for angle in ["sensor_zenith_angle", "sensor_azimuth_angle", "solar_zenith_angle", "solar_azimuth_angle"]:
         arr = np.asarray(bundle["arrays"][angle], dtype=np.float32)
+        if arr.shape != ref_shape:
+            raise RuntimeError(f"FY4B {angle} shape {arr.shape} does not match navigation grid {ref_shape}")
         data, valid = F05.query_reproject(tree, src_y, src_x, arr, target_lon, target_lat, np.dtype(np.float32), np.nan)
         if angle.endswith("azimuth_angle"):
             finite = np.isfinite(data)
@@ -583,12 +588,17 @@ def write_report(prov: pd.DataFrame, change: pd.DataFrame, official_diff: pd.Dat
 
 
 def main() -> int:
+    import argparse
+    parser = argparse.ArgumentParser(description="Synchronize audited geometry-angle layers for one prepared time run")
+    parser.add_argument("--skip-standardize", action="store_true", help="Reuse the main runner's completed Stage 02 outputs")
+    args = parser.parse_args()
     ensure_output_dirs()
     shutil.copy2(SCRIPT_PATH, SCRIPT_DIR / SCRIPT_PATH.name)
     write_policy()
 
     backup = backup_current_fusion()
-    run_stage("02_build_standardized_cloud_native.py")
+    if not args.skip_standardize:
+        run_stage("02_build_standardized_cloud_native.py")
 
     target_lon, target_lat, grid = target_grid()
     all_rows: list[dict[str, Any]] = []
@@ -602,7 +612,7 @@ def main() -> int:
     all_rows.extend(rows)
     layers_by_sat["Himawari-9"] = layers
 
-    for sat in ["GOES-16", "GOES-18", "Meteosat-0deg", "Meteosat-IODC"]:
+    for sat in [x for x in ["GOES-16", "GOES-18", "Meteosat-0deg", "Meteosat-IODC"] if x in TIE_ORDER]:
         rows, layers = add_nav_computed_satellite(sat, target_lon, target_lat, grid)
         all_rows.extend(rows)
         layers_by_sat[sat] = layers

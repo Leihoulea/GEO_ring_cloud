@@ -33,6 +33,7 @@ from geo_ring_cloud.pipeline_layout import (
 )
 from geo_ring_cloud.quicklooks import make_quicklook
 from geo_ring_cloud.sources import REGISTRY_VERSION, validate_profile
+from geo_ring_cloud.variable_profiles import active_profile, requested_variables
 
 
 BASE_STAGE_ROOT = Path(os.environ.get("GEO_RING_BASE_STAGE_ROOT", str(path_config.BASE_STAGE_ROOT)))
@@ -147,6 +148,10 @@ def build_one_product(
 ) -> tuple[dict[str, object], list[dict[str, object]]]:
     result = read_product(file_path, family, product, mapping)
     arrays = dict(result.arrays)
+    requested = requested_variables()
+    if requested is not None:
+        navigation_or_qc = {"latitude", "longitude", "projection_x", "projection_y", "valid_mask", "quality_flag_raw", "quality_flag_standard", "sensor_zenith_angle", "sensor_azimuth_angle", "solar_zenith_angle", "solar_azimuth_angle"}
+        arrays = {name: value for name, value in arrays.items() if name in requested or name in navigation_or_qc or name.startswith(("physical_valid_mask_", "fusion_valid_mask_", "diagnostic_valid_mask_"))}
     if satellite_group == "FY4B" and product != "GEO":
         for key, value in fy4b_geo_arrays.items():
             if key not in arrays:
@@ -168,6 +173,7 @@ def build_one_product(
             "Native-grid product; no reprojection or cross-resolution merge performed.",
             "Missing variables are represented by scalar NaN and has_xxx=False.",
         ],
+        "variable_profile": active_profile(),
     }
     out_name = f"{safe_name(satellite_group)}_{safe_name(product)}_{nominal_time[0:10].replace('-', '')}_{nominal_time[11:13]}00_native_cloud_v0.npz"
     out_path = NATIVE_DIR / out_name
@@ -227,12 +233,17 @@ def build_one_claas3_product(
 ) -> tuple[dict[str, object], list[dict[str, object]]]:
     result = read_claas3_product(file_path)
     arrays = dict(result.arrays)
+    requested = requested_variables()
+    if requested is not None:
+        navigation_or_qc = {"latitude", "longitude", "projection_x", "projection_y", "valid_mask", "quality_flag_raw", "quality_flag_standard"}
+        arrays = {name: value for name, value in arrays.items() if name in requested or name in navigation_or_qc or name.startswith(("physical_valid_mask_", "fusion_valid_mask_", "diagnostic_valid_mask_"))}
     availability = add_missing_standard_vars(arrays)
     metadata = {
         **result.metadata,
         "generated_utc": utc_now(),
         "run_id": run_id,
         "source_profile": source_profile,
+        "variable_profile": active_profile(),
         "notes": [
             "Native CLAAS-3 grid; no reprojection or cross-resolution merge performed.",
             "NetCDF auto scaling was disabled and scale_factor/add_offset were applied exactly once by the CLAAS-3 adapter.",

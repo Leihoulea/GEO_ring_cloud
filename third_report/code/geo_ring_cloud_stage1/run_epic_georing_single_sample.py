@@ -134,7 +134,7 @@ def run_pipeline(args: argparse.Namespace) -> tuple[str, Path]:
         ("03_validate_standardized_cloud_native", py_prefix + [str(SCRIPT_DIR / "03_validate_standardized_cloud_native.py"), "--source-profile", args.source_profile, "--run-id", args.run_id], False),
         ("03_5_semantic_validation_patch", py_prefix + [str(SCRIPT_DIR / "03_5_semantic_validation_patch.py"), "--source-profile", args.source_profile, "--run-id", args.run_id], False),
         ("05_reproject_cloud_to_grid", py_prefix + [str(SCRIPT_DIR / "05_reproject_cloud_to_grid.py"), "--source-profile", args.source_profile, "--claas3-root", args.claas3_root, "--run-id", args.run_id], False),
-        ("06_fuse_best_source", py_prefix + [str(SCRIPT_DIR / "06_fuse_best_source.py"), "--source-profile", args.source_profile, "--claas3-root", args.claas3_root, "--run-id", args.run_id], False),
+        ("06e_geometry_angle_sync", py_prefix + ["-m", "stage_06e_geometry_angle_sync.stage_06e_full_geometry_angle_source_sync", "--skip-standardize"], False),
         (
             "08c_epic_cloud_mask_semantic_sensitivity",
             py_prefix
@@ -157,7 +157,7 @@ def run_pipeline(args: argparse.Namespace) -> tuple[str, Path]:
         exclusion_args.extend(["--exclude-satellite", satellite])
     if exclusion_args:
         exclusion_args.extend(["--exclusion-reason", args.exclusion_reason])
-        for index in (0, 1, 2, 3, 4):
+        for index in (0, 1, 2, 3):
             steps[index][1].extend(exclusion_args)
     if args.reuse_operational_root:
         if args.source_profile != "claas3_candidate":

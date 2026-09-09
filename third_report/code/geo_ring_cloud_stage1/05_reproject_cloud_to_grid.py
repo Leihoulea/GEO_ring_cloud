@@ -35,6 +35,7 @@ from geo_ring_cloud.reprojection import (
     query_reproject,
     valid_for_variable,
 )
+from geo_ring_cloud.variable_profiles import active_profile, requested_variables
 
 
 NATIVE_DIR = STAGE_ROOT / "standardized_native"
@@ -242,6 +243,12 @@ def quicklook_coverage(sat: str, coverage: np.ndarray) -> None:
 def candidate_variables(bundle: dict[str, Any], product: str) -> list[str]:
     sat = str(bundle["meta"].get("satellite_group", ""))
     allowed = ["cloud_mask"] if ONLY_CLOUD_MASK else VARIABLE_PRIORITY[:]
+    requested = requested_variables()
+    if requested is not None:
+        # CLM/CTH are the only science fields in this profile.  The VZA layer
+        # remains an indispensable navigation input to Stage 06 rating; it is
+        # not a third science product and must not fall back to an approximation.
+        allowed = [*requested, "sensor_zenith_angle"]
     if sat.startswith("Meteosat"):
         allowed = ["cloud_mask"] if ONLY_CLOUD_MASK else ["cloud_mask", "cloud_top_height_km", "valid_mask", "quality_flag_raw", "quality_flag_standard"]
     out = []
