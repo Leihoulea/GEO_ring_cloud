@@ -273,8 +273,12 @@ def reproject_fy4b_official_angles(target_lon: np.ndarray, target_lat: np.ndarra
     tree, src_y, src_x, tree_notes = F05.build_tree(lon, lat, source_valid)
     rows: list[dict[str, Any]] = []
     layers: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-    for angle in ["sensor_zenith_angle", "sensor_azimuth_angle", "solar_zenith_angle", "solar_azimuth_angle", "sun_glint_angle"]:
+    # FY4B GEO also carries scalar geometry metadata (for example a sun-glint
+    # summary).  Stage 06e consumes only pixel-resolved angle fields.
+    for angle in ["sensor_zenith_angle", "sensor_azimuth_angle", "solar_zenith_angle", "solar_azimuth_angle"]:
         arr = np.asarray(bundle["arrays"][angle], dtype=np.float32)
+        if arr.shape != ref_shape:
+            raise RuntimeError(f"FY4B {angle} shape {arr.shape} does not match navigation grid {ref_shape}")
         data, valid = F05.query_reproject(tree, src_y, src_x, arr, target_lon, target_lat, np.dtype(np.float32), np.nan)
         if angle.endswith("azimuth_angle"):
             finite = np.isfinite(data)

@@ -18,7 +18,7 @@ Generated: `2026-09-09T11:12:03Z`
 
 ## 已建立的工程能力
 
-- `clm_cth_core` 变量配置将 CLM/CTH 作为唯一科学必需变量；单时次运行器在 Stage 05 后接通 Stage 06e，复用经审计的观测几何角层。
+- `clm_cth_core` 变量配置将 CLM/CTH 作为唯一科学必需变量；单时次运行器在 Stage 05 后接通 Stage 06e，复用经审计的观测几何角层，并忽略 FY4B 非像元标量几何元数据。
 - Git 仓库、远端、`.gitignore`、`.gitattributes` 与本地 pre-commit hook。
 - canonical stage taxonomy、artifact index、data product audit index 和跨项目 collision guard。
 - Python `geo_ring_cloud.paths` 与 PowerShell `geo_ring_cloud_path_configuration.ps1` 共享环境变量契约；统一 lineage manifest helper 与 staged governance check。
