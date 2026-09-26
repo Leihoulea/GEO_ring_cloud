@@ -9,6 +9,10 @@
 /_NON_GEO_ARCHIVE/
 /_PROJECT_INDEX/
 
+# Local linked Git worktrees (each has its own branch and status)
+/_worktrees/
+/w_s10x/
+
 # Generated indexes and local databases
 /_GEO_RING_CLOUD_INDEX/*.sqlite
 /_GEO_RING_CLOUD_INDEX/*.db
