@@ -1,0 +1,22 @@
+target_type: cloud_mask
+patch_size: 64
+minimum_valid_earth_fraction: 0.70
+optimizer: AdamW
+learning_rate: 0.001
+weight_decay: 0.0001
+batch_size: 16
+max_epochs: 50
+early_stopping_patience: 8
+early_stopping_min_delta: 0.000001
+lambda_closure: 0.5
+cpu_num_threads: 8
+scene_cache_scenes: 2
+progress_every_batches: 50
+validation_tile_size: 256
+validation_halo_pixels: 6
+seeds: [42, 43, 44]
+models:
+  cnn_c: [C, Z]
+  cnn_g: [G, Z]
+  cnn_cg: [C, G, Z]
+  cnn_cg_closure: [C, G, Z]

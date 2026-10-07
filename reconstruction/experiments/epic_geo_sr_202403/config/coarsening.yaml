@@ -1,0 +1,6 @@
+target_resolution_km: 50.0
+minimum_valid_fraction: 0.70
+operator: metric_orthographic_cell_mean
+native_resolution_estimator: median_haversine_neighbor_distance_km
+upsampling: nearest_coarse_cell
+validation_scene_count: 6
