@@ -1,0 +1,31 @@
+dataset_version: sr_proto_202403_v03_corrected77
+required_meteosat_navigation:
+  Meteosat-0deg: meteosat_0deg_clm_v2
+  Meteosat-IODC: meteosat_iodc_clm_satpy_v1
+source_manifest_expected_count: 80
+expected_scene_count: 77
+expected_unique_geo_count: 76
+expected_excluded_comparison_ids:
+  - 20240320_2200__epic_20240320215421
+  - 20240325_1700__epic_20240325170736
+  - 20240330_1700__epic_20240330165816
+target_type: cloud_mask
+epic_root_env: GEO_RING_EXTERNAL_EPIC_L2_ROOT
+geo_runs_root_env: GEO_RING_CORRECTED_RUNS_ROOT
+scene_manifest: inputs/scene_manifest.csv
+epic_cloud_mask_path: geophysical_data/Cloud_Mask
+epic_latitude_path: geolocation_data/latitude
+epic_longitude_path: geolocation_data/longitude
+epic_vza_path: geolocation_data/sensor_zenith
+epic_sza_path: geolocation_data/solar_zenith
+epic_surface_type_path: geolocation_data/surface_type
+cloud_translation:
+  clear_codes: [1, 2]
+  cloudy_codes: [3, 4]
+max_geo_time_difference_minutes: 30
+splits:
+  train: ['2024-03-05', '2024-03-18']
+  buffer_1: ['2024-03-19', '2024-03-19']
+  validation: ['2024-03-20', '2024-03-23']
+  buffer_2: ['2024-03-24', '2024-03-25']
+  test: ['2024-03-26', '2024-03-31']

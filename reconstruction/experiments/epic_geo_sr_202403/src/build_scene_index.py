@@ -29,7 +29,7 @@ def main() -> None:
         "# 02 数据集冻结", "", f"生成时间：`{utc_now()}`", "",
         f"- `dataset_version`: `{cfg['dataset_version']}`", "- 目标：EPIC native Cloud Mask / probability。",
         "- EPIC 产品：DSCOVR EPIC L2 CLOUD_03，历史 Stage 09D 文件名重绑定至当前配置的数据根。",
-        "- GEO 产品：从原始 GEO 数据重新处理并通过 Meteosat 导航版本校验的 `fused_best_source`。",
+        "- GEO 产品：只读引用已有且通过 Meteosat 导航版本校验的 `fused_best_source`。" if cfg.get("geo_runs_root_env") else "- GEO 产品：从原始 GEO 数据重新处理并通过 Meteosat 导航版本校验的 `fused_best_source`。",
         f"- GEO 时间容差记录：最大 {cfg['max_geo_time_difference_minutes']} min；实际每场景差值位于冻结索引。",
         "- Cloud Mask 翻译：1,2→clear(0)；3,4→cloud(1)；其余→invalid。", "- 导航：读取 EPIC 原生 latitude/longitude 与 zenith angle；GEO 使用已有 0.05° 栅格采样。", "",
         "## Whole-day split", "", *[f"- `{key}`: {value} scenes" for key, value in counts.items()],

@@ -50,11 +50,11 @@ def main() -> None:
     report = REPORTS / "01_input_data_audit.md"
     report.write_text("\n".join([
         "# 01 输入数据审计", "", f"生成时间：`{utc_now()}`", "",
-        "## 结论", "", f"- 已重建并校验导航版本的配对场景：**{len(audit_rows)}** 个，覆盖 {dates[0]} 至 {dates[-1]}。",
+        "## 结论", "", f"- 已校验导航版本的配对场景：**{len(audit_rows)}** 个，覆盖 {dates[0]} 至 {dates[-1]}。",
         f"- EPIC 原始路径由历史 `F:` 清单按文件名重绑定至配置的 `GEO_RING_EXTERNAL_EPIC_L2_ROOT`；成功重绑定 {sum(bool(r['epic_path_rebound']) for r in audit_rows)} 个场景。",
         "- EPIC `Cloud_Mask` 语义来自文件属性：1–2 为 clear、3–4 为 cloud；0 是 non-Earth，未被作为训练标签。",
-        "- GEO 特征来自本次从原始产品重建的 `fused_best_source`；每个场景均检查 Meteosat 导航版本。",
-        "", "## 限制与门禁", "", "- 当前为有目的的 53 场景样本，而不是每个 EPIC 时次的全量配对；所有结论只适用于这个冻结样本集。",
+        "- GEO 特征来自已完成且只读引用的 `fused_best_source`；每个场景均检查 Meteosat 导航版本。" if cfg.get("geo_runs_root_env") else "- GEO 特征来自本次从原始产品重建的 `fused_best_source`；每个场景均检查 Meteosat 导航版本。",
+        "", "## 限制与门禁", "", f"- 当前为 {len(audit_rows)} 次冻结 EPIC 配对，而不是每个 EPIC 时次的全量配对；所有结论只适用于此样本集。",
         "- `geo_vza` 尚未在既有融合产物中找到，第一版将把它记录为缺失而非伪造数值。",
         "- 完成 `04_coarsening_validation.md` 的图形检查前禁止训练。",
         "", "## 原始 Cloud_Mask 类别计数", "", *[f"- `{k}`: {v}" for k, v in sorted(codes.items())],

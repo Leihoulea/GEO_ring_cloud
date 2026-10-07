@@ -1,5 +1,10 @@
 # Handoff — EPIC–GEO 2024-03 navigation-fixed prototype
 
+> This document describes the earlier v02 raw-rebuild path. The selected
+> current experiment uses existing corrected runs; start with
+> [HANDOFF_CORRECTED77.md](HANDOFF_CORRECTED77.md). Do not launch the v02
+> full-rebuild command for the current 77-comparison experiment.
+
 ## Purpose and logic
 
 The frozen set has 53 matched EPIC/GEO scenes from 5–31 March 2024. EPIC

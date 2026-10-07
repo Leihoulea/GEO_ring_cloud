@@ -28,7 +28,10 @@ EARTH_RADIUS_KM = 6371.0088
 
 
 def load_config(name: str) -> dict[str, Any]:
-    with (CONFIG / name).open(encoding="utf-8") as f:
+    config_name = os.environ.get("EPIC_GEO_SR_DATA_CONFIG", name) if name == "data.yaml" else name
+    if Path(config_name).name != config_name:
+        raise RuntimeError(f"Config must be a filename inside the tracked config directory: {config_name}")
+    with (CONFIG / config_name).open(encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -112,7 +115,7 @@ def env_path(name: str) -> Path:
 def configured_inputs() -> tuple[dict[str, Any], Path, Path, Path]:
     cfg = load_config("data.yaml")
     epic_root = env_path(cfg["epic_root_env"])
-    geo_pairings_root = ROOT / cfg["geo_pairings_root"]
+    geo_pairings_root = env_path(cfg["geo_runs_root_env"]) if cfg.get("geo_runs_root_env") else ROOT / cfg["geo_pairings_root"]
     manifest = ROOT / cfg["scene_manifest"]
     if not manifest.exists():
         raise RuntimeError(f"Local scene manifest is unavailable: {manifest}")
@@ -139,13 +142,14 @@ def resolve_scene_rows() -> list[dict[str, Any]]:
     for row in raw_rows:
         filename = Path(row["epic_file"]).name
         epic_path = epic_root / filename
-        run_dir = geo_pairings_root / row["sample_id"]
+        geo_sample_id = row.get("geo_sample_id") or row["sample_id"]
+        run_dir = geo_pairings_root / geo_sample_id
         required = run_dir / "fused_best_source" / "fused_cloud_mask.npz"
         if not epic_path.is_file():
             raise RuntimeError(f"Missing frozen EPIC scene: {epic_path}")
         if not required.is_file():
             raise RuntimeError(f"Missing fresh GEO pairing for {row['sample_id']}: {required}")
-        provenance = validate_pairing(run_dir, row["sample_id"], cfg["required_meteosat_navigation"])
+        provenance = validate_pairing(run_dir, geo_sample_id, cfg["required_meteosat_navigation"])
         dt = parse_time(row["epic_time_utc"])
         row = dict(row)
         row.update({
@@ -153,6 +157,7 @@ def resolve_scene_rows() -> list[dict[str, Any]]:
             "epic_clm_file": str(epic_path),
             "epic_path_rebound": str(Path(row["epic_file"])) != str(epic_path),
             "stage_run_dir": str(run_dir),
+            "geo_sample_id": geo_sample_id,
             "dataset_version": cfg["dataset_version"],
             "navigation_provenance_json": json.dumps(provenance, ensure_ascii=False, sort_keys=True),
         })
